@@ -1,0 +1,9 @@
+export const PUBLIC_FILTER_FEED = "https://rasterraid-filters.swirlingpier4.chatgpt.site/filter-options.json";
+export const NATIVE_MODELS_INDEX = 'models_v9';
+export const NATIVE_COLLECTIONS_INDEX = 'collections_v3';
+export const NATIVE_BOUNTIES_INDEX = 'bounties_v3';
+export const NATIVE_ARTICLES_INDEX = 'articles_v5';
+export const NATIVE_USERS_INDEX = 'users_v3';
+export const NATIVE_TOOLS_INDEX = 'tools_v2';
+export const NATIVE_COMICS_INDEX = 'comics_v1';
+export const CIVITAI_IMAGE_DELIVERY = 'https://image.civitai.com/xG1nkqKTMzGDvpLrqFT7WA/';

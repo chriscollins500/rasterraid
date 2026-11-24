@@ -1,0 +1,7 @@
+.env
+.env.*
+.tmp/
+node_modules/
+dist/
+/evidence/
+/release/

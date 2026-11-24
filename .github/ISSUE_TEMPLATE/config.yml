@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: RasterRaid guide and troubleshooting
+    url: https://chriscollins500.github.io/rasterraid/support/
+    about: Read the quickstart and get help with common preview questions.
+  - name: Private vulnerability report
+    url: https://github.com/chriscollins500/rasterraid/security/advisories/new
+    about: Report security issues privately through GitHub.

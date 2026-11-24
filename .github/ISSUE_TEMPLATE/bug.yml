@@ -1,0 +1,19 @@
+name: Report a bug
+description: Report a reproducible search, preview, report or documentation problem.
+labels: [bug]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: What happened?
+      description: Describe the steps, the result and what you expected. A public Civitai example helps.
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: App version, Civitai domain and browser
+      placeholder: 0.0.4, civitai.com, Chrome
+  - type: markdown
+    attributes:
+      value: Leave private searches, account information, access tokens and Buzz balances out of this public issue.

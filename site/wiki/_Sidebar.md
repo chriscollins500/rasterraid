@@ -1,0 +1,6 @@
+- [Home](Home)
+- [Getting started](Getting-Started)
+- [Search coverage](Search-Coverage)
+- [Deep Search and Buzz](Deep-Search-and-Buzz)
+- [Workspace and privacy](Workspace-and-Privacy)
+- [Development and support](Development-and-Support)

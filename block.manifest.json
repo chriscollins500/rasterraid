@@ -1,0 +1,21 @@
+{
+  "$schema": "https://civitai.com/schemas/app-block/v1.json",
+  "blockId": "rasterraid",
+  "version": "0.0.4",
+  "name": "RasterRaid",
+  "tagline": "Search Civitai and see how results connect.",
+  "description": "Search Civitai models, media, guides, and other public listings. Build reports with exact source links, save your picks, and see live Deep Search prices.",
+  "category": "utility",
+  "contentRating": "pg13",
+  "scopes": ["ai:write:budgeted", "collections:read:self", "collections:read:private", "apps:storage"],
+  "storage": { "collections": { "prefs": { "visibility": "private" } } },
+  "scopeJustifications": {
+    "collections:read:private": "Search your own private and unlisted collections and preview eligible collection media after you choose to share them. RasterRaid keeps these results in the current tab.",
+    "ai:write:budgeted": "Price Deep Search with its app author fee, run it with Buzz after you confirm an estimate, and reopen your RasterRaid results. Quotes and history use 0 Buzz."
+  },
+  "buildCommand": "npm run build",
+  "outputDir": "dist",
+  "renderMode": "iframe",
+  "iframe": { "sandbox": "allow-scripts", "minHeight": 540, "maxHeight": null, "resizable": true },
+  "page": { "path": "/", "title": "RasterRaid", "buzzBudgetPerGen": 30 }
+}

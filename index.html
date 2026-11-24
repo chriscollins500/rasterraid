@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>RasterRaid</title>
+  <link rel="stylesheet" href="./app.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#query">Skip to search</a>
+  <main class="shell">
+    <header class="masthead">
+      <a class="brand" href="#explore" aria-label="RasterRaid search">
+        <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Raster<span class="brand-accent">Raid</span></span>
+      </a>
+      <div class="masthead-actions">
+        <span class="host-label" id="host" role="status">Connecting to Civitai</span>
+        <button class="chip" id="open-workspace" type="button" aria-haspopup="dialog" disabled>Workspace</button>
+      </div>
+    </header>
+
+    <section class="hero" id="explore" aria-labelledby="search-title">
+      <div class="hero-content">
+        <div class="hero-intro">
+          <h1 id="search-title">Find it on <span>Civitai.</span></h1>
+          <p>Describe what you want, add a picture, or paste a Civitai link.</p>
+        </div>
+        <form id="search-form" role="search" aria-label="Civitai catalog">
+          <select name="scope" hidden aria-label="Search area">
+            <option value="all">Quick search</option>
+            <option value="report">Research report</option>
+            <option value="models">Models</option>
+            <option value="gallery">Gallery images</option>
+            <option value="videos">Videos</option>
+            <option value="audio">Audio &amp; music</option>
+            <option value="assets3d">3D assets</option>
+            <option value="posts">Posts</option>
+            <option value="storylines">Storylines</option>
+            <option value="bounties">Bounties</option>
+            <option value="challenges">Challenges</option>
+            <option value="crucibles">Crucibles</option>
+            <option value="leaderboards">Leaderboards</option>
+            <option value="services">Creator Services</option>
+            <option value="marketplace">Buzz Marketplace</option>
+            <option value="auctions">Auctions</option>
+            <option value="prizes">Prizes</option>
+            <option value="users">Users</option>
+            <option value="pictures">Images linked to models</option>
+            <option value="collections">Collections</option>
+            <option value="articles">Articles</option>
+            <option value="creators">Creators</option>
+            <option value="tags">Tags</option>
+            <option value="tools">Tools</option>
+            <option value="aiServices">AI services</option>
+            <option value="comics">Comics</option>
+            <option value="hubs">Hubs</option>
+            <option value="topics">Topics</option>
+            <option value="communities">Communities</option>
+            <option value="reviews">Reviews</option>
+            <option value="comments">Comments</option>
+            <option value="vault">Vault</option>
+            <option value="saved">Saved &amp; followed</option>
+            <option value="ownedModels">My published models</option>
+            <option value="downloads">Downloads</option>
+            <option value="creations">Creation history</option>
+            <option value="notifications">Notifications</option>
+            <option value="messages">Messages</option>
+            <option value="apps">App Store</option>
+          </select>
+          <label class="sr-only" id="query-label" for="query">Describe what you want or paste a Civitai link</label>
+          <div class="assist-anchor">
+            <div class="query-field">
+              <span class="search-icon" aria-hidden="true"></span>
+              <div class="query-input-wrap">
+                <input id="query" name="query" type="search" placeholder="Search or paste a link" maxlength="4096" autocomplete="off" spellcheck="true">
+              </div>
+              <button class="chip query-picture" id="add-search-picture" type="button" disabled aria-label="Add a picture" title="Add a picture, or paste or drop it here"><span class="picture-glyph" aria-hidden="true"></span><span class="picture-button-text">Add a picture</span></button>
+              <button class="primary" id="search-button" type="submit" disabled><span id="search-label">Search free</span><span aria-hidden="true">↵</span></button>
+            </div>
+            <input id="search-picture-files" type="file" accept="image/avif,image/bmp,image/gif,image/jpeg,image/png,image/webp" multiple hidden>
+          </div>
+          <div class="search-tools">
+            <div class="query-route">
+              <span id="search-action-announcement" role="status" aria-atomic="true"></span>
+              <button class="text-button" id="search-as-typed" type="button" hidden>Search as typed</button>
+              <button class="chip search-suggestion" id="search-suggestion" type="button" hidden>
+                <span id="search-suggestion-label"></span><span id="search-suggestion-query"></span><span aria-hidden="true">→</span>
+              </button>
+            </div>
+            <div class="search-controls">
+              <div class="search-area-controls">
+                <button class="chip search-area-trigger" id="open-search-areas" type="button" aria-haspopup="dialog">
+                  <span class="scope-glyph" aria-hidden="true"></span>
+                  <span id="current-search-area">Search areas</span><span class="scope-chevron" aria-hidden="true"></span>
+                </button>
+                <button class="chip" id="reset-search-area" type="button" aria-label="Return to Quick search" title="Return to Quick search" hidden>
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+            <details id="search-filters" class="filters">
+              <summary><span class="filter-glyph" aria-hidden="true"></span>Filter &amp; sort <span id="filter-count" hidden></span></summary>
+              <div class="filter-board">
+                <label class="catalog-order" id="catalog-order" hidden>
+                  <span>Sort by</span>
+                  <select name="catalogSort" disabled><option value="">Recommended</option></select>
+                </label>
+                <div class="filter-grid">
+                <label id="media-sort" hidden><span id="media-sort-caption">Sort gallery by</span>
+                  <select name="mediaSort" disabled>
+                    <option value="">Recommended</option>
+                    <option value="Most Reactions">Most reactions</option>
+                    <option value="Newest">Newest</option>
+                    <option value="Oldest">Oldest</option>
+                    <option value="Most Comments">Most comments</option>
+                    <option value="Most Collected">Most collected</option>
+                  </select>
+                </label>
+                <div class="facet-field" data-model-filter>
+                  <label for="category" id="category-label">Category or tag</label>
+                  <div class="assist-anchor"><input id="category" name="category" placeholder="Any category or tag" maxlength="100" autocomplete="off" spellcheck="true"></div>
+                </div>
+                <div class="facet-field" data-model-filter>
+                  <label for="base-model" id="base-model-label">Base models</label>
+                  <div class="assist-anchor"><input id="base-model" name="baseModel" placeholder="Add a base model" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="base-model-help"></div>
+                  <small id="base-model-help">Matches any base model you add.</small>
+                  <div class="active-filters" id="base-model-picks" role="group" aria-label="Selected base models" hidden></div>
+                </div>
+                <div class="facet-field" data-model-filter>
+                  <label for="resource-type" id="resource-type-label">Model types</label>
+                  <div class="assist-anchor"><input id="resource-type" name="resourceType" placeholder="Add a model type" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="model-type-help"></div>
+                  <small id="model-type-help">Matches any type you add.</small>
+                  <div class="active-filters" id="resource-type-picks" role="group" aria-label="Selected model types" hidden></div>
+                </div>
+                <div class="facet-field" data-model-filter>
+                  <label for="model-author" id="model-author-label">Creator</label>
+                  <div class="assist-anchor"><input id="model-author" name="modelAuthor" placeholder="Civitai username" maxlength="81" pattern="@?[\p{L}\p{N}_\-]{1,80}" spellcheck="false" autocomplete="off"></div>
+                </div>
+                </div>
+                <div class="filter-grid" id="visual-gallery-filters" hidden>
+                  <input type="hidden" name="mediaTags" disabled>
+                  <input type="hidden" name="mediaModelId" disabled>
+                  <input type="hidden" name="mediaModelVersionId" disabled>
+                  <input type="hidden" name="mediaPostId" disabled>
+                  <div class="facet-field">
+                    <label for="media-base-model" id="media-base-model-label">Base models</label>
+                    <div class="assist-anchor"><input id="media-base-model" placeholder="Find a base model" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="media-base-help" disabled></div>
+                    <input type="hidden" name="mediaBaseModels" disabled>
+                    <small id="media-base-help">Choose any number of families. A result can match any one.</small>
+                  </div>
+                  <div class="facet-field">
+                    <label for="media-creator" id="media-creator-label">Uploaded by</label>
+                    <div class="assist-anchor"><input id="media-creator" name="mediaCreator" placeholder="Find a Civitai username" maxlength="81" autocomplete="off" spellcheck="false" disabled></div>
+                  </div>
+                  <label>Date posted
+                    <select name="mediaPeriod" disabled>
+                      <option value="">Any time</option>
+                      <option value="Day">Past day</option>
+                      <option value="Week">Past week</option>
+                      <option value="Month">Past month</option>
+                      <option value="Year">Past year</option>
+                    </select>
+                  </label>
+                  <label class="filter-toggle"><input type="checkbox" name="mediaPublishedPrompt" value="true" disabled> Has a published prompt</label>
+                </div>
+                <div class="filter-grid" id="bounty-filters" hidden>
+                  <label>Bounty type
+                    <select name="bountyType" disabled><option value="">Any type</option></select>
+                  </label>
+                  <label>Base model
+                    <select name="bountyBase" disabled><option value="">Any base model</option></select>
+                  </label>
+                  <label>Status
+                    <select name="bountyStatus" disabled><option value="">All bounties</option><option value="open">Open now</option></select>
+                  </label>
+                  <label>Sort bounties by
+                    <select name="bountySort" disabled>
+                      <option value="">Recommended</option><option value="newest">Newest</option>
+                      <option value="buzz">Most Buzz</option><option value="entries">Most entries</option><option value="favorites">Most favorites</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="filter-grid" data-directory-filters="articles" hidden>
+                  <div class="facet-field">
+                    <label for="article-author" id="article-author-label">Author</label>
+                    <div class="assist-anchor"><input id="article-author" name="articleAuthor" placeholder="Civitai username" maxlength="81" pattern="@?[\p{L}\p{N}_\-]{1,80}" spellcheck="false" autocomplete="off" disabled></div>
+                  </div>
+                  <label>Article tag
+                    <select name="articleTag" disabled><option value="">Any tag</option></select>
+                  </label>
+                  <label class="filter-toggle"><input type="checkbox" name="articleOfficial" value="true" disabled> Official Civitai articles</label>
+                </div>
+                <div class="filter-grid" data-directory-filters="tools" hidden>
+                  <label>Tool type
+                    <select name="toolType" disabled><option value="">Any type</option></select>
+                  </label>
+                  <label>Company
+                    <select name="toolCompany" disabled><option value="">Any company</option></select>
+                  </label>
+                </div>
+                <div class="filter-grid" data-directory-filters="aiServices" hidden>
+                  <label>Service category
+                    <select name="serviceCategory" disabled><option value="">Any category</option></select>
+                  </label>
+                  <label>Accepts
+                    <select name="serviceInput" disabled><option value="">Any input type</option></select>
+                  </label>
+                  <label>Returns
+                    <select name="serviceOutput" disabled><option value="">Any output type</option></select>
+                  </label>
+                  <label>Availability
+                    <select name="serviceState" disabled><option value="">Any status</option></select>
+                  </label>
+                  <label>Service tag
+                    <select name="serviceTag" disabled><option value="">Any tag</option></select>
+                  </label>
+                  <label>Metrics window
+                    <select name="serviceWindow" disabled>
+                      <option value="">Past 24 hours</option><option value="1h">Past hour</option><option value="7d">Past 7 days</option>
+                    </select>
+                  </label>
+                  <label>Search mode
+                    <select name="serviceMatch" disabled>
+                      <option value="">Match the task</option><option value="keywords">Search by keywords</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="filter-grid" data-directory-filters="apps" hidden>
+                  <label>Where it runs
+                    <select name="appKind" disabled>
+                      <option value="">Anywhere</option>
+                      <option value="onsite">On Civitai</option>
+                      <option value="offsite">On another site</option>
+                    </select>
+                  </label>
+                  <label>App category
+                    <select name="appCategory" disabled><option value="">Any category</option></select>
+                    <small>Categories come from current listings.</small>
+                  </label>
+                </div>
+                <div class="filter-grid" data-directory-filters="comics" hidden>
+                  <label>Genre
+                    <select name="comicGenre" disabled><option value="">Any genre</option></select>
+                  </label>
+                  <div class="facet-field">
+                    <label for="comic-author" id="comic-author-label">Creator</label>
+                    <div class="assist-anchor"><input id="comic-author" name="comicAuthor" placeholder="Civitai username" maxlength="81" pattern="@?[\p{L}\p{N}_\-]{1,80}" spellcheck="false" autocomplete="off" disabled></div>
+                  </div>
+                </div>
+                <div class="filter-grid" data-directory-filters="collections" hidden>
+                  <label>What’s in the collection
+                    <select name="collectionType" disabled><option value="">Anything</option></select>
+                  </label>
+                  <div class="facet-field">
+                    <label for="collection-author" id="collection-author-label">Curator</label>
+                    <div class="assist-anchor"><input id="collection-author" name="collectionAuthor" placeholder="Civitai username" maxlength="81" pattern="@?[\p{L}\p{N}_\-]{1,80}" spellcheck="false" autocomplete="off" disabled></div>
+                  </div>
+                </div>
+                <details class="filter-advanced" id="advanced-filters">
+                  <summary>More filters</summary>
+                  <div class="filter-grid">
+                <label data-model-filter id="checkpoint-filter" hidden>Checkpoint type
+                  <select name="checkpointType" disabled>
+                    <option value="">Any checkpoint</option>
+                    <option value="Trained">Trained</option>
+                    <option value="Merge">Merge</option>
+                  </select>
+                </label>
+                <label data-model-filter>Sort models by
+                  <select name="sort">
+                    <option value="">Relevancy</option>
+                    <option>Hot</option><option>Highest Rated</option><option>Most Downloaded</option><option>Most Liked</option>
+                    <option>Most Discussed</option><option>Most Collected</option><option>Most Images</option>
+                    <option>Newest</option><option>Oldest</option><option>Recently Added</option>
+                  </select>
+                </label>
+                <label data-model-filter id="period-filter">Time period
+                  <select name="period">
+                    <option value="">All time</option>
+                    <option value="Year">Year</option><option value="Month">Month</option>
+                    <option value="Week">Week</option><option value="Day">Day</option>
+                  </select>
+                  <small>Available when browsing without search words</small>
+                </label>
+                <label data-model-filter>File format
+                  <select name="fileFormat">
+                    <option value="">Any format</option>
+                    <option>SafeTensor</option><option>PickleTensor</option><option>GGUF</option>
+                    <option>Diffusers</option><option>Core ML</option><option>ONNX</option><option>Other</option>
+                  </select>
+                </label>
+                <label data-model-filter>Download access
+                  <select name="downloadAccess"><option value="">Any access</option></select>
+                  <small>Civitai shows current download prices.</small>
+                </label>
+                <div class="facet-field" data-model-filter>
+                  <label for="exclude" id="exclude-label">Words to exclude from models</label>
+                  <div class="assist-anchor"><input id="exclude" name="exclude" placeholder="Example: photorealistic" maxlength="200" autocomplete="off" spellcheck="true"></div>
+                </div>
+                <label class="filter-toggle" data-model-filter><input type="checkbox" name="supportsGeneration" value="true"> Supports Civitai generation</label>
+                <label class="filter-toggle" data-model-filter><input type="checkbox" name="fromPlatform" value="true"> Trained on Civitai</label>
+                  </div>
+                </details>
+                <div class="filter-board-foot">
+                  <p id="filter-freshness" class="filter-freshness" role="status"></p>
+                  <button type="button" id="clear-filters" class="text-button" hidden>Clear filters</button>
+                  <button type="submit" id="apply-search-filters" class="primary">Apply &amp; search</button>
+                </div>
+              </div>
+            </details>
+            </div>
+            <div class="active-filters" id="active-filters" role="group" aria-label="Active filters" hidden></div>
+            <div id="report-setup" class="report-setup" hidden>
+              <label class="catalog-order"><span>Report type</span><select name="reportType" disabled></select></label>
+              <details class="report-sources" id="report-sources">
+                <summary id="report-source-count">Choose sources</summary>
+                <fieldset id="report-source-options" disabled><legend class="sr-only">Civitai sources to search</legend></fieldset>
+              </details>
+            </div>
+            <div class="examples" id="search-examples" role="group" aria-label="Search examples">
+              <span class="examples-label">Try an example</span>
+              <button type="button" class="chip" data-example="linocut" data-search-examples="catalog" data-starter="style">
+                <span class="starter-art" aria-hidden="true"></span>
+                 <span class="starter-text"><strong>Linocut</strong><small>Models and example pictures</small></span>
+                <span class="starter-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button type="button" class="chip" data-example="comfyui" data-scope="guides" data-search-examples="catalog" data-starter="guide">
+                <span class="starter-art" aria-hidden="true"></span>
+                 <span class="starter-text"><strong>ComfyUI guides</strong><small>Tutorials and tools</small></span>
+                <span class="starter-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button type="button" class="chip" data-example="Plan a short illustrated story about cyberpunk" data-search-examples="catalog" data-starter="report">
+                <span class="starter-art" aria-hidden="true"></span>
+                 <span class="starter-text"><strong>Plan a cyberpunk story</strong><small>Free report with sources</small></span>
+                <span class="starter-arrow" aria-hidden="true">↗</span>
+              </button>
+              <button type="button" class="chip" data-example="linocut" data-scope="report" data-report-type="style" data-search-examples="report" hidden>Linocut report</button>
+              <button type="button" class="chip" data-example="citypop" data-scope="report" data-report-type="media" data-search-examples="report" hidden>Citypop video and music report</button>
+              <button type="button" class="chip" data-example="Article #1043" data-scope="report" data-report-type="guide" data-search-examples="report" hidden>Follow a DreamShaper guide</button>
+              <button type="button" class="chip" data-example="DreamShaper" data-scope="report" data-report-type="release" data-search-examples="report" hidden>DreamShaper release report</button>
+              <button type="button" class="chip" data-example="@Booyaka" data-scope="report" data-report-type="creator" data-search-examples="report" hidden>Explore Booyaka</button>
+              <button type="button" class="chip" data-example="145616716 80205619" data-scope="report" data-report-type="examplePair" data-search-examples="report" hidden>Try a picture and a clip</button>
+              <button type="button" class="chip" data-example="Plan a short illustrated story about cyberpunk" data-scope="report" data-report-type="stories" data-search-examples="report" hidden>Try a cyberpunk story</button>
+              <button type="button" class="chip" data-example="https://civitai.com/collections/18549055" data-scope="report" data-report-type="collection" data-search-examples="report" hidden>Explore a Linocut collection</button>
+              <button type="button" class="chip" data-example="" data-scope="report" data-report-type="portfolio" data-search-examples="report" hidden>Review my releases</button>
+              <button type="button" class="chip" data-example="" data-scope="ownedModels" data-search-examples="ownedModels" hidden>Browse my models</button>
+              <button type="button" class="chip" data-example="cat" data-scope="gallery" data-search-examples="gallery" hidden>Cat</button>
+              <button type="button" class="chip" data-example="landscape" data-scope="gallery" data-search-examples="gallery" hidden>Landscape</button>
+              <button type="button" class="chip" data-example="motorcycle" data-scope="videos" data-search-examples="videos" hidden>Motorcycle</button>
+              <button type="button" class="chip" data-example="cat" data-scope="videos" data-search-examples="videos" hidden>Cat</button>
+              <button type="button" class="chip" data-example="citypop" data-scope="audio" data-search-examples="audio" hidden>Citypop</button>
+              <button type="button" class="chip" data-example="MiniMax Music" data-scope="audio" data-search-examples="audio" hidden>MiniMax Music</button>
+              <button type="button" class="chip" data-example="" data-scope="assets3d" data-search-examples="assets3d" hidden>Browse collections</button>
+              <button type="button" class="chip" data-example="3D models" data-scope="assets3d" data-search-examples="assets3d" hidden>3D models</button>
+              <button type="button" class="chip" data-example="cat" data-scope="posts" data-search-examples="posts" hidden>Cat posts</button>
+              <button type="button" class="chip" data-example="linocut" data-scope="posts" data-search-examples="posts" hidden>Linocut posts</button>
+              <button type="button" class="chip" data-example="Face of Civitai" data-scope="storylines" data-search-examples="storylines" hidden>Face of Civitai</button>
+              <button type="button" class="chip" data-example="Halloween" data-scope="storylines" data-search-examples="storylines" hidden>Halloween</button>
+              <button type="button" class="chip" data-example="landscape" data-scope="bounties" data-search-examples="bounties" hidden>Landscape</button>
+              <button type="button" class="chip" data-example="character" data-scope="bounties" data-search-examples="bounties" hidden>Character</button>
+              <button type="button" class="chip" data-example="community challenge" data-scope="challenges" data-search-examples="challenges" hidden>Community challenge</button>
+              <button type="button" class="chip" data-example="Wan 3.0" data-scope="crucibles" data-search-examples="crucibles" hidden>Wan 3.0</button>
+              <button type="button" class="chip" data-example="Fantasy Unleashed" data-scope="crucibles" data-search-examples="crucibles" hidden>Fantasy Unleashed</button>
+              <button type="button" class="chip" data-example="Crucible" data-scope="leaderboards" data-search-examples="leaderboards" hidden>Crucible rankings</button>
+              <button type="button" class="chip" data-example="Flux" data-scope="leaderboards" data-search-examples="leaderboards" hidden>Flux creators</button>
+              <button type="button" class="chip" data-example="LoRA training" data-scope="services" data-search-examples="services" hidden>LoRA training</button>
+              <button type="button" class="chip" data-example="music video" data-scope="services" data-search-examples="services" hidden>Music videos</button>
+              <button type="button" class="chip" data-example="Buzz" data-scope="marketplace" data-search-examples="marketplace" hidden>How Buzz works</button>
+              <button type="button" class="chip" data-example="Blue Buzz" data-scope="marketplace" data-search-examples="marketplace" hidden>Blue Buzz</button>
+              <button type="button" class="chip" data-example="Featured Checkpoints" data-scope="auctions" data-search-examples="auctions" hidden>Featured Checkpoints</button>
+              <button type="button" class="chip" data-example="Wan 3.0" data-scope="prizes" data-search-examples="prizes" hidden>Wan 3.0 prizes</button>
+              <button type="button" class="chip" data-example="CivChan" data-scope="users" data-search-examples="users" hidden>CivChan</button>
+              <button type="button" class="chip" data-example="readable canvases" data-scope="articles" data-search-examples="articles" hidden>ComfyUI canvases</button>
+              <button type="button" class="chip" data-example="" data-scope="articles" data-search-examples="articles" hidden>Browse articles</button>
+              <button type="button" class="chip" data-example="linocut" data-scope="collections" data-search-examples="collections" hidden>Linocut collections</button>
+              <button type="button" class="chip" data-example="cat" data-scope="collections" data-search-examples="collections" hidden>Cat collections</button>
+              <button type="button" class="chip" data-example="Image MetaHub" data-scope="tools" data-search-examples="tools" hidden>Image MetaHub</button>
+              <button type="button" class="chip" data-example="Turn spoken words in a clip into text" data-scope="aiServices" data-search-examples="aiServices" hidden>Speech to text</button>
+              <button type="button" class="chip" data-example="Extract still frames from a video" data-scope="aiServices" data-search-examples="aiServices" hidden>Stills from video</button>
+              <button type="button" class="chip" data-example="" data-scope="aiServices" data-search-examples="aiServices" hidden>Browse AI services</button>
+              <button type="button" class="chip" data-example="" data-scope="apps" data-search-examples="apps" hidden>Browse apps</button>
+              <button type="button" class="chip" data-example="Depth Wallpaper" data-scope="apps" data-search-examples="apps" hidden>Depth Wallpaper</button>
+              <button type="button" class="chip" data-example="New Horizon" data-scope="comics" data-search-examples="comics" hidden>New Horizon</button>
+              <button type="button" class="chip" data-example="how hubs work" data-scope="hubs" data-search-examples="hubs" hidden>How hubs work</button>
+              <button type="button" class="chip" data-example="redline hub" data-scope="hubs" data-search-examples="hubs" hidden>Redline Hub</button>
+              <button type="button" class="chip" data-example="cat" data-scope="topics" data-search-examples="topics" hidden>Cat</button>
+              <button type="button" class="chip" data-example="portrait" data-scope="topics" data-search-examples="topics" hidden>Portrait</button>
+              <button type="button" class="chip" data-example="community gallery" data-scope="communities" data-search-examples="communities" hidden>Community gallery</button>
+              <button type="button" class="chip" data-example="domestic cats" data-scope="communities" data-search-examples="communities" hidden>Domestic cats</button>
+              <button type="button" class="chip" data-example="DreamShaper" data-scope="reviews" data-search-examples="reviews" hidden>DreamShaper</button>
+              <button type="button" class="chip" data-example="Article #34441" data-scope="comments" data-search-examples="comments" hidden>Hubs discussion</button>
+              <button type="button" class="chip" data-example="DreamShaper" data-scope="comments" data-search-examples="comments" hidden>DreamShaper discussions</button>
+              <button type="button" class="chip" data-example="" data-scope="vault" data-search-examples="vault" hidden>My vault</button>
+              <button type="button" class="chip" data-example="" data-scope="saved" data-search-examples="saved" hidden>My collections</button>
+              <button type="button" class="chip" data-example="" data-scope="downloads" data-search-examples="downloads" hidden>Download history</button>
+              <button type="button" class="chip" data-example="" data-scope="creations" data-search-examples="creations" hidden>My creations</button>
+            </div>
+              <details id="visual-reference-setup" class="report-sources visual-reference-setup" hidden>
+                <summary id="visual-reference-summary">Pictures and model references</summary>
+                <div id="gallery-reference-controls" hidden>
+                  <label for="gallery-reference-url">Civitai picture or clip link</label>
+                  <div class="gallery-reference-input">
+                    <input id="gallery-reference-url" type="text" inputmode="url" maxlength="500" spellcheck="false" placeholder="https://civitai.com/images/…" autocomplete="off">
+                    <button class="chip" id="gallery-reference-add" type="button" disabled>Add reference</button>
+                  </div>
+                </div>
+                <label for="visual-reference-files">Add up to four pictures or metadata files</label>
+                <input id="visual-reference-files" type="file" accept="image/avif,image/bmp,image/jpeg,image/png,image/gif,image/webp,application/json,.json" aria-describedby="visual-reference-help" multiple>
+                <p id="visual-reference-help">Match picture traits or trace recorded models. Add two pictures to compare their model lists or two CiviScribe sidecars to compare recorded model strengths. Edit sessions from a compatible Metadata Studio build work with the original picture.</p>
+                <p id="visual-reference-status" role="status"></p>
+                <div id="visual-reference-items"></div>
+                <div id="gallery-compose-controls" hidden>
+                  <p>Choose what to match or avoid. Your pictures stay on this device.</p>
+                  <button class="chip" id="visual-compose-search" type="submit" disabled>Find pictures by reference</button>
+                </div>
+                <div id="visual-trace-controls" class="visual-trace-controls" hidden>
+                  <p id="visual-picture-integrity" role="status" hidden></p>
+                  <div class="visual-trace-actions">
+                    <button class="chip" id="visual-trace-report" type="submit" disabled>Trace recorded models</button>
+                    <button class="chip" id="visual-compare-pictures" type="submit" disabled hidden>Compare picture models</button>
+                    <button class="chip" id="visual-swap-pictures" type="button" hidden>Swap original and revised</button>
+                    <button class="chip" id="visual-compare-sidecars" type="submit" disabled hidden>Compare sidecar models</button>
+                    <button class="chip" id="visual-swap-sidecars" type="button" hidden>Swap sidecar order</button>
+                    <button class="chip" id="visual-compare-edits" type="submit" disabled hidden>Compare model edits</button>
+                  </div>
+                  <p>The catalog lookup uses version IDs or full model file hashes. Your reference files, prompts, and workflows stay in this browser.</p>
+                </div>
+              </details>
+          </div>
+        </form>
+        <div class="search-feedback">
+          <span class="search-progress" aria-hidden="true"></span>
+          <p id="search-status" role="status" aria-live="polite"></p>
+          <button class="text-button" id="cancel-search" type="button" hidden>Cancel search</button>
+          <button class="chip" id="continue-report" type="button" hidden>Continue report</button>
+          <a class="jump-link results-jump" id="results-jump" href="#results-title" hidden>Go to results</a>
+        </div>
+      </div>
+    </section>
+
+    <dialog id="search-areas" class="button-layout search-areas" aria-labelledby="search-areas-title">
+      <div class="search-areas-heading">
+        <h2 id="search-areas-title">Search areas</h2>
+        <form method="dialog"><button class="dialog-close" aria-label="Close search areas"><span aria-hidden="true">×</span></button></form>
+      </div>
+      <label class="sr-only" for="search-area-query">Find a search area</label>
+      <input id="search-area-query" type="search" placeholder="Try music, creators, or downloads" maxlength="120" autocomplete="off" spellcheck="false">
+      <p id="search-area-status" class="search-area-status" role="status"></p>
+      <div class="area-shortcuts" id="area-shortcuts">
+        <h3>Shortcuts</h3>
+          <div class="search-scopes" id="search-scope-buttons" role="group" aria-label="Search shortcuts">
+            <button class="chip" type="button" data-search-scope="all" aria-pressed="true">Quick search</button>
+            <button class="chip" type="button" data-search-scope="models" aria-pressed="false">Models</button>
+            <button class="chip" type="button" data-search-scope="gallery" aria-pressed="false">Gallery images</button>
+            <button class="chip" type="button" data-search-scope="videos" aria-pressed="false">Videos</button>
+            <button class="chip" type="button" data-search-scope="report" aria-pressed="false">Research report</button>
+            <button class="chip" type="button" data-search-scope="audio" aria-pressed="false" hidden>Audio &amp; music</button>
+            <button class="chip" type="button" data-search-scope="assets3d" aria-pressed="false" hidden>3D assets</button>
+            <button class="chip" type="button" data-search-scope="posts" aria-pressed="false" hidden>Posts</button>
+            <button class="chip" type="button" data-search-scope="storylines" aria-pressed="false" hidden>Storylines</button>
+            <button class="chip" type="button" data-search-scope="bounties" aria-pressed="false" hidden>Bounties</button>
+            <button class="chip" type="button" data-search-scope="challenges" aria-pressed="false" hidden>Challenges</button>
+            <button class="chip" type="button" data-search-scope="crucibles" aria-pressed="false" hidden>Crucibles</button>
+            <button class="chip" type="button" data-search-scope="leaderboards" aria-pressed="false" hidden>Leaderboards</button>
+            <button class="chip" type="button" data-search-scope="services" aria-pressed="false" hidden>Creator Services</button>
+            <button class="chip" type="button" data-search-scope="marketplace" aria-pressed="false" hidden>Buzz Marketplace</button>
+            <button class="chip" type="button" data-search-scope="auctions" aria-pressed="false" hidden>Auctions</button>
+            <button class="chip" type="button" data-search-scope="prizes" aria-pressed="false" hidden>Prizes</button>
+            <button class="chip" type="button" data-search-scope="users" aria-pressed="false" hidden>Users</button>
+            <button class="chip" type="button" data-search-scope="articles" aria-pressed="false" hidden>Articles</button>
+            <button class="chip" type="button" data-search-scope="collections" aria-pressed="false" hidden>Collections</button>
+            <button class="chip" type="button" data-search-scope="tools" aria-pressed="false" hidden>Tools</button>
+            <button class="chip" type="button" data-search-scope="aiServices" aria-pressed="false" hidden>AI services</button>
+            <button class="chip" type="button" data-search-scope="apps" aria-pressed="false" hidden>App Store</button>
+            <button class="chip" type="button" data-search-scope="comics" aria-pressed="false" hidden>Comics</button>
+            <button class="chip" type="button" data-search-scope="hubs" aria-pressed="false" hidden>Hubs</button>
+            <button class="chip" type="button" data-search-scope="topics" aria-pressed="false" hidden>Topics</button>
+            <button class="chip" type="button" data-search-scope="communities" aria-pressed="false" hidden>Communities</button>
+            <button class="chip" type="button" data-search-scope="reviews" aria-pressed="false" hidden>Reviews</button>
+            <button class="chip" type="button" data-search-scope="comments" aria-pressed="false" hidden>Comments</button>
+            <button class="chip" type="button" data-search-scope="vault" aria-pressed="false" hidden>Vault</button>
+            <button class="chip" type="button" data-search-scope="saved" aria-pressed="false" hidden>Saved &amp; followed</button>
+            <button class="chip" type="button" data-search-scope="ownedModels" aria-pressed="false" hidden>My published models</button>
+            <button class="chip" type="button" data-search-scope="downloads" aria-pressed="false" hidden>Downloads</button>
+            <button class="chip" type="button" data-search-scope="creations" aria-pressed="false" hidden>Creation history</button>
+            <button class="chip" type="button" data-search-scope="notifications" aria-pressed="false" hidden>Notifications</button>
+            <button class="chip" type="button" data-search-scope="messages" aria-pressed="false" hidden>Messages</button>
+          </div>
+      </div>
+      <div id="search-area-list"></div>
+      <button class="text-button" id="customize-buttons" type="button" aria-haspopup="dialog">Customize buttons</button>
+    </dialog>
+
+    <dialog id="button-layout" class="button-layout" aria-labelledby="button-layout-title">
+      <h2 id="button-layout-title">Customize search buttons</h2>
+      <p>The first five checked items become shortcuts. Drag or use the arrows to move them. All areas are searchable from the menu.</p>
+      <p id="button-layout-status" role="status"></p>
+      <ol id="button-layout-list" aria-label="Search button order"></ol>
+      <div class="button-layout-actions">
+        <button id="button-layout-reset" class="chip" type="button">Restore defaults</button>
+        <form method="dialog"><button class="chip">Close</button></form>
+        <button id="button-layout-apply" class="primary" type="button">Apply</button>
+      </div>
+    </dialog>
+
+    <div class="workbench" id="workbench" hidden>
+      <section class="results" aria-labelledby="results-title">
+        <button class="text-button back-search" id="return-to-search" type="button" hidden></button>
+        <div class="results-heading">
+          <h2 id="results-title" tabindex="-1">Results</h2>
+          <div class="result-next">
+            <button class="chip" id="report-this-search" type="button" hidden>Build a free report</button>
+            <button class="chip research-toggle" id="research-jump" type="button" aria-haspopup="dialog" aria-controls="deep-search" aria-expanded="false" hidden>
+              <span>Deep Search</span><span id="research-summary">Free quotes</span>
+            </button>
+          </div>
+        </div>
+        <div class="compare-tray" id="compare-tray" role="group" aria-label="Selected models" hidden>
+          <div>
+            <span id="compare-count"></span>
+            <p id="compare-feedback" role="status"></p>
+          </div>
+          <button class="primary" id="review-picks" type="button" aria-haspopup="dialog">Compare free</button>
+        </div>
+        <fieldset class="result-filters" id="result-filters" aria-label="Filter results by type" hidden></fieldset>
+        <p class="result-note" id="result-note"></p>
+        <details class="quick-coverage" id="quick-coverage" hidden>
+          <summary>Where we looked</summary>
+          <p id="quick-coverage-areas"></p>
+        </details>
+        <section id="gallery-visual-brief" class="gallery-visual-brief" aria-label="References used in this search" hidden></section>
+        <div class="gallery-tags" id="gallery-model-choices" role="group" aria-label="Matching model releases" hidden></div>
+        <button class="chip" id="explore-gallery-release" type="button" hidden>Explore this release</button>
+        <button class="chip" id="review-my-releases" type="button" hidden>Build a release report</button>
+        <div class="result-ranking" id="result-ranking" hidden>
+          <span id="result-ranking-label"></span>
+          <button class="chip" id="switch-result-ranking" type="button">Use my preferences</button>
+          <p id="result-ranking-status" role="status"></p>
+        </div>
+        <section id="report-overview" class="report-overview" aria-label="Research report" hidden></section>
+        <section id="report-changes" class="report-overview" aria-labelledby="report-change-title" hidden></section>
+        <details id="result-tools" class="result-tools">
+          <summary>More ways to explore</summary>
+        <section id="visual-comparison" class="report-overview" aria-labelledby="visual-comparison-title" hidden>
+          <div class="report-heading">
+            <h3 id="visual-comparison-title">Match visual references</h3>
+            <button id="visual-compare" class="chip" type="button">Compare report pictures</button>
+            <button id="visual-stop" class="text-button" type="button" hidden>Stop comparison</button>
+          </div>
+          <p id="visual-comparison-status" role="status"></p>
+          <div class="visual-research-selection" id="visual-research-selection" hidden>
+            <p id="visual-research-status" role="status"></p>
+            <button class="text-button" type="button" aria-haspopup="dialog" aria-controls="deep-search" data-open-research>Deep Search options</button>
+          </div>
+          <div id="visual-comparison-results" class="report-source-grid"></div>
+        </section>
+        <details id="sound-comparison" class="report-overview sound-dashboard" hidden>
+          <summary>Match by sound</summary>
+          <p>Compare rhythm, sound texture, and energy in the current results. Reference files stay in your browser.</p>
+          <div class="sound-inputs">
+            <label>Choose local references
+              <input id="sound-files" type="file" accept=".mp3,.m4a,.aac,.wav,.ogg,.oga,.opus,.flac,.mp4,.webm" multiple disabled>
+            </label>
+            <label>Use a public result
+              <select id="sound-public-reference" disabled></select>
+            </label>
+            <button id="sound-use-public" class="chip" type="button" disabled>Add reference</button>
+          </div>
+          <fieldset id="sound-references" class="sound-references"><legend class="sr-only">Sound references</legend></fieldset>
+          <div class="report-heading sound-actions">
+            <button id="sound-compare" class="chip" type="button" disabled>Compare sounds</button>
+            <button id="sound-stop" class="text-button" type="button" hidden>Stop sound comparison</button>
+            <button id="sound-copy" class="text-button" type="button" hidden>Copy sound matches</button>
+          </div>
+          <p id="sound-status" role="status"></p>
+          <div id="sound-research-selection" class="visual-research-selection" hidden>
+            <p id="sound-research-status" role="status"></p>
+            <button class="text-button" type="button" aria-haspopup="dialog" aria-controls="deep-search" data-open-research>Deep Search options</button>
+          </div>
+          <div id="sound-results" class="sound-results"></div>
+        </details>
+        <section id="scene-comparison" class="report-overview" aria-labelledby="scene-comparison-title" hidden>
+          <div class="report-heading">
+            <h3 id="scene-comparison-title">Match picture and sound</h3>
+            <button id="scene-compare" class="chip" type="button">Compare both</button>
+            <button id="scene-stop" class="text-button" type="button" hidden>Stop both</button>
+            <button id="scene-copy" class="text-button" type="button" hidden>Copy report with matched scenes</button>
+          </div>
+          <p id="scene-status" role="status"></p>
+          <div id="scene-selection" class="visual-research-selection" hidden>
+            <p id="scene-selected" role="status"></p>
+            <button class="text-button" type="button" aria-haspopup="dialog" aria-controls="deep-search" data-open-research>Deep Search options</button>
+          </div>
+          <div id="scene-results" class="report-source-grid"></div>
+        </section>
+        </details>
+        <div id="library-actions" class="library-actions" hidden>
+          <div id="library-buttons"></div>
+          <p id="library-status" role="status"></p>
+        </div>
+        <div id="results" aria-busy="false"></div>
+        <div id="gallery-actions" class="gallery-actions" hidden>
+          <span id="gallery-native"></span>
+          <button class="chip" id="gallery-more" type="button" hidden>Load more</button>
+          <span id="gallery-status" role="status"></span>
+        </div>
+      </section>
+
+      <dialog id="compare-models" class="button-layout model-comparison" aria-labelledby="compare-title">
+        <div class="workspace-heading">
+          <h2 id="compare-title" tabindex="-1">Compare models</h2>
+          <form method="dialog"><button class="dialog-close" aria-label="Close model comparison"><span aria-hidden="true">×</span></button></form>
+        </div>
+        <div id="comparison-results"></div>
+        <div class="comparison-actions">
+          <form method="dialog"><button class="chip">Back to results</button></form>
+          <button id="comparison-prices" class="chip" type="button" aria-haspopup="dialog" aria-controls="deep-search">See Deep Search prices</button>
+        </div>
+      </dialog>
+      <dialog id="deep-search" class="research" aria-labelledby="research-title" hidden>
+        <div class="research-heading">
+          <h2 id="research-title" tabindex="-1">Deep Search</h2>
+          <button class="dialog-close" id="close-research" type="button" aria-label="Close Deep Search"><span aria-hidden="true">×</span></button>
+        </div>
+        <p id="research-intro">Explore what a closer comparison of your picks would cost in Buzz, Civitai’s credits.</p>
+        <div id="picks" class="picks"></div>
+        <div id="quote-actions" class="quote-actions">
+          <button class="primary" id="quote-button" type="button">Get live quotes</button>
+          <p class="quote-note">Quotes use 0 Buzz.</p>
+        </div>
+        <p class="quote-status" id="quote-status" role="status"></p>
+        <p class="quote-status" id="workflow-receipt-status" role="status"></p>
+        <button class="chip" id="workflow-receipt-retry" type="button" hidden>Retry receipt access</button>
+        <div id="research-options" class="quote-grid"></div>
+        <details class="buzz-help" id="buzz-help">
+          <summary>How Buzz works</summary>
+          <p>Estimates include any app author fee. Civitai can use Blue Buzz and the Green or Yellow balance eligible for the content.</p>
+        </details>
+      </dialog>
+    </div>
+
+    <section id="workflow-session" class="workflow-session" aria-label="Deep Search run" hidden></section>
+
+    <dialog id="saved-workspace" class="button-layout saved-workspace" aria-labelledby="workspace-heading">
+      <div class="workspace-heading">
+        <h2 id="workspace-heading">Workspace</h2>
+        <button id="workspace-close" class="dialog-close" type="button" aria-label="Close workspace"><span aria-hidden="true">×</span></button>
+      </div>
+      <p id="workspace-storage"></p>
+      <div class="workspace-tabs" role="tablist" aria-label="Workspace sections">
+        <button id="workspace-tab-saved" type="button" role="tab" aria-selected="true" aria-controls="workspace-panel-saved">Saved</button>
+        <button id="workspace-tab-files" type="button" role="tab" aria-selected="false" aria-controls="workspace-panel-files" tabindex="-1">Files &amp; setup</button>
+        <button id="workspace-tab-settings" type="button" role="tab" aria-selected="false" aria-controls="workspace-panel-settings" tabindex="-1">Settings</button>
+      </div>
+      <p id="workspace-status" role="status"></p>
+      <div class="workspace-page" id="workspace-panel-saved" role="tabpanel" aria-labelledby="workspace-tab-saved">
+        <div class="workspace-save">
+          <label for="workspace-name">Name</label>
+          <input id="workspace-name" type="text" required maxlength="100" autocomplete="off" spellcheck="true">
+          <div class="workspace-actions">
+            <button id="workspace-save-search" class="chip" type="button" disabled>Save current search</button>
+            <button id="workspace-save-shortlist" class="chip" type="button" disabled>Save model picks</button>
+          </div>
+        </div>
+        <h3>Saved searches</h3>
+        <div id="workspace-searches" class="workspace-entries"></div>
+        <details class="workspace-profile" id="workspace-research-history" hidden>
+          <summary>Deep Search history</summary>
+          <p id="history-intro"></p>
+          <div class="workspace-actions">
+            <button class="chip" id="history-load" type="button" disabled>Load Deep Search history</button>
+            <button class="chip" id="history-more" type="button" hidden>Load older runs</button>
+            <button class="chip" id="history-open-report" type="button" disabled>Open saved report</button>
+            <input id="history-report-file" type="file" accept="application/json,.json" hidden>
+          </div>
+          <div class="filter-grid" id="history-filters" hidden>
+            <label>Find a run
+              <input id="history-query" type="search" maxlength="180" placeholder="Title, workflow ID, or operation ID" spellcheck="true" autocomplete="off">
+            </label>
+            <label id="history-status-filter-label" hidden>Run status
+              <select id="history-filter-status">
+                <option value="">Any status</option><option value="active">Active or awaiting confirmation</option><option value="succeeded">Complete</option>
+                <option value="failed">Work failed</option><option value="canceled">Canceled</option><option value="expired">Expired</option>
+                <option value="refused">Refused</option><option value="unconfirmed">Unresolved receipt</option>
+              </select>
+            </label>
+            <button class="chip" id="history-open-id" type="button" hidden>Open pasted workflow ID</button>
+          </div>
+          <p id="history-status" role="status"></p>
+          <div id="history-results" class="workspace-entries"></div>
+          <section id="history-detail" class="history-detail" aria-label="Selected Deep Search run" hidden></section>
+        </details>
+        <details class="workspace-profile">
+          <summary>Recent searches</summary>
+          <p>Reopen a search with its sources and filters. Recent searches are kept in this tab.</p>
+          <div id="workspace-recent" class="workspace-entries workspace-recent"></div>
+          <button id="workspace-clear-recent" class="chip" type="button" hidden>Clear recent searches</button>
+        </details>
+        <h3>Model shortlists</h3>
+        <div id="workspace-shortlists" class="workspace-entries"></div>
+        <details id="workspace-backup" class="workspace-profile">
+          <summary>Back up and restore</summary>
+          <p>Take your saved searches and exact model picks to another RasterRaid session.</p>
+          <div class="workspace-actions">
+            <button class="chip" id="workspace-backup-download" type="button" disabled>Download backup</button>
+            <button class="chip" id="workspace-backup-copy" type="button" disabled>Copy backup</button>
+          </div>
+          <p id="workspace-backup-hosted-note" class="workspace-backup-note" hidden>Downloading passes the backup to the Civitai page to start a browser download.</p>
+          <label class="workspace-backup-input" for="workspace-backup-file">Choose a RasterRaid backup
+            <input id="workspace-backup-file" type="file" accept="application/json,.json" disabled>
+          </label>
+          <details class="workspace-backup-paste">
+            <summary>Paste backup text</summary>
+            <label for="workspace-backup-paste">Workspace backup JSON</label>
+            <textarea id="workspace-backup-paste" maxlength="2097152" spellcheck="false" autocomplete="off" disabled></textarea>
+            <button class="chip" id="workspace-backup-inspect" type="button" disabled>Review pasted backup</button>
+          </details>
+          <p id="workspace-backup-status" role="status"></p>
+          <fieldset id="workspace-backup-review" class="workspace-backup-review" hidden>
+            <legend>Choose items to import</legend>
+            <p id="workspace-backup-summary" tabindex="-1"></p>
+            <div id="workspace-backup-choices" class="workspace-backup-choices"></div>
+            <div class="workspace-actions">
+              <button class="primary" id="workspace-backup-apply" type="button" disabled>Import selected</button>
+              <button class="chip" id="workspace-backup-cancel" type="button">Cancel import</button>
+            </div>
+          </fieldset>
+        </details>
+      </div>
+      <div class="workspace-page" id="workspace-panel-files" role="tabpanel" aria-labelledby="workspace-tab-files" hidden>
+        <details class="workspace-profile">
+          <summary>Your setup</summary>
+          <div class="filter-grid">
+            <label>Where you generate
+              <select id="workspace-runtime"><option value="comfyui">Local ComfyUI</option><option value="civitai">Civitai</option></select>
+            </label>
+            <label>Model family <input id="workspace-family" maxlength="100" placeholder="e.g. SDXL 1.0" spellcheck="false"></label>
+            <label>Graphics memory in GB <input id="workspace-vram" type="number" min="1" max="2048" step="1" inputmode="numeric"></label>
+            <label>Read workflow JSON <input id="workspace-workflow" type="file" accept=".json,application/json"></label>
+          </div>
+          <p id="workspace-workflow-summary" role="status" hidden></p>
+          <p id="workspace-workflow-source" hidden></p>
+          <section id="workspace-example-check" class="workspace-setup-check" aria-labelledby="workspace-example-heading" hidden>
+            <h3 id="workspace-example-heading" tabindex="-1">Compare with my setup</h3>
+            <p id="workspace-example-source"></p>
+            <p id="workspace-example-status" role="status"></p>
+            <ul id="workspace-example-rows" class="model-edit-rows"></ul>
+            <p id="workspace-example-notes"></p>
+            <button id="workspace-example-copy" class="chip" type="button">Copy comparison</button>
+          </section>
+          <div id="workspace-check-assets" class="workspace-check-assets" hidden>
+            <div class="workspace-actions">
+              <button id="workspace-audit-files" class="chip" type="button">Check workflow files</button>
+              <button id="workspace-cancel-audit" class="chip" type="button" hidden>Stop check</button>
+              <button id="workspace-copy-audit" class="chip" type="button" hidden>Copy report</button>
+              <button id="workspace-save-upgrades" class="chip" type="button" hidden>Save upgrade shortlist</button>
+            </div>
+            <p id="workspace-audit-status" role="status"></p>
+            <div id="workspace-audit-results" class="workspace-audit-results"></div>
+            <details class="workspace-profile">
+              <summary>Check one file or verify its identity</summary>
+              <div class="filter-grid">
+                <label>Model file or reference <select id="workspace-check-file"></select></label>
+                <label>SHA-256 or file-pinned AIR
+                  <input id="workspace-file-reference" placeholder="Optional exact file reference" maxlength="500" spellcheck="false" autocomplete="off">
+                </label>
+              </div>
+              <button id="workspace-check-model" class="chip" type="button">Check Civitai listings</button>
+              <p id="workspace-check-file-status" role="status"></p>
+              <div id="workspace-check-results"></div>
+            </details>
+            <p>The check sends model filenames or exact Civitai references. The workflow file, prompt, and full paths stay on this device.</p>
+          </div>
+          <div class="workspace-actions">
+            <button id="workspace-save-profile" class="chip" type="button" disabled>Save setup</button>
+            <button id="workspace-apply-profile" class="chip" type="button" disabled>Use model family in a report</button>
+            <button id="workspace-clear-assets" class="chip" type="button" disabled>Clear model files</button>
+          </div>
+          <div class="workspace-setup-check">
+            <button class="chip" id="workspace-check-setup" type="button" disabled>Check picked versions</button>
+            <p id="workspace-setup-status" role="status"></p>
+            <div id="workspace-setup-results"></div>
+          </div>
+        </details>
+        <details class="workspace-profile" id="workspace-identify-models">
+          <summary>Identify model files</summary>
+          <p id="local-model-help">Find the Civitai releases that match up to eight files on your device. Your files and their names stay in this tab. Civitai receives SHA-256 checksums for the lookup.</p>
+          <div class="local-model-picker">
+            <input class="sr-only" type="file" id="local-model-files" multiple aria-describedby="local-model-help">
+            <label class="chip" for="local-model-files">Choose model files</label>
+          </div>
+          <div class="workspace-actions local-model-actions">
+            <button id="local-model-lookup" class="primary" type="button" disabled>Find Civitai matches</button>
+            <button id="local-model-cancel" class="chip" type="button" hidden>Stop check</button>
+            <button id="local-model-clear" class="chip" type="button" hidden>Clear selection</button>
+          </div>
+          <progress id="local-model-progress" max="1" aria-label="Reading the current model file" hidden></progress>
+          <p id="local-model-status" role="status"></p>
+          <ul class="local-model-results" id="local-model-results" aria-label="Selected files and Civitai matches"></ul>
+        </details>
+      </div>
+      <div class="workspace-page" id="workspace-panel-settings" role="tabpanel" aria-labelledby="workspace-tab-settings" hidden>
+        <details class="workspace-profile" open>
+          <summary>Ranking preferences</summary>
+          <p>Rate model versions, gallery pictures, or clips to guide future searches.</p>
+          <label class="preference-setting"><input type="checkbox" id="personalize-models" disabled> Use my preferences for model ranking</label>
+          <label class="preference-setting"><input type="checkbox" id="personalize-media" disabled> Use my preferences for pictures and clips</label>
+          <p id="preference-count"></p>
+          <div class="workspace-actions">
+            <button class="chip" type="button" id="export-model-feedback" disabled>View and copy ratings</button>
+            <button class="chip" type="button" id="clear-model-feedback" disabled>Clear all ratings</button>
+          </div>
+          <p id="preference-status" role="status"></p>
+        </details>
+      </div>
+    </dialog>
+
+    <footer class="developer-tools">
+      <details class="diagnostics" id="diagnostics" hidden>
+        <summary>Preview diagnostics</summary>
+        <section aria-labelledby="capability-title">
+          <h2 id="capability-title">Hosted catalog check</h2>
+          <button class="chip" id="probe" type="button" disabled>Check catalog access</button>
+          <p id="progress" role="status"></p>
+          <div class="responsive-table" id="probe-results" hidden>
+            <table>
+              <caption>Live catalog route results</caption>
+              <thead><tr><th scope="col">Catalog source</th><th scope="col">Result</th><th scope="col">Evidence</th></tr></thead>
+              <tbody id="probe-rows"></tbody>
+            </table>
+          </div>
+        </section>
+      </details>
+    </footer>
+  </main>
+</body>
+</html>

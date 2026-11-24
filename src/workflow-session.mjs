@@ -1,0 +1,536 @@
+import { SITE_ORIGINS, text, visibleRating } from './catalog.mjs';
+import { appEstimateBody, quotePrice } from './quotes.mjs';
+import { isWorkflowId } from './workflow-client.mjs';
+import { researchMatches } from './research-matches.mjs';
+import { aiServiceLink, aiServiceReference } from './ai-services.mjs';
+import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryStep } from './workflow-recovery.mjs';
+
+const quoteLifetime = 2 * 60_000;
+// The App bridge retains an idempotency claim for ten minutes. Leave time
+// for the status check and in-flight request before that claim can expire.
+const retryLifetime = 8 * 60_000;
+const endings = new Set(['succeeded', 'failed', 'canceled', 'expired', 'refused', 'not-started', 'unconfirmed']);
+const providerStates = new Set(['unassigned', 'pending', 'processing', 'queued', 'running', 'succeeded', 'failed', 'canceled', 'expired']);
+const recordStates = new Set(['submitting', 'unknown', ...endings, ...providerStates]);
+const quoteRefusals = new Map([
+  ['workflow_quote_rejected', 'Civitai refused this workflow during pricing. Choose another Deep Search option.'],
+  ['workflow_quote_unavailable', 'Civitai could not price the workflow just now. Try again shortly.'],
+  ['workflow_quote_unpriced', 'Civitai returned no price for this workflow. Choose another Deep Search option.'],
+]);
+const boundedToken = /^[a-z\d_-]{1,64}$/iu;
+const bodyHash = /^[a-f\d]{64}$/u;
+const supportedSteps = ['chatCompletion', 'transcription', 'audioCaptioning', 'multimodalEmbedding', 'videoFrameExtraction', 'mediaCaptioning'];
+const snapshotOutputs = value => (Array.isArray(value) ? value.flatMap(item => typeof item === 'string' ? [text(item, 8000)] : []) : [])
+  .filter(Boolean).slice(0, 8);
+
+export function runFinished(status) {
+  return endings.has(status);
+}
+
+function safeSource(item, origin) {
+  try {
+    const url = new URL(item.link);
+    const title = text(item.title, 180);
+    if (title && aiServiceLink(aiServiceReference(url.href)) === url.href) return { title, link: url.href };
+    return title && url.origin === origin && !url.username && !url.password && !url.searchParams.has('chat') &&
+      !/^\/(?:api|generate|user\/(?:notifications|downloads|vault))(?:\/|$)/u.test(url.pathname) ? { title, link: url.href } : null;
+  } catch { return null; }
+}
+
+function normalizeSimilarity(value, steps, sources) {
+  if (!value || !boundedToken.test(value.model ?? '') || !Number.isInteger(value.dimensions) ||
+      value.dimensions < 16 || value.dimensions > 4096 || !Array.isArray(value.targets)) return null;
+  const vectors = steps.filter(row => row.$type === 'multimodalEmbedding');
+  const anchor = vectors.find(step => step.name === value.anchor);
+  if (!anchor) return null;
+  const seen = new Set([anchor.name]);
+  const targets = [];
+  for (const row of value.targets.slice(0, 7)) {
+    const vector = vectors.find(step => step.name === row?.step);
+    const source = sources.find(item => item.link === row?.link);
+    if (!source || !vector || seen.has(vector.name) || vector.input &&
+        (vector.input.model !== value.model || vector.input.dimensions !== value.dimensions)) continue;
+    seen.add(vector.name);
+    targets.push({ step: vector.name, ...source, ...(Number.isSafeInteger(row.previewRank) && { previewRank: row.previewRank }) });
+  }
+  const previewRanks = new Set(targets.map(row => row.previewRank));
+  if (previewRanks.size !== targets.length || targets.some(row => !(row.previewRank >= 1 && row.previewRank <= targets.length))) {
+    for (const row of targets) delete row.previewRank;
+  }
+  return targets.length ? { model: value.model, dimensions: value.dimensions, anchor: anchor.name, targets,
+    ...(value.previewBasis === 'posters' && { previewBasis: 'posters' }) } : null;
+}
+
+function stepRecord({ name, $type, sourceLink, purpose, seconds }, sources) {
+  const label = text(purpose, 100);
+  return { name, $type, ...(sources.some(item => item.link === sourceLink) && { sourceLink,
+    ...(label && { purpose: label }),
+    ...(Number.isFinite(seconds) && seconds >= 0 && seconds < 240 && { seconds }) }) };
+}
+
+function savedPrice(value, createdAt) {
+  const price = quotePrice({ status: 'pending', cost: value });
+  return price && Number.isSafeInteger(value.observedAt) && value.observedAt >= createdAt
+    ? { ...price, observedAt: value.observedAt } : null;
+}
+
+function normalizeRun(value, origin) {
+  if (value?.schema !== 1 || value.origin !== origin || !boundedToken.test(value.operationId ?? '') ||
+      !Number.isSafeInteger(value.createdAt) || !bodyHash.test(value.bodyHash ?? '') ||
+      !recordStates.has(value.status) || (value.workflowId !== null && !isWorkflowId(value.workflowId))) return null;
+  const quote = quotePrice({ status: 'pending', cost: value.quote });
+  if (!quote || !text(value.title, 180)) return null;
+  if (Boolean(value.workflowId) !== providerStates.has(value.status)) return null;
+  const receipt = savedPrice(value.receipt, value.createdAt);
+  const retryQuote = savedPrice(value.retryQuote, value.createdAt);
+  const refusalPrice = value.status === 'refused' ? savedPrice(value.refusalPrice, value.createdAt) : null;
+  const sources = (Array.isArray(value.sources) ? value.sources : []).slice(0, 18).map(item => safeSource(item, origin)).filter(Boolean);
+  const steps = (Array.isArray(value.steps) ? value.steps : []).slice(0, 8)
+    .filter(row => boundedToken.test(row?.name ?? '') && supportedSteps.includes(row.$type))
+    .map(row => stepRecord(row, sources));
+  const similarity = normalizeSimilarity(value.similarity, steps, sources);
+  return {
+    schema: 1, origin, operationId: value.operationId, bodyHash: value.bodyHash, createdAt: value.createdAt,
+    status: value.status === 'submitting' ? 'unknown' : value.status, workflowId: value.workflowId,
+    title: text(value.title, 180), quote,
+    ...(visibleRating(value.browsingLevel, 63) && { browsingLevel: value.browsingLevel }),
+    ...(value.workflowId && receipt && { receipt: { ...receipt, ...(providerStates.has(value.receipt.status) && { status: value.receipt.status }) } }),
+    ...(retryQuote && { retryQuote }), ...(refusalPrice && { refusalPrice }),
+    sources, steps, ...(similarity && { similarity }),
+    ...(steps.length && isRecoveryStep(value.recoveryStep) && { recoveryStep: value.recoveryStep }),
+  };
+}
+
+export function reportedReceipt(reply, current, now = Date.now) {
+  const price = quotePrice({ status: 'pending', cost: reply.cost });
+  const status = providerStates.has(reply.status) ? reply.status : undefined;
+  if (!price || current?.total === price.total && current.authorFee === price.authorFee && current.status === status) return current;
+  return { ...price, observedAt: now(), ...(status && { status }) };
+}
+
+export function workflowRecord(value, origin) {
+  const run = normalizeRun(value, origin);
+  if (!run) return null;
+  const previous = normalizeRun(value.previous, origin);
+  if (previous?.workflowId && runFinished(previous.status) && previous.operationId !== run.operationId &&
+      previous.createdAt <= run.createdAt) run.previous = previous;
+  return run;
+}
+
+function repeatedTranscript(value) {
+  const words = value.normalize('NFKC').toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  if (words.length < 320) return false;
+  const windows = new Set();
+  const count = words.length - 7;
+  for (let index = 0; index < count; index++) {
+    windows.add(words.slice(index, index + 8).join(' '));
+    if (windows.size * 16 > count) return false;
+  }
+  return true;
+}
+
+export function transcriptEvidence(output) {
+  if (output?.hasAudio === false) return { scope: 'silent', lines: [] };
+  const clock = seconds => Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+  const lines = Array.isArray(output?.segments) ? output.segments.slice(0, 32).flatMap(segment =>
+    Number.isFinite(segment?.start) && segment.start >= 0 && text(segment.text, 500)
+      ? [clock(segment.start) + ' · ' + text(segment.text, 500)] : []) : [];
+  if (lines.length) return { scope: 'timed', lines };
+  const wordsByTime = new Map();
+  if (Array.isArray(output?.timeStamps)) for (const word of output.timeStamps.slice(0, 512)) {
+    const words = text(word?.text, 120);
+    if (!words || !Number.isFinite(word.startTime) || word.startTime < 0) continue;
+    const bucket = Math.floor(word.startTime / 5);
+    if (!wordsByTime.has(bucket) && wordsByTime.size < 32) wordsByTime.set(bucket, { start: word.startTime, parts: [] });
+    wordsByTime.get(bucket)?.parts.push(words);
+  }
+  if (wordsByTime.size) return { scope: 'timed',
+    lines: [...wordsByTime.values()].map(({ start, parts }) => clock(start) + ' · ' + parts.join(' ')) };
+  const words = text(output?.text, 24_000);
+  if (!words) return { scope: 'empty', lines: [] };
+  if (repeatedTranscript(words)) return { scope: 'repetitive', lines: [] };
+  return { scope: 'clip', lines: [text(words, 8000)] };
+}
+
+function soundDescriptionLines(output) {
+  if (output?.hasAudio === false) return ['Civitai reported that the clip has no audio track.'];
+  const rows = output?.results && typeof output.results === 'object' ? Object.values(output.results).slice(0, 4) : [];
+  return rows.flatMap(row => {
+    const tempo = typeof row?.bpm === 'number' ? row.bpm : Number(text(row?.bpm, 32).replace(/\s*bpm$/iu, ''));
+    const attributes = [Number.isFinite(tempo) && tempo > 0 && tempo <= 999 && tempo + ' BPM',
+      ...[['Key', row?.keyScale], ['Time signature', row?.timeSignature], ['Language', row?.language]].flatMap(([label, value]) => {
+        const detail = text(value, 56);
+        return detail ? [label + ' ' + detail] : [];
+      }),
+    ].filter(Boolean);
+    const lyric = text(row?.lyrics, 180);
+    return [text(row?.caption, 1100) || text(row?.text, 1100), text(row?.genre, 120),
+      attributes.length && 'Estimated ' + attributes.join(' · '), lyric && 'Possible lyric excerpt · ' + lyric].filter(Boolean);
+  });
+}
+
+function linesFor(step) {
+  const output = step.output;
+  if (step.$type === 'chatCompletion') return snapshotOutputs(step.textOutputs);
+  if (step.$type === 'mediaCaptioning') {
+    const caption = text(output?.caption, 2800);
+    return caption ? [caption] : snapshotOutputs(step.textOutputs);
+  }
+  if (step.$type === 'audioCaptioning') return soundDescriptionLines(output);
+  return [];
+}
+
+function acceptStep(reported, previous, registered, defaultStatus) {
+  if (!reported || reported.$type !== registered.$type || !providerStates.has(reported.status)) {
+    return previous ?? { ...registered, status: defaultStatus, lines: [] };
+  }
+  if (previous && runFinished(previous.status) && !runFinished(reported.status)) return previous;
+  if (registered.$type === 'transcription') {
+    const available = reported.output ? transcriptEvidence(reported.output) : null;
+    const scope = available?.scope ?? previous?.transcriptScope ?? (reported.status === 'succeeded' ? 'empty' : null);
+    return { ...registered, status: reported.status, lines: available?.lines ?? previous?.lines ?? [],
+      ...(scope && { transcriptScope: scope }) };
+  }
+  const lines = linesFor(reported);
+  return { ...registered, status: reported.status, lines: lines.length ? lines : previous?.lines ?? [] };
+}
+
+export function researchOutput(snapshot, run, previous = { steps: [], cost: null }) {
+  const last = run.steps.at(-1);
+  const rows = Array.isArray(snapshot.steps) ? snapshot.steps.map(step =>
+    last && run.recoveryStep && step?.name === run.recoveryStep && step.$type === last.$type
+      ? { ...step, name: last.name } : step) : [];
+  const steps = run.steps.map(registered => acceptStep(rows.find(step => step?.name === registered.name),
+    previous.steps.find(step => step.name === registered.name), registered, runFinished(run.status) ? 'unknown' : 'pending'));
+  const topLevelText = snapshotOutputs(snapshot.textOutputs);
+  const chats = steps.filter(step => step.$type === 'chatCompletion');
+  if (topLevelText.length && chats.length === 1 && !chats[0].lines.length) chats[0].lines = topLevelText;
+  const reported = snapshot.cost?.total;
+  const withheld = text(snapshot.textOutputWithheld?.reason, 600) || previous.withheld;
+  const similarity = run.similarity ? researchMatches(rows, run.similarity, previous.similarity) : null;
+  return { steps, text: chats.length !== 1 && topLevelText.length ? topLevelText : previous.text ?? [],
+    cost: Number.isSafeInteger(reported) && reported >= 0 ? reported : previous.cost, ...(withheld && { withheld }),
+    ...(similarity && { similarity }) };
+}
+
+export function historyResearchOutput(snapshot, run) {
+  const output = researchOutput(snapshot, run);
+  if (run.steps.length) return output;
+  const rows = Array.isArray(snapshot.steps) ? snapshot.steps.slice(0, 8) : [];
+  const names = new Set();
+  const steps = [];
+  for (const row of rows) {
+    if (!['mediaCaptioning', 'transcription', 'audioCaptioning'].includes(row?.$type) ||
+        typeof row.name !== 'string' || !boundedToken.test(row.name) || names.has(row.name)) continue;
+    names.add(row.name);
+    const step = acceptStep(row, undefined, { name: row.name, $type: row.$type }, 'unknown');
+    if (step.lines.length || step.transcriptScope) steps.push(step);
+  }
+  const stepText = new Set(steps.flatMap(step => step.lines));
+  return { ...output, steps, text: output.text.filter(line => !stepText.has(line)), civitaiHistoryOnly: true,
+    ...(rows.some(row => row?.$type === 'multimodalEmbedding' && row.status === 'succeeded' &&
+      Array.isArray(row.output?.embedding)) && { historyIncludesEmbeddings: true }) };
+}
+
+async function planBody(plan, recoveryStep) {
+  const original = appEstimateBody(plan);
+  const names = new Set();
+  for (const step of original.steps) {
+    if (!step || !boundedToken.test(step.name ?? '') || names.has(step.name) || !supportedSteps.includes(step.$type) ||
+        !step.input || typeof step.input !== 'object' || Array.isArray(step.input)) throw new Error('Choose a supported research workflow.');
+    names.add(step.name);
+  }
+  const body = recoveryStep ? markWorkflowBody(original, recoveryStep) : original;
+  const json = JSON.stringify(body);
+  const bytes = new TextEncoder().encode(json);
+  if (bytes.length > 150_000) throw new Error('Choose fewer sources to prepare this workflow.');
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return { body: JSON.parse(json), steps: original.steps,
+    hash: [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('') };
+}
+
+export function createWorkflowSession({ client, journal, origin, browsingLevel, now = Date.now, operationId = () => crypto.randomUUID() }) {
+  if (!SITE_ORIGINS.includes(origin)) throw new TypeError('Expected a Civitai site origin.');
+  let run;
+  let draft;
+  let snapshot;
+  let previousSnapshot;
+  let retryBody;
+  let recoveryNext;
+  let receiptPending = false;
+  let busy;
+  let command;
+  const canRead = record => browsingLevel === undefined || visibleRating(record?.browsingLevel, browsingLevel);
+  const retryDeadline = () => run?.createdAt + retryLifetime;
+  const retryAvailable = () => run?.status === 'unknown' && canRead(run) && now() < retryDeadline();
+  const supportsRecovery = typeof client.list === 'function' && typeof client.inspect === 'function';
+  const recoveryAvailable = () => supportsRecovery && run?.status === 'unknown' && Boolean(run.recoveryStep) && canRead(run);
+
+  function outputFor(reply, record, previous) {
+    return canRead(record) ? researchOutput(reply, record, previous) : {
+      steps: [], text: [], cost: record.receipt?.total ?? null, restricted: true,
+    };
+  }
+
+  async function exclusive(action, callback) {
+    if (busy) throw new Error('A research action is already in progress.');
+    busy = action;
+    command = new AbortController();
+    try { return await callback(command.signal); }
+    finally { busy = undefined; command = undefined; }
+  }
+
+  async function save(value) {
+    run = value;
+    receiptPending = true;
+    await journal.write(value);
+    receiptPending = false;
+  }
+
+  function requireSavedReceipt() {
+    if (receiptPending) throw new Error('Save the current receipt before using another workflow action.');
+  }
+
+  async function apply(reply, { retry = false } = {}) {
+    if (reply?.throttled === true) {
+      const error = new Error('Civitai is limiting workflow status requests.');
+      error.code = 'workflow-throttled';
+      error.retryAfter = reply.retryAfter;
+      throw error;
+    }
+    if (!providerStates.has(reply?.status)) throw new Error('The workflow status could not be confirmed.');
+    if (reply.workflowId === 'failed' && reply.status === 'failed' && !run.workflowId) {
+      const price = quotePrice({ status: 'pending', cost: reply.cost });
+      if (retry) throw new Error('Civitai refused the retry. The original submission is still unconfirmed.');
+      if (!price || reply.submissionUnconfirmed === true) throw new Error('Civitai could not confirm the submission outcome.');
+      retryBody = undefined;
+      await save({ ...run, status: 'refused', refusalPrice: { ...price, observedAt: now() } });
+      return;
+    }
+    if (!isWorkflowId(reply.workflowId) || (run.workflowId && run.workflowId !== reply.workflowId)) {
+      throw new Error('The workflow identity could not be confirmed.');
+    }
+    if (run.workflowId && runFinished(run.status) && !runFinished(reply.status)) return;
+    const receipt = reportedReceipt(reply, run.receipt, now);
+    const updated = { ...run, workflowId: reply.workflowId, status: reply.status, ...(receipt && { receipt }) };
+    snapshot = outputFor(reply, updated, snapshot);
+    retryBody = undefined;
+    recoveryNext = undefined;
+    if (run.workflowId !== updated.workflowId || run.status !== updated.status || run.receipt !== updated.receipt) await save(updated);
+  }
+
+  async function submit(body, signal, { retry = false } = {}) {
+    try {
+      const reply = await client.submit(body, run.operationId, signal);
+      signal.throwIfAborted();
+      await apply(reply, { retry });
+    } catch (error) {
+      if (run.status === 'submitting') await save({ ...run, status: 'unknown' });
+      throw error;
+    }
+  }
+
+  async function estimate(body, signal) {
+    signal.throwIfAborted();
+    const reply = await client.estimate(body, signal);
+    signal.throwIfAborted();
+    const price = quotePrice(reply);
+    if (!price) throw new Error(quoteRefusals.get(reply?.errorCode) ?? 'Civitai could not price this workflow.');
+    return price;
+  }
+
+  async function reconcile(signal, resume = false) {
+    if (!recoveryAvailable()) return false;
+    const { snapshot: reply, next } = await findOriginalWorkflow(client, run, signal, resume ? recoveryNext : undefined);
+    signal.throwIfAborted();
+    if (resume) recoveryNext = next;
+    if (!reply) return false;
+    await apply(reply);
+    return true;
+  }
+
+  return {
+    state: () => ({ busy, run, snapshot, previousSnapshot, outputsAccessible: !run || canRead(run),
+      retryAvailable: retryAvailable(), recoveryAvailable: recoveryAvailable(), recoveryContinuing: Boolean(recoveryNext),
+      originalInTab: Boolean(retryBody), receiptPending,
+      quote: draft ? { price: draft.price, title: draft.title, expiresAt: draft.expiresAt, retry: Boolean(draft.retry),
+        revised: Boolean(draft.revised) } : null }),
+    restore: () => exclusive('restoring', async signal => {
+      const saved = await journal.read({ signal });
+      signal.throwIfAborted();
+      run = workflowRecord(saved, origin);
+      snapshot = undefined;
+      previousSnapshot = undefined;
+      retryBody = undefined;
+      recoveryNext = undefined;
+      receiptPending = false;
+    }),
+    prepare: (plan, sources, { continueRun = false } = {}) => exclusive('quoting', async signal => {
+      requireSavedReceipt();
+      if (run && !runFinished(run.status)) throw new Error('Resolve the current run before starting another.');
+      if (continueRun && (!run?.workflowId || !canRead(run))) throw new Error('Check the prior results before preparing a synthesis.');
+      draft = undefined;
+      const id = supportsRecovery ? operationId() : undefined;
+      const recoveryStep = supportsRecovery ? await workflowRecoveryStep(id) : undefined;
+      const { body, hash, steps } = await planBody(plan, recoveryStep);
+      const checkedSources = sources.slice(0, 18).map(source => safeSource(source, origin)).filter(Boolean);
+      const primary = steps.find(step => step.$type === 'multimodalEmbedding' && step.name === plan.similarity?.anchor);
+      const similarity = primary ? normalizeSimilarity({ ...plan.similarity, model: primary.input.model, dimensions: primary.input.dimensions },
+        steps, checkedSources) : null;
+      if (plan.similarity && !similarity) throw new Error('Choose public sources for the similarity comparison.');
+      const price = await estimate(body, signal);
+      draft = { body, hash, price, title: text(plan.title, 180), expiresAt: now() + quoteLifetime,
+        sources: checkedSources, similarity, operationId: id, recoveryStep,
+        steps: steps.map(({ name, $type }) => stepRecord({ ...plan.stepEvidence?.[name], name, $type }, checkedSources)),
+        previous: continueRun ? normalizeRun(run, origin) : undefined };
+    }),
+    discardQuote() {
+      const checkingQuote = busy === 'quoting' || busy === 'confirming';
+      const hadQuote = Boolean(draft || checkingQuote);
+      draft = undefined;
+      if (checkingQuote) command?.abort();
+      return hadQuote;
+    },
+    confirm: () => exclusive('confirming', async signal => {
+      requireSavedReceipt();
+      const approved = draft;
+      draft = undefined;
+      if (!approved || now() >= approved.expiresAt) throw new Error('Get a current quote before confirming.');
+      if (approved.retry) {
+        if (!retryAvailable() || run.bodyHash !== approved.hash || run.operationId !== approved.retry) {
+          throw new Error('The original submission can no longer be retried safely.');
+        }
+        if (await reconcile(signal)) return;
+        if (!retryAvailable() || now() >= approved.expiresAt) {
+          throw new Error('The retry estimate expired while checking history. Review a new estimate if the retry window is still open.');
+        }
+      } else if (run && !runFinished(run.status)) {
+        throw new Error('Resolve the current run before starting another.');
+      }
+      let price;
+      try {
+        price = await estimate(approved.body, signal);
+      } catch (error) {
+        if (!signal.aborted && now() < approved.expiresAt) draft = approved;
+        throw error;
+      }
+      const checkedAt = now();
+      if (checkedAt >= approved.expiresAt) throw new Error('The estimate expired during the price check. Get a new quote.');
+      if (price.total !== approved.price.total || price.authorFee !== approved.price.authorFee) {
+        draft = { ...approved, price, revised: true,
+          expiresAt: Math.min(checkedAt + quoteLifetime, approved.retry ? retryDeadline() : Infinity) };
+        return;
+      }
+      busy = 'submitting';
+      if (approved.retry) {
+        const reviewed = { ...run, retryQuote: { ...approved.price, observedAt: now() } };
+        await journal.write(reviewed);
+        run = reviewed;
+        signal.throwIfAborted();
+        if (now() >= approved.expiresAt) throw new Error('The retry estimate expired before submission. Review a new estimate.');
+        await submit(approved.body, signal, { retry: true });
+        return;
+      }
+      const nextRun = {
+        schema: 1, origin, operationId: approved.operationId ?? operationId(), bodyHash: approved.hash, createdAt: now(), status: 'submitting', workflowId: null,
+        title: approved.title, quote: approved.price, sources: approved.sources,
+        steps: approved.steps,
+        ...(approved.recoveryStep && { recoveryStep: approved.recoveryStep }),
+        ...(approved.similarity && { similarity: approved.similarity }),
+        ...(visibleRating(browsingLevel, 63) && { browsingLevel }),
+        ...(approved.previous && { previous: approved.previous }),
+      };
+      if (!workflowRecord(nextRun, origin)) throw new Error('The workflow could not be recorded safely.');
+      await journal.write(nextRun);
+      run = nextRun;
+      previousSnapshot = approved.previous ? snapshot : undefined;
+      snapshot = undefined;
+      if (signal.aborted || now() >= approved.expiresAt) {
+        const stopped = { ...nextRun, status: 'not-started' };
+        run = { ...nextRun, status: 'unknown' };
+        await journal.write(stopped);
+        run = stopped;
+        signal.throwIfAborted();
+        throw new Error('The estimate expired before submission. Get a new quote.');
+      }
+      retryBody = approved.body;
+      await submit(approved.body, signal);
+    }),
+    prepareRetry: plan => exclusive('quoting', async signal => {
+      requireSavedReceipt();
+      if (run?.status === 'unknown' && !canRead(run)) throw new Error('Restore the original browsing access to review this retry.');
+      if (!retryAvailable()) {
+        throw new Error('The original submission can no longer be retried safely.');
+      }
+      draft = undefined;
+      if (await reconcile(signal)) return;
+      if (!retryAvailable()) throw new Error('The original retry window closed while checking Civitai history.');
+      if (!retryBody && !plan) throw new Error('Recreate the original Deep Search picks to review a retry.');
+      const { body, hash } = retryBody ? { body: retryBody, hash: run.bodyHash } : await planBody(plan, run.recoveryStep);
+      if (hash !== run.bodyHash) throw new Error('Choose the original workflow to check its submission.');
+      const price = await estimate(body, signal);
+      if (!retryAvailable()) throw new Error('The original retry window closed while Civitai priced the workflow.');
+      draft = { body, hash, price, title: run.title, retry: run.operationId,
+        expiresAt: Math.min(now() + quoteLifetime, retryDeadline()) };
+    }),
+    recoverOriginal: () => exclusive('reconciling', async signal => {
+      requireSavedReceipt();
+      if (!recoveryAvailable()) throw new Error('The current receipt is unavailable for automatic recovery.');
+      if (!await reconcile(signal, true) && !recoveryNext) {
+        throw new Error('Civitai did not confirm the original run in this history check. The submission remains unresolved.');
+      }
+    }),
+    archiveUnconfirmed: () => exclusive('archiving', async () => {
+      requireSavedReceipt();
+      if (run?.status !== 'unknown') return;
+      const archived = { ...run, status: 'unconfirmed' };
+      await journal.write(archived);
+      run = archived;
+      draft = undefined;
+      retryBody = undefined;
+      recoveryNext = undefined;
+    }),
+    saveReceiptAgain: () => exclusive('saving', async signal => {
+      if (!receiptPending) return;
+      const saved = workflowRecord(await journal.read({ signal }), origin);
+      signal.throwIfAborted();
+      if (saved?.operationId !== run.operationId || saved.bodyHash !== run.bodyHash || saved.status === 'unconfirmed' ||
+          saved.workflowId && run.workflowId && saved.workflowId !== run.workflowId) {
+        throw new Error('The saved run changed in another session. Copy this receipt to keep its details.');
+      }
+      const savedProviderState = saved.workflowId && (!run.workflowId || runFinished(saved.status));
+      const savedRefusal = !run.workflowId && runFinished(saved.status);
+      const base = savedProviderState || savedRefusal ? saved : run;
+      const latest = {};
+      const fields = ['retryQuote', ...(base.workflowId ? ['receipt'] : base.status === 'refused' ? ['refusalPrice'] : [])];
+      for (const field of fields) {
+        const first = run[field];
+        const second = saved[field];
+        const value = first && (!second || first.observedAt >= second.observedAt) ? first : second;
+        if (value) latest[field] = value;
+      }
+      if (base.workflowId) retryBody = undefined;
+      await save({ ...base, ...latest });
+    }),
+    refresh: () => exclusive('checking', async signal => {
+      if (run?.workflowId) await apply(await client.poll(run.workflowId, signal));
+    }),
+    refreshPrevious: () => exclusive('checking', async signal => {
+      const previous = run?.previous;
+      if (!previous?.workflowId) return;
+      const reply = await client.poll(previous.workflowId, signal);
+      if (reply?.workflowId !== previous.workflowId || !runFinished(reply.status)) throw new Error('Civitai could not confirm the previous run.');
+      const receipt = reportedReceipt(reply, previous.receipt, now);
+      const checked = receipt === previous.receipt ? previous : { ...previous, receipt };
+      previousSnapshot = outputFor(reply, checked, previousSnapshot);
+      if (checked !== previous) await save({ ...run, previous: checked });
+    }),
+    cancel: () => exclusive('canceling', async signal => {
+      if (!run?.workflowId || runFinished(run.status)) return;
+      const reply = await client.cancel(run.workflowId, signal);
+      if (reply?.throttled) throw new Error('Civitai did not issue the cancellation. The run can still be active.');
+      await apply(reply);
+    }),
+    stopChecking: () => command?.abort(),
+  };
+}

@@ -1,0 +1,16 @@
+{
+  "name": "rasterraid",
+  "version": "0.0.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "verify:bundle": "node scripts/verify-release.mjs",
+    "dev": "node --use-system-ca scripts/serve.mjs",
+    "test": "node --test",
+    "refresh:filters": "node --use-system-ca scripts/refresh-filter-options.mjs",
+    "probe": "node --use-system-ca scripts/probe-hosts.mjs",
+    "quotes": "node --use-system-ca scripts/quote-research.mjs"
+  },
+  "engines": { "node": ">=24" }
+}
