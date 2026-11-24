@@ -9,7 +9,6 @@ const command = process.platform === 'win32' ? 'civitai.exe' : 'civitai';
 export async function runCivitai(cli, origin, args) {
   if (!SITE_ORIGINS.includes(origin)) throw new TypeError('Choose a supported Civitai host.');
   const env = { ...process.env, CIVITAI_BASE_URL: origin };
-  let cwd = new URL('..', import.meta.url);
   if (cli && cli !== 'civitai' && cli !== command) {
     const installed = resolve(cli);
     const directory = dirname(installed);
@@ -19,10 +18,9 @@ export async function runCivitai(cli, origin, args) {
     }
     const key = Object.keys(env).find(name => name.toLowerCase() === 'path') ?? 'PATH';
     env[key] = directory;
-    cwd = directory;
   }
   const { stdout } = await run(command, ['--no-update-check', '--no-color', ...args], {
-    cwd, env, shell: false,
+    cwd: new URL('..', import.meta.url), env, shell: false,
     timeout: 20_000, maxBuffer: 32_768, windowsHide: true,
   });
   return stdout;
