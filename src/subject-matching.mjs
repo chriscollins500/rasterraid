@@ -1,4 +1,4 @@
-import { visualRegion } from './visual-analysis.mjs';
+import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
 import { subjectDownloadBytes, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 
 const idleLifetime = 120_000;
@@ -10,8 +10,7 @@ export function subjectMatchAvailable() {
 
 async function readPreview(cover, signal) {
   const response = await fetch(cover, {
-    credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-cache',
-    signal: AbortSignal.any([signal, AbortSignal.timeout(5500)]),
+    credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-cache', signal,
   });
   if (!response.ok) throw new Error('The public preview is unavailable.');
   return response.blob();
@@ -20,9 +19,22 @@ async function readPreview(cover, signal) {
 async function previewPixels(document, { id, cover, file, region }, signal) {
   signal.throwIfAborted();
   if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
-  const image = await createImageBitmap(file ?? await readPreview(cover, signal));
+  const previewSignal = file ? signal : AbortSignal.any([signal, AbortSignal.timeout(5500)]);
+  const preview = file ?? await readPreview(cover, previewSignal);
+  let previewUrl;
+  let image;
   try {
-    signal.throwIfAborted();
+    if (!file) {
+      try {
+        previewUrl = URL.createObjectURL(preview);
+        image = await loadPublicPreview(document, previewUrl, previewSignal);
+      } catch {
+        // Some opaque-origin frames reject local image URLs. Decode the same bytes below.
+        previewSignal.throwIfAborted();
+      }
+    }
+    image ??= await createImageBitmap(preview);
+    previewSignal.throwIfAborted();
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = subjectSide;
     const drawing = canvas.getContext('2d', { alpha: false });
@@ -36,7 +48,8 @@ async function previewPixels(document, { id, cover, file, region }, signal) {
     } else drawing.drawImage(image, 0, 0, subjectSide, subjectSide);
     return { id, rgba: drawing.getImageData(0, 0, subjectSide, subjectSide).data };
   } finally {
-    image.close();
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    image?.close?.();
   }
 }
 

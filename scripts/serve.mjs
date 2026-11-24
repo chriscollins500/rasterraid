@@ -194,7 +194,7 @@ const server = createServer({ maxHeaderSize: 16_384 }, async (request, response)
     ...(privateMock ? {} : { 'Access-Control-Allow-Origin': '*' }),
     'Content-Security-Policy': "default-src 'none'; script-src 'self' " + bundleOrigin + " 'wasm-unsafe-eval'; worker-src data: " + bundleOrigin +
       "; style-src 'self'; connect-src 'self' https://civitai.com https://civitai.red https://image.civitai.com https://blobs-b2.civitai.com " +
-      [orchestrationOrigin, publicFeedOrigin, ...subjectAssetOrigins].join(' ') + "; img-src https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " +
+      [orchestrationOrigin, publicFeedOrigin, ...subjectAssetOrigins].join(' ') + "; img-src blob: https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " +
       (privateMock ? "'none'" : SITE_ORIGINS.join(' ')) + "; object-src 'none'; base-uri 'none'; form-action 'none'",
   });
   response.end(request.method === 'GET' ? asset.body : undefined);
