@@ -74,12 +74,16 @@ export function configureSubjectComparison(document, onComplete) {
     stop.hidden = false;
     status.textContent = 'Reading the previews…';
     try {
-      const ranked = await matcher.rank({ reference, sample }, { signal: attempt.signal, onProgress: ({ phase, loaded }) => {
+      const ranked = await matcher.rank({ reference, sample }, { signal: attempt.signal, onProgress: ({ phase, loaded, total, provider, done }) => {
         if (active !== attempt) return;
         progress.hidden = phase !== 'loading';
-        if (phase === 'loading') progress.value = loaded;
+        if (phase === 'loading') {
+          progress.max = total;
+          progress.value = loaded;
+        }
         const message = phase === 'loading' ? 'Downloading the on-device matcher…'
-          : phase === 'starting' ? 'Preparing the matching model…' : 'Comparing subjects…';
+          : phase === 'starting' ? 'Preparing the matching model…'
+            : provider === 'wasm' ? 'Comparing subjects · ' + done + ' of ' + total + ' previews' : 'Comparing subjects…';
         if (status.textContent !== message) status.textContent = message;
       } });
       if (active !== attempt) return;

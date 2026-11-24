@@ -1,11 +1,10 @@
 import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
-import { subjectDownloadBytes, subjectSide } from './subject-artifacts.mjs';
+import { subjectDownloadBytes, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 
 const idleLifetime = 120_000;
 
 export function subjectMatchAvailable() {
-  return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && globalThis.navigator?.gpu &&
-    typeof Worker === 'function' && typeof WebAssembly.Suspending === 'function' && typeof WebAssembly.promising === 'function');
+  return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && typeof Worker === 'function' && subjectWasmAvailable());
 }
 
 async function previewPixels(document, { id, cover, file, region }, signal) {
@@ -54,7 +53,8 @@ function matchInWorker(worker, prepared, signal, onProgress) {
     const canceled = () => finish(reject, signal.reason);
     const failed = () => finish(reject, new Error('Subject matching is unavailable right now.'));
     const received = ({ data }) => {
-      if (data?.phase === 'loading' && Number.isSafeInteger(data.loaded) && data.loaded >= 0 && data.loaded <= subjectDownloadBytes) {
+      if (data?.phase === 'loading' && Number.isSafeInteger(data.total) && data.total > 0 && data.total <= subjectDownloadBytes &&
+          Number.isSafeInteger(data.loaded) && data.loaded >= 0 && data.loaded <= data.total) {
         onProgress(data);
         return;
       }
@@ -63,7 +63,7 @@ function matchInWorker(worker, prepared, signal, onProgress) {
         return;
       }
       if (data?.phase === 'unavailable') {
-        finish(reject, new Error('This device has no compatible browser GPU for subject matching.'));
+        finish(reject, new Error('This browser cannot run the on-device model.'));
       } else if (data?.phase === 'complete' && ids && Array.isArray(data.matches) && data.matches.length === ids.size &&
           data.matches.every(row => Number.isFinite(row?.score) && ids.delete(row.id))) {
         finish(resolve, data.matches);

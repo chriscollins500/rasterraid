@@ -16,4 +16,17 @@ export const subjectWasm = Object.freeze({
   sha256: 'b89a3efceeb6df2ba29a66fef59f48fd7b7c22a62af54c3cfe05e63863a07fd5',
 });
 
-export const subjectDownloadBytes = subjectVisionModel.bytes + subjectWasm.bytes;
+export const subjectCpuWasm = Object.freeze({
+  url: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.31.1/dist/ort-wasm-simd-threaded.wasm',
+  bytes: 14_848_852,
+  sha256: '4b884c203b0fa48d057be3332c65513ff85aa3c5bddd6946acc0fab7ecda001d',
+});
+
+export const subjectDownloadBytes = subjectVisionModel.bytes + Math.max(subjectWasm.bytes, subjectCpuWasm.bytes);
+
+export function subjectWasmAvailable() {
+  // Validate a minimal function with a SIMD instruction before fetching large artifacts.
+  return typeof globalThis.WebAssembly?.validate === 'function' &&
+    WebAssembly.validate(Uint8Array.of(0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10,
+      10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11));
+}

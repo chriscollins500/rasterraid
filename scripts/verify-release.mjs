@@ -13,6 +13,8 @@ const digest = createHash('sha256');
 const subjectVendor = Object.freeze({
   'src/vendor/ort/ort.jspi.min.mjs': '722bdee68871a7787afbd667ea2d65a1261f635455b601bc8a1a4e65f22ea46d',
   'src/vendor/ort/ort-wasm-simd-threaded.jspi.mjs': '8f92b3c5e3723237007252f6d7079f639159ffe2a29324836472f0aae5a25071',
+  'src/vendor/ort/ort.wasm.min.mjs': 'c21d9c326d453a4a61398270c804d5979e118540597cb0c07f7b3d64e6098234',
+  'src/vendor/ort/ort-wasm-simd-threaded.mjs': '30ed0b5cd1182ede931fea448afb567d4dc705ec957af09f108a2be5f770dac3',
   'src/vendor/ort/ort-static-emval.mjs': '8ccfdd306e038d989c151a1ba15b77822f805381ee57192577b725e6b5db04fc',
 });
 
