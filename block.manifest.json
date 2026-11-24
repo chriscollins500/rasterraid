@@ -5,6 +5,8 @@
   "name": "RasterRaid",
   "tagline": "Search Civitai and see how results connect.",
   "description": "Search Civitai models, media, guides, and other public listings. Build reports with exact source links, save your picks, and see live Deep Search prices.",
+  "repository": "https://github.com/chriscollins500/rasterraid",
+  "bugs": "https://github.com/chriscollins500/rasterraid/issues",
   "category": "utility",
   "contentRating": "pg13",
   "scopes": ["ai:write:budgeted", "collections:read:self", "collections:read:private", "apps:storage"],
