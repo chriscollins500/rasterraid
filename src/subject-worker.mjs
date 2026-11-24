@@ -159,7 +159,10 @@ const runtime = loadRuntime().catch(() => {
   return null;
 });
 let matching = false;
-self.addEventListener('message', async ({ data }) => {
+self.addEventListener('message', async event => {
+  // The browser's dedicated-worker port sends trusted messages without a window origin or source.
+  if (!event.isTrusted || event.origin !== '' || event.source !== null || event.ports.length !== 0) return;
+  const { data } = event;
   if (matching) {
     self.postMessage({ phase: 'failed' });
     return;
