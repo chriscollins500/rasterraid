@@ -6,17 +6,24 @@ const libraryScopes = new Set(['ownedModels', 'vault', 'saved', 'downloads', 'cr
 const unavailableGallery = new Set(['gallery-unavailable', 'tag-unavailable', 'source-unavailable']);
 
 function transient(status) {
-  return status == null || status === 408 || status === 429 || status >= 500 && status <= 599;
+  return status == null || status === 408 || status === 429 || status >= 500 && status <= 599 ||
+    ['timeout', 'unavailable', 'partial', 'format'].includes(status);
+}
+
+export function catalogSearchFailure(result) {
+  if (result.library || result.serviceCatalog?.missing) return null;
+  const failures = result.flows?.flatMap(flow => flow.status === 200 || flow.missing ? [] : [flow.status]) ?? [];
+  if (unavailableGallery.has(result.gallery?.status)) failures.push(result.gallery.failureStatus);
+  if (result.gallery?.incomplete || result.gallery?.throttled || result.serviceCatalog?.partial ||
+      ['incomplete', 'unavailable'].includes(result.hashStatus) || ['unavailable', 'partial'].includes(result.quickCatalog?.status) ||
+      failures.some(transient)) return 'retryable';
+  return failures.length ? 'unavailable' : null;
 }
 
 export function reportSourceFailure(result, status) {
   if (!result) return transient(status) ? 'retryable' : 'unavailable';
   if (result.library) return 'unavailable';
-  const failures = result.flows?.filter(flow => flow.status !== 200) ?? [];
-  if (failures.length) return failures.some(flow => transient(flow.status)) ? 'retryable' : 'unavailable';
-  if (result.gallery?.incomplete || result.gallery?.throttled || result.serviceCatalog?.partial ||
-      unavailableGallery.has(result.gallery?.status) || ['incomplete', 'unavailable'].includes(result.hashStatus)) return 'retryable';
-  return result.gallery?.partial ? 'unavailable' : null;
+  return catalogSearchFailure(result) ?? (result.gallery?.partial || result.flows?.some(flow => flow.status === 404) ? 'unavailable' : null);
 }
 
 function viewKey(context) {

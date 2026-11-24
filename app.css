@@ -151,6 +151,10 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .primary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 46px; padding: 9px 17px; border: 1px solid transparent; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 800; white-space: nowrap; }
 .primary:hover:not(:disabled) { filter: brightness(1.065); }
 .search-tools { display: grid; gap: 10px; margin-top: 10px; }
+.search-tools[inert] { opacity: .54; }
+.startup-status, .startup-recovery { margin: 8px 0 0; color: var(--text); font-size: .87rem; }
+.startup-recovery { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 12px; }
+#startup-status:has(~ noscript .startup-status) { display: none; }
 #search-form[data-with-picture] #search-examples { display: none; }
 #search-form[data-with-picture] #visual-reference-setup { order: -1; }
 .catalog-order { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: fit-content; color: var(--text); font-size: .84rem; font-weight: 650; }
@@ -466,6 +470,23 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .story-reference-preview { display: block; width: 92px; height: 66px; object-fit: cover; border-radius: 5px; margin-block: 2px 4px; }
 .story-plan > button { justify-self: start; }
 .report-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); gap: 9px; }
+.subject-comparison ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr)); gap: 8px;
+  list-style: none; margin: 9px 0; padding: 0; }
+.subject-comparison ol:empty { display: none; }
+.subject-reference-choice { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px; color: var(--text); }
+.subject-reference-choice select { max-width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--control-border);
+  border-radius: 7px; padding: 5px 8px; }
+.subject-comparison [role="status"]:empty { position: absolute; }
+.subject-comparison progress { display: block; width: min(100%, 26rem); height: 10px; margin-block: 8px; accent-color: var(--accent); }
+.subject-comparison li { min-width: 0; }
+.subject-comparison li a { display: grid; overflow: hidden; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--field); color: var(--fg); font-size: .8rem; overflow-wrap: anywhere; }
+.subject-thumbnail { display: grid; place-items: center; position: relative; aspect-ratio: 2 / 1; background: var(--surface-up); }
+.subject-thumbnail img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.subject-rank { position: absolute; top: 5px; left: 5px; min-width: 1.45rem; text-align: center; border-radius: 5px;
+  padding: 1px 4px; background: #141521; color: #fff; }
+.subject-source { display: block; padding: 5px 8px; }
+.subject-source:last-child:is(small) { padding-top: 0; color: var(--text); }
 .report-source-card { display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); }
 .report-source-card a, .report-anchor a, .report-connection a { overflow-wrap: anywhere; font-size: .83rem; }
 .report-source-card > a, .report-connection > a { min-block-size: 28px; padding-block: 4px; }

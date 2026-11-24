@@ -248,16 +248,16 @@ const publishedPrompt = row => row.meta?.meta?.prompt ?? row.meta?.prompt;
 
 async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit = 24, describe = false }) {
   const { origin, hosted, token } = context;
-  if (hosted && !token) throw new CatalogError('Waiting for Civitai to connect gallery access.');
+  const appCatalog = hosted && Boolean(token);
   const ceiling = hosted ? context.browsingLevel ?? 1 : 31;
   const { type, tags, requiredTags = [], hasPublishedPrompt, exampleSource, ...params } = plan;
   const selectedTags = [...new Set([...requiredTags, ...tags])];
   const baseModels = new Set(galleryBaseModels(params.baseModels));
   const creator = params.username?.toLowerCase();
-  const { data } = await catalogRead(origin, hosted ? CATALOG.blockImages : CATALOG.images, {
+  const { data } = await catalogRead(origin, appCatalog ? CATALOG.blockImages : CATALOG.images, {
     ...params, type, cursor, tags: selectedTags.join(','), limit, withTags: true,
     ...(hasPublishedPrompt && { withMeta: true }),
-    ...(hosted ? {} : { browsingLevel: ceiling }),
+    ...(appCatalog ? {} : { browsingLevel: ceiling }),
   }, { token, signal, fetcher });
   const next = data.metadata?.nextCursor;
   return {
@@ -340,23 +340,24 @@ export async function readAppMediaByIds(context, ids, { withTags = false, withSe
   return exactMediaRows(data, requested, context.origin, context.browsingLevel ?? 1, { withTags, withSetup });
 }
 
-export async function readExampleMedia(context, ids, options = {}) {
-  if (context.hosted) return { items: await readAppMediaByIds(context, ids, { ...options, withSetup: true }), partial: false };
+export async function readExampleMedia(context, ids, { withSetup = true, ...options } = {}) {
+  if (context.hosted && context.token) return { items: await readAppMediaByIds(context, ids, { ...options, withSetup }), partial: false };
+  const ceiling = context.hosted ? context.browsingLevel ?? 1 : 31;
   const responses = await Promise.allSettled(ids.map(async imageId => {
-    const { data } = await catalogRead(context.origin, CATALOG.images, { imageId, limit: 1, withMeta: true, browsingLevel: 31 }, options);
-    return exactMediaRows(data, new Set([imageId]), context.origin, 31, { withSetup: true });
+    const { data } = await catalogRead(context.origin, CATALOG.images, { imageId, limit: 1, withMeta: true, browsingLevel: ceiling }, options);
+    return exactMediaRows(data, new Set([imageId]), context.origin, ceiling, { withSetup });
   }));
   options.signal?.throwIfAborted();
   return { items: responses.flatMap(row => row.status === 'fulfilled' ? row.value : []),
-    partial: responses.some(row => row.status === 'rejected') };
+    partial: responses.some(row => row.status === 'rejected'),
+    throttled: responses.some(row => row.status === 'rejected' && row.reason?.status === 429) };
 }
 
 export async function readGalleryVersionParents(context, ids, options = {}) {
   const { origin, hosted, token } = context;
   const parents = new Map();
   if (!ids.length) return parents;
-  if (hosted) {
-    if (!token) throw new CatalogError('Waiting for Civitai to connect model access.');
+  if (hosted && token) {
     const { data } = await catalogRead(origin, CATALOG.blockModels, { modelVersionIds: ids.join(','), limit: ids.length }, { ...options, token });
     for (const model of listItems(data)) {
       if (!numericId(model?.id) || !Array.isArray(model.modelVersions)) continue;
@@ -371,14 +372,16 @@ export async function readGalleryVersionParents(context, ids, options = {}) {
     for (const [index, reply] of replies.entries()) {
       if (reply.status !== 'fulfilled') continue;
       const { data } = reply.value;
-      if (data?.id === ids[index] && numericId(data.modelId)) parents.set(data.id, data.modelId);
+      if (data?.id !== ids[index] || !numericId(data.modelId)) continue;
+      if (hosted && (data.status !== 'Published' || data.availability && data.availability !== 'Public' ||
+          !visibleRating(data.browsingLevel ?? data.nsfwLevel, context.browsingLevel ?? 1))) continue;
+      parents.set(data.id, data.modelId);
     }
   }
   return parents;
 }
 
 async function checkGalleryRelease(context, modelId, versionId, options) {
-  if (context.hosted && !context.token) return 'source-unavailable';
   const parentId = (await readGalleryVersionParents(context, [versionId], options)).get(versionId);
   return !numericId(parentId) ? 'source-unavailable' : parentId === modelId ? 'ready' : 'source-conflict';
 }
@@ -416,9 +419,11 @@ export async function prepareGallery(context, target, filters, options = {}) {
   if (gallery.status === 'ready' && plan.modelId && plan.modelVersionId) {
     try {
       gallery.status = await checkGalleryRelease(context, plan.modelId, plan.modelVersionId, options);
+      if (gallery.status === 'source-unavailable') gallery.failureStatus = 'unverified';
     } catch (error) {
       options.signal?.throwIfAborted();
       gallery.status = 'source-unavailable';
+      gallery.failureStatus = error.status ?? null;
       if (error.status === 429) gallery.throttled = true;
     }
   }
@@ -474,10 +479,13 @@ export async function prepareGallery(context, target, filters, options = {}) {
         const matched = new Set(gallery.tags.flatMap(tag => phrase(tag.name).split(' ')));
         gallery.partial = !gallery.correctedTag && words.some(word => !matched.has(word));
         if (!gallery.tags.length && !plan.ranking && !hasLinkedFilters) gallery.status = 'no-tag';
-      } catch {
+      } catch (error) {
         options.signal?.throwIfAborted();
         if (hasLinkedFilters) gallery.incomplete = gallery.partial = true;
-        else gallery.status = 'tag-unavailable';
+        else {
+          gallery.status = 'tag-unavailable';
+          gallery.failureStatus = error.status ?? null;
+        }
       }
     }
     plan.tags = gallery.tags.map(tag => tag.id);
@@ -513,6 +521,7 @@ export async function discoverGallery(context, target, filters, options = {}) {
     } catch (error) {
       options.signal?.throwIfAborted();
       gallery.status = 'gallery-unavailable';
+      gallery.failureStatus = error.status ?? null;
       if (error.status === 429) gallery.throttled = true;
     }
   }

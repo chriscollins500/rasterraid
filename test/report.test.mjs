@@ -445,6 +445,47 @@ test('preview model tracing respects the chosen sources and preserves first resu
   assert.equal(throttled.report.rails.find(rail => rail.scope === 'models').status, 'partial');
 });
 
+test('guest topic reports independently verify the public preview and model version', async () => {
+  const guest = { ...context, hosted: true, browsingLevel: 1 };
+  const calls = [];
+  const publicVersion = { id: 8, modelId: 4, status: 'Published', availability: 'Public',
+    nsfwLevel: 1, name: 'SDXL', baseModel: 'SDXL 1.0', files: [] };
+  const heldVersion = { ...publicVersion, id: 9, modelId: 5, nsfwLevel: 3 };
+  const result = await discoverReport(guest, { query: 'carved engraving', reportSources: ['models', 'gallery'] }, {
+    discoverSource(_, { scope }) {
+      return { ...empty(scope), related: scope === 'gallery' ? { gallery: [gallery] } : {} };
+    },
+    fetcher(url, request) {
+      assert.equal(request.credentials, 'omit');
+      assert.equal(request.headers.Authorization, undefined);
+      calls.push(url.pathname);
+      if (url.pathname === CATALOG.images) {
+        assert.equal(url.searchParams.get('imageId'), '123');
+        assert.equal(url.searchParams.get('browsingLevel'), '1');
+        assert.equal(url.searchParams.get('withMeta'), 'true');
+        return Response.json({ items: [{ id: 123, type: 'image', url: picture, browsingLevel: 1, postId: 48,
+          meta: { resources: [{ versionId: 8 }, { versionId: 9 }, { versionId: 10 }], prompt: 'omit-guest-picture-prompt' } }] });
+      }
+      if (url.pathname.startsWith('/api/v1/model-versions/')) {
+        if (url.pathname.endsWith('/10')) return Response.json({}, { status: 404 });
+        return Response.json(url.pathname.endsWith('/8') ? publicVersion : heldVersion);
+      }
+      const visible = url.pathname === '/api/v1/models/4';
+      assert.ok(visible || url.pathname === '/api/v1/models/5');
+      return Response.json({ id: visible ? 4 : 5, name: visible ? 'Print' : 'Withheld model name', type: 'LORA',
+        availability: 'Public', nsfwLevel: visible ? 1 : 3, modelVersions: [visible ? publicVersion : heldVersion] });
+    },
+  });
+  assert.equal(calls[0], CATALOG.images);
+  assert.ok(calls.includes('/api/v1/model-versions/8') && calls.includes('/api/v1/models/4'));
+  assert.ok(calls.includes('/api/v1/model-versions/10') && !calls.includes('/api/v1/models/5'));
+  assert.deepEqual(result.candidates.map(model => model.id), [8]);
+  assert.deepEqual(result.report.mediaModelTrace, { previews: 1, links: [candidate.link], partial: false });
+  assert.deepEqual(result.report.connections.map(edge => [edge.kind, ...edge.items.map(item => item.link)]),
+    [['recorded', gallery.link, candidate.link]]);
+  assert.doesNotMatch(reportMarkdown(result.report), /Withheld model name|omit-guest-picture-prompt/u);
+});
+
 test('a model release report joins exact model, picture, clip, and public post reads before quoting a sampled frame', async () => {
   const appContext = { origin, hosted: true, browsingLevel: 3, token: 'read-only-fixture' };
   const reads = [];
@@ -673,6 +714,36 @@ test('trace an exact image reuses its version and reads the public post by ID', 
   assert.deepEqual(result.report.rails.map(rail => rail.status), ['traced', 'traced', 'traced', 'ready']);
   assert.deepEqual(result.report.connections.map(connection => connection.kind), ['recorded', 'post-model', 'post-media']);
   assert.match(reportMarkdown(result.report), /Follows a Civitai reference/u);
+});
+
+test('trace verifies exact post membership before adding a separately listed model', async () => {
+  const recorded = { ...candidate, examples: [] };
+  const listed = { ...recorded, id: 9, modelId: 5, model: 'Post model', link: origin + '/models/5?modelVersionId=9' };
+  const reference = { ...gallery, recorded: [8], associated: [],
+    publishedSetup: { settings: [], recorded: [{ versionId: 8, types: [], weights: [] }], unlinked: [], limited: false } };
+  const filters = { query: gallery.link, reportType: 'trace', reportSources: ['gallery', 'models', 'posts'] };
+  for (const isMember of [false, true]) {
+    const versionChecks = [];
+    const result = await discoverReport({ ...context, hosted: true, browsingLevel: 1 }, filters, {
+      discoverSource(_, { scope, query }) {
+        if (scope === 'all') return { ...empty(scope), reference, candidates: [recorded] };
+        if (query === post.link) return { ...empty(scope), related: { posts: [
+          { ...post, modelVersionId: 9, previews: [], verifiedMediaIds: isMember ? [gallery.id] : [122] },
+        ] } };
+        if (scope === 'models') {
+          versionChecks.push(query);
+          return { ...empty(scope), candidates: [listed] };
+        }
+        return empty(scope);
+      },
+    });
+    assert.deepEqual(versionChecks, isMember ? ['version: 9'] : []);
+    assert.deepEqual(result.candidates.map(model => model.id), isMember ? [8, 9] : [8]);
+    assert.deepEqual(result.report.exampleSetup.recorded.map(row => row.versionId), [8]);
+    assert.deepEqual(result.report.exampleSetup.associated, []);
+    assert.deepEqual(result.report.connections.map(edge => edge.kind),
+      isMember ? ['recorded', 'post-model', 'post-media'] : ['recorded']);
+  }
 });
 
 test('an empty post search joins published picture and clip memberships with only exact post reads', async () => {

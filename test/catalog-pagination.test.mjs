@@ -13,7 +13,8 @@ const listing = (slug, fields = {}) => ({
   category: 'utility', contentRating: 'pg13', kind: 'onsite', ...fields,
 });
 
-test('App Store matches exact names first across provider pages and preserves a failed cursor for retry', async () => {
+test('App Store matches exact names first across provider pages and preserves a failed cursor for retry', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-24T19:30:00Z') });
   const requests = [];
   let failed = false;
   const fetcher = (url, options) => {
@@ -41,6 +42,7 @@ test('App Store matches exact names first across provider pages and preserves a 
   assert.deepEqual(result.related.apps.map(app => app.id), ['wallpaper', 'picture-helper']);
   assert.equal(result.directory.nextCursor, 'page_three');
   assert.equal(result.directoryFacetsPartial, true);
+  t.mock.timers.tick(2_000);
   const page = await readDirectoryPage(context, 'apps', result.directory.plan, {
     fetcher, cursor: result.directory.nextCursor, excluded: new Set(result.related.apps.map(app => app.id)),
   });
@@ -122,6 +124,43 @@ test('free model paging preserves the first ranking, validated filters, and pick
   await assert.rejects(readModelPage({ ...context, viewerUserId: 2 }, result.modelPager.nextCursor, { fetcher }), /access changed/u);
   await assert.rejects(readModelPage({ ...context, browsingLevel: 1 }, result.modelPager.nextCursor, { fetcher }), /access changed/u);
   await assert.rejects(readModelPage(context, {}, { fetcher }), /access changed/u);
+});
+
+test('hosted model search without an App token uses the public catalog on every page', async () => {
+  const guest = { origin, hosted: true, browsingLevel: 1 };
+  const requests = [];
+  const listed = (id, parent = {}, release = {}) => {
+    const entry = { ...model(id), nsfwLevel: 1, ...parent };
+    entry.modelVersions = [{ ...entry.modelVersions[0], nsfwLevel: 1, status: 'Published', ...release }];
+    return entry;
+  };
+  const fetcher = (url, options) => {
+    requests.push([url.pathname, url.searchParams.get('cursor'), options.headers.Authorization, options.credentials]);
+    if (url.pathname === CATALOG.tags) return Response.json({ items: [] });
+    if (url.pathname === CATALOG.images) {
+      assert.equal(url.searchParams.get('browsingLevel'), '1');
+      return Response.json({ items: [
+        { id: 70, url: preview, browsingLevel: 1, needsReview: true },
+        { id: 71, url: preview, browsingLevel: 2 },
+        { id: 72, url: preview, browsingLevel: 1 },
+      ] });
+    }
+    assert.equal(url.pathname, CATALOG.models);
+    assert.equal(url.searchParams.get('nsfw'), 'true');
+    return Response.json(url.searchParams.has('cursor')
+      ? { items: [listed(1), listed(10), listed(11, {}, { availability: 'EarlyAccess' })] }
+      : { items: [listed(1), listed(2, { nsfwLevel: 3 }), listed(3, { nsfwLevel: undefined }),
+        listed(4, {}, { nsfwLevel: 2 }), listed(5, {}, { status: 'Draft' }), listed(6, { mode: 'TakenDown' })],
+      metadata: { nextCursor: 'public-next' } });
+  };
+  const result = await discover(guest, { scope: 'models', query: 'Portrait' }, { fetcher });
+  assert.deepEqual(result.candidates.map(row => [row.id, row.examples.map(example => example.id)]), [[101, [72]]]);
+  const next = await readModelPage(guest, result.modelPager.nextCursor, { fetcher });
+  assert.deepEqual(next.items.map(row => row.id), [110]);
+  assert.equal(next.nextCursor, null);
+  assert.deepEqual(requests.filter(([path]) => path === CATALOG.models).map(([, cursor]) => cursor), [null, 'public-next']);
+  assert.ok(requests.every(([path, , auth, credentials]) => !path.startsWith('/api/v1/blocks/') && !auth && credentials === 'omit'));
+  await assert.rejects(readModelPage({ ...guest, token: 'connected' }, result.modelPager.nextCursor, { fetcher }), /access changed/u);
 });
 
 test('Site model continuations retain the cursor during a shared pause and resume App verification', async t => {
@@ -209,4 +248,53 @@ test('a native search limit honors both Retry-After forms across catalog reads w
   await assert.rejects(catalogRead(origin, CATALOG.tags, {}, { fetcher }), { status: 429, retryAfter: '2' });
   t.mock.timers.tick(2_000);
   assert.equal(catalogPause(origin, fetcher), null);
+});
+
+test('a busy catalog source observes its own cooldown while other sources and hosts keep answering', async t => {
+  const now = Date.parse('2026-11-24T19:30:00Z');
+  t.mock.timers.enable({ apis: ['Date'], now });
+  const calls = [];
+  const fetcher = url => {
+    calls.push(url.origin + url.pathname);
+    if (url.origin === origin && url.pathname === CATALOG.models && !url.searchParams.has('query') && Date.now() < now + 5_000) {
+      return Response.json({}, { status: 503, headers: { 'Retry-After': new Date(now + 5_000).toUTCString() } });
+    }
+    return Response.json({ items: [] });
+  };
+  await assert.rejects(catalogRead(origin, CATALOG.models, {}, { fetcher }), { status: 503 });
+  assert.equal(catalogPause(origin, fetcher), null);
+  await assert.rejects(catalogRead(origin, CATALOG.models, { limit: 20 }, { fetcher }), { status: 503, retryAfter: '5' });
+  await catalogRead(origin, CATALOG.models, { query: 'Second brief' }, { fetcher });
+  await catalogRead(origin, CATALOG.articles, {}, { fetcher });
+  await catalogRead('https://civitai.com', CATALOG.models, {}, { fetcher });
+  t.mock.timers.tick(4_999);
+  await assert.rejects(catalogRead(origin, CATALOG.models, {}, { fetcher }), { status: 503, retryAfter: '1' });
+  assert.deepEqual(calls, [origin + CATALOG.models, origin + CATALOG.models, origin + CATALOG.articles, 'https://civitai.com' + CATALOG.models]);
+  t.mock.timers.tick(1);
+  assert.deepEqual((await catalogRead(origin, CATALOG.models, {}, { fetcher })).data, { items: [] });
+  assert.equal(calls.at(-1), origin + CATALOG.models);
+  assert.equal(calls.length, 5);
+});
+
+test('a busy source without a readable retry header has a brief local cooldown', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-24T19:30:00Z') });
+  let attempts = 0;
+  const fetcher = async () => ++attempts === 1 ? Response.json({}, { status: 503 }) : Response.json({ items: [] });
+  await assert.rejects(catalogRead(origin, CATALOG.models, {}, { fetcher }), { status: 503 });
+  await assert.rejects(catalogRead(origin, CATALOG.models, {}, { fetcher }), { status: 503, retryAfter: '2' });
+  assert.equal(attempts, 1);
+  t.mock.timers.tick(2_000);
+  assert.deepEqual((await catalogRead(origin, CATALOG.models, {}, { fetcher })).data.items, []);
+  assert.equal(attempts, 2);
+});
+
+test('malformed successful HTTP responses cannot masquerade as empty catalog results', async () => {
+  const responseFor = value => () => Promise.resolve(Response.json(value));
+  for (const value of [{}, { items: 'pending' }, null, 50]) {
+    await assert.rejects(catalogRead(origin, CATALOG.models, {}, { fetcher: responseFor(value) }), { name: 'CatalogError', status: null });
+  }
+  await assert.rejects(catalogRead(origin, CATALOG.images, {}, { fetcher: async () => new Response('Busy') }),
+    { name: 'CatalogError', status: null });
+  assert.deepEqual((await catalogRead(origin, CATALOG.models, {}, { fetcher: responseFor({ items: [] }) })).data.items, []);
+  assert.deepEqual((await catalogRead(origin, CATALOG.collections, {}, { fetcher: responseFor([]) })).data, []);
 });

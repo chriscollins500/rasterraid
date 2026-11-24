@@ -498,7 +498,8 @@ export async function discoverDirectory(context, target, scope, filters, options
     if (page.partial) result.flows.push({ label: 'Civitai ' + scope, status: null });
   } catch (error) {
     options.signal?.throwIfAborted();
-    if (error.status !== 404) result.flows.push({ label: 'Civitai ' + scope, status: error.status ?? null });
+    const missing = error.status === 404 && ['article', 'comic', 'comicChapter'].includes(target.kind);
+    if (!missing) result.flows.push({ label: 'Civitai ' + scope, status: error.status ?? null });
   }
   return result;
 }

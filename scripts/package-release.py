@@ -123,6 +123,41 @@ def write_json(path, data):
     return path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def subject_dependencies(sbom, node, rebuilt):
+    pins = json.loads(run([node, "--input-type=module", "--eval",
+        "import {subjectVisionModel,subjectWasm,subjectCpuWasm} from './src/subject-artifacts.mjs'; "
+        "console.log(JSON.stringify({model:subjectVisionModel,wasm:subjectWasm,cpu:subjectCpuWasm}));"], rebuilt))
+    runtime_version = re.search(r"/onnxruntime-web@([0-9.]+)/dist/", pins["wasm"]["url"])[1]
+    model_revision = re.search(r"/resolve/([0-9a-f]{40})/", pins["model"]["url"])[1]
+    runtime = f"pkg:npm/onnxruntime-web@{runtime_version}"
+    model = f"siglip2-vision-q4@{model_revision}"
+    wasm = f"ort-jspi-wasm@{runtime_version}"
+    cpu = f"ort-cpu-wasm@{runtime_version}"
+    sbom["components"].append({
+        "bom-ref": runtime, "type": "library", "name": "onnxruntime-web", "version": runtime_version,
+        "scope": "optional", "purl": runtime, "licenses": [{"license": {"id": "MIT"}}],
+        "description": "Bundled CPU WebAssembly JavaScript and JSPI JavaScript with the static Emscripten binding.",
+        "externalReferences": [{"type": "website", "url": "https://onnxruntime.ai/"}],
+    })
+    for key, ref, classification, name, version in [
+        ("wasm", wasm, "file", "ort-wasm-simd-threaded.jspi.wasm", runtime_version),
+        ("cpu", cpu, "file", "ort-wasm-simd-threaded.wasm", runtime_version),
+        ("model", model, "machine-learning-model", "SigLIP 2 Base Patch16-224 Q4 vision ONNX", model_revision),
+    ]:
+        artifact = pins[key]
+        sbom["components"].append({
+            "bom-ref": ref, "type": classification, "name": name, "version": version, "scope": "optional",
+            "hashes": [{"alg": "SHA-256", "content": artifact["sha256"]}],
+            "externalReferences": [{"type": "distribution", "url": artifact["url"]}],
+            "description": f"Browser download after opt-in. Exact size {artifact['bytes']} bytes.",
+        })
+    app_ref = sbom["metadata"]["component"]["bom-ref"]
+    app_edges = next(edge for edge in sbom["dependencies"] if edge["ref"] == app_ref)
+    app_edges["dependsOn"].extend([runtime, model])
+    sbom["dependencies"].extend([{"ref": runtime, "dependsOn": [wasm, cpu]}, {"ref": wasm, "dependsOn": []},
+                                 {"ref": cpu, "dependsOn": []}, {"ref": model, "dependsOn": []}])
+
+
 def package(cli, node, npm, assets, expected):
     start = datetime.now(UTC).isoformat()
     manifest = json.loads(expected["block.manifest.json"])
@@ -166,6 +201,8 @@ def package(cli, node, npm, assets, expected):
         component.get("name"), component.get("version"), component.get("purl")
     ) != (app, version, f"pkg:npm/{app}@{version}"):
         raise ValueError("The runtime SBOM did not match the audited App version.")
+    npm_runtime_dependencies = len(sbom["components"])
+    subject_dependencies(sbom, node, rebuilt)
     audit = json.loads(run([npm, "audit", "--package-lock-only", "--omit=dev", "--json"], rebuilt))
     toolchain = {"civitai": run([cli, "--no-color", "--no-update-check", "--version"]).strip(),
         "node": run([node, "--version"]).strip(), "npm": run([npm, "--version"]).strip(), "python": sys.version.split()[0]}
@@ -173,7 +210,8 @@ def package(cli, node, npm, assets, expected):
     receipt = {"app": app, "version": version, "archive": archive.name, "archiveBytes": archive.stat().st_size,
         "archiveSha256": archive_hash, "sourceEntries": len(members), "assets": len(assets), "snapshotSha256": rebuilt_sha,
         "sourceFiles": members, "reproducedArchive": True, "rebuiltFromZip": True, "toolchain": toolchain,
-        "civitaiExecutableSha256": digest(cli.read_bytes()), "productionDependencies": len(sbom.get("components", [])),
+        "civitaiExecutableSha256": digest(cli.read_bytes()), "productionDependencies": len(sbom["components"]),
+        "npmRuntimeDependencies": npm_runtime_dependencies,
         "signatureVerified": False}
     write_json(output / "package-verification.json", receipt)
     write_json(output / "runtime-sbom.cdx.json", sbom)

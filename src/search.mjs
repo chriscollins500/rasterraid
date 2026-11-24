@@ -229,7 +229,7 @@ export async function readModelFileHistory(context, modelId, { file, versionId, 
   const newest = list.toSorted((a, b) => (Date.parse(b.publishedAt) || 0) - (Date.parse(a.publishedAt) || 0));
   const ids = [...new Set([...direct, ...newest].map(row => row.id))].slice(0, 48);
   const verified = [];
-  if (context.hosted) {
+  if (hasModelAppAccess(context)) {
     for (let offset = 0; offset < ids.length && !reads.rateLimits.has('app'); offset += 12) {
       const batch = await reads.exactVersions(ids.slice(offset, offset + 12));
       verified.push(...batch.filter(model => model.id === modelId));
@@ -246,8 +246,7 @@ export async function readModelFileHistory(context, modelId, { file, versionId, 
     return { ...modelCards([model], context.origin, modelCatalogCeiling(context))[0], usage,
       releaseNotes: plainArticleText(appVersions.get(model.id)?.description || publicVersion?.description, 520) };
   });
-  const partial = !site || site.id !== modelId || !list.length || ids.length < byId.size ||
-    context.hosted && !context.token || reads.flows.some(flow => flow.status !== 200);
+  const partial = !site || site.id !== modelId || !list.length || ids.length < byId.size || reads.flows.some(flow => flow.status !== 200);
   return { candidates, partial, listed: byId.size, verified: candidates.length, flows: reads.flows };
 }
 
@@ -306,7 +305,7 @@ export function rankVersions(lists, input, { baseModel, resourceType, fileFormat
 }
 
 function extractImage(image, origin) {
-  if (!numericId(image?.id)) return null;
+  if (!numericId(image?.id) || image.needsReview || image.blockedFor) return null;
   const video = image.type === 'video';
   const audio = image.type === 'audio';
   const url = video || audio ? null : mediaUrl(image.url);
@@ -371,9 +370,22 @@ const modelPageSize = 6;
 const modelPageScopes = new Set(['all', 'models', 'pictures']);
 const modelPages = new WeakMap();
 const modelCatalogCeiling = context => context.hosted ? context.browsingLevel ?? 1 : 31;
-const modelCatalogAccess = context => [context.origin, Boolean(context.hosted), context.viewerUserId, modelCatalogCeiling(context)].join('#');
+const hasModelAppAccess = context => Boolean(context.hosted && context.token);
+const modelCatalogAccess = context => [context.origin, Boolean(context.hosted), hasModelAppAccess(context),
+  context.viewerUserId, modelCatalogCeiling(context)].join('#');
 const modelCursor = value => numericId(value) || (typeof value === 'string' && value.length <= 512 &&
   value === value.trim() && /^[^\u0000-\u001f\u007f]+$/u.test(value) ? value : null);
+
+const isPublished = value => (!value?.availability || value.availability === 'Public') &&
+  (!value?.status || value.status === 'Published');
+const publicModelRating = (value, ceiling) => visibleRating(value?.browsingLevel ?? value?.nsfwLevel, ceiling);
+
+function visibleSiteModel(model, ceiling) {
+  if (!numericId(model?.id) || !isPublished(model) || model.mode === 'TakenDown' || !publicModelRating(model, ceiling)) return null;
+  const modelVersions = listItems(model.modelVersions).filter(version =>
+    numericId(version?.id) && isPublished(version) && publicModelRating(version, ceiling));
+  return modelVersions.length ? { ...model, modelVersions } : null;
+}
 
 async function readDigestCandidates(read, hashes) {
   const digests = new Map(hashes.map(hash => [hash.toLowerCase(), new Map()]));
@@ -460,15 +472,33 @@ export function hashLookupNote(status) {
   }[status];
 }
 
-function modelCatalogReads(context, filters, { signal, fetcher }) {
+function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAudioLeads = false }) {
   const { origin, token, hosted } = context;
   const ceiling = modelCatalogCeiling(context);
+  const appCatalog = hasModelAppAccess(context);
+  const publicFallback = hosted && !appCatalog;
   const flows = [];
   const rateLimits = new Set();
   const checkedVersions = new Map();
-  const routeForModels = hosted ? CATALOG.blockModels : CATALOG.models;
-  const routeForImages = hosted ? CATALOG.blockImages : CATALOG.images;
+  const publicAudioLeads = new Map();
+  const routeForModels = appCatalog ? CATALOG.blockModels : CATALOG.models;
+  const routeForImages = appCatalog ? CATALOG.blockImages : CATALOG.images;
   const ordered = Boolean(filters.sort || filters.period);
+
+  function rememberPublicAudioLead(model, query) {
+    if (!collectPublicAudioLeads || !numericId(model?.id) || model.availability !== 'Public' ||
+        !isPublished(model) || model.mode === 'TakenDown') return;
+    if (query?.username && modelChoiceKey(model.creator?.username) !== modelChoiceKey(query.username)) return;
+    if (query) {
+      const wanted = words(query.query);
+      const name = words(model.name);
+      if (!wanted.length || !wanted.every(word => name.includes(word))) return;
+    }
+    for (const version of listItems(model.modelVersions)) {
+      if (!numericId(version?.id) || version.availability !== 'Public' || !isPublished(version)) continue;
+      publicAudioLeads.set(version.id, { id: version.id, modelId: model.id, base: text(version.baseModel, 80) });
+    }
+  }
 
   async function read(label, route, query, optional = false, fileHashes) {
     signal?.throwIfAborted();
@@ -484,13 +514,23 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
           }
         }
       }
-      flows.push({ label, status: 200, count: listItems(data).length });
-      return data;
+      let result = data;
+      if (publicFallback && route === CATALOG.models) {
+        const models = listItems(data);
+        if (collectPublicAudioLeads) for (const model of models) rememberPublicAudioLead(model, query);
+        result = { metadata: data.metadata, items: models.map(model => visibleSiteModel(model, ceiling)).filter(Boolean) };
+      } else if (publicFallback && /^\/api\/v1\/models\/\d+$/u.test(route)) {
+        if (Number(route.split('/').at(-1)) === data.id) rememberPublicAudioLead(data);
+        result = visibleSiteModel(data, ceiling);
+      }
+      flows.push({ label, status: 200, count: listItems(result).length });
+      return result;
     } catch (error) {
       signal?.throwIfAborted();
       const status = error.status ?? null;
       if (status === 429) rateLimits.add(rail);
-      flows.push({ label, status, count: 0, retryAfter: error.retryAfter ?? null });
+      const missing = status === 404 && /^\/api\/v1\/(?:models|model-versions|collections)\/\d+$/u.test(route);
+      flows.push({ label, status, count: 0, retryAfter: error.retryAfter ?? null, ...(missing && { missing }) });
       if (optional || status === 403 || status === 404 || status === 429) return null;
       throw error;
     }
@@ -498,35 +538,47 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
 
   async function exactVersions(ids, optional = false) {
     if (!ids.length) return [];
-    if (hosted) {
+    if (appCatalog) {
       const data = await read('App exact version lookup', routeForModels, { modelVersionIds: ids.join(','), limit: ids.length }, true);
       return listItems(data).filter(model => Array.isArray(model?.modelVersions)).map(model => ({
         ...model,
         modelVersions: model.modelVersions.filter(version => ids.includes(version?.id)),
       }));
     }
-    if (!optional) return siteVersionCreators(await Promise.all(ids.map(id => read('Exact version lookup', '/api/v1/model-versions/' + id, {}))));
+    const lookup = async id => {
+      const version = await read('Exact version lookup', '/api/v1/model-versions/' + id, {}, optional);
+      return version?.id === id && (!publicFallback || isPublished(version) && publicModelRating(version, ceiling)) ? version : null;
+    };
+    if (!optional) return verifySiteVersions(await Promise.all(ids.map(lookup)));
     const data = [];
     for (let index = 0; index < ids.length && !rateLimits.has('site'); index += 2) {
-      const batch = await Promise.all(ids.slice(index, index + 2)
-        .map(id => read('Exact version lookup', '/api/v1/model-versions/' + id, {}, true)));
+      const batch = await Promise.all(ids.slice(index, index + 2).map(lookup));
       data.push(...batch);
     }
-    return siteVersionCreators(data);
+    return verifySiteVersions(data);
   }
 
-  async function siteVersionCreators(data) {
+  async function verifySiteVersions(data) {
     const models = data.map(normalizeVersion).filter(Boolean);
-    if (!filters.modelAuthor) return models;
-    const missing = [...new Set(models.filter(model => !modelCreatorName(model.creator?.username)).map(model => model.id))];
+    if (!publicFallback && !filters.modelAuthor) return models;
+    const missing = [...new Set(models.filter(model => publicFallback || !modelCreatorName(model.creator?.username)).map(model => model.id))];
     const verified = new Map();
     for (let index = 0; index < missing.length && !rateLimits.has('site'); index += 2) {
       await Promise.all(missing.slice(index, index + 2).map(async id => {
-        const model = await read('Exact model creator', '/api/v1/models/' + id, {}, true);
-        if (model?.id === id && modelCreatorName(model.creator?.username)) verified.set(id, model.creator);
+        const model = await read(publicFallback ? 'Verify public model and version' : 'Exact model creator', '/api/v1/models/' + id, {}, true);
+        if (model?.id === id) verified.set(id, model);
       }));
     }
-    return models.map(model => verified.has(model.id) ? { ...model, creator: verified.get(model.id) } : model);
+    if (publicFallback) return models.flatMap(model => {
+      const parent = verified.get(model.id);
+      const version = model.modelVersions[0];
+      return parent?.modelVersions.some(row => row.id === version.id)
+        ? [{ ...parent, modelVersions: [version] }] : [];
+    });
+    return models.map(model => {
+      const creator = verified.get(model.id)?.creator;
+      return modelCreatorName(creator?.username) ? { ...model, creator } : model;
+    });
   }
 
   async function saleListings(models) {
@@ -537,7 +589,7 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
   }
 
   async function confirmedLists(sources, query, limit = 12) {
-    if (!hosted || !sources.length) return sources;
+    if (!appCatalog || !sources.length) return sources;
     const candidates = rankVersions(sources, ordered ? '' : query, filters, limit);
     const ids = candidates.filter(row => checkedVersions.get(row.id)?.model.id !== row.modelId).map(row => row.id);
     for (let index = 0; index < ids.length && !rateLimits.has('app'); index += 12) {
@@ -556,16 +608,16 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
   }
 
   async function finishCards(ranked, candidates, { versionAssociation = false } = {}) {
-    const detailIds = hosted ? ranked.filter(row => row.trainedWords === null).map(row => row.id) : [];
+    const detailIds = appCatalog ? ranked.filter(row => row.trainedWords === null).map(row => row.id) : [];
     const details = detailIds.length ? read('Generation resource details', CATALOG.blockResources, {
       ids: detailIds.join(','),
     }, true) : null;
     const enrich = async candidate => {
       const data = await read('Examples for version ' + candidate.id, routeForImages, {
-        modelVersionId: candidate.id, limit: 2, withMeta: true, ...(hosted ? {} : { browsingLevel: ceiling }),
+        modelVersionId: candidate.id, limit: 2, withMeta: true, ...(appCatalog ? {} : { browsingLevel: ceiling }),
       }, true);
       return listItems(data)
-        .filter(image => hosted || visibleRating(image?.browsingLevel, ceiling))
+        .filter(image => appCatalog || visibleRating(image?.browsingLevel ?? image?.nsfwLevel, ceiling))
         .map(image => extractImage(image, origin)).filter(Boolean)
         .map(image => versionAssociation && !image.associated.includes(candidate.id)
           ? { ...image, associated: [...image.associated, candidate.id] } : image);
@@ -582,7 +634,7 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
     });
   }
 
-  return { flows, rateLimits, read, exactVersions, saleListings, confirmedLists, finishCards, routeForModels, routeForImages };
+  return { flows, rateLimits, read, exactVersions, saleListings, confirmedLists, finishCards, routeForModels, routeForImages, appCatalog, publicAudioLeads };
 }
 
 const triggerWords = value => Array.isArray(value) ? value.map(word => text(word, 100)).filter(Boolean).slice(0, 6) : [];
@@ -649,7 +701,7 @@ function matchingModelRows(data, plan, excluded, onSale) {
 
 export async function readModelPage(context, cursor, options = {}) {
   const state = modelPages.get(cursor);
-  if (!state || state.access !== modelCatalogAccess(context) || (context.hosted && !context.token)) {
+  if (!state || state.access !== modelCatalogAccess(context)) {
     throw new Error('Civitai access changed. Search again to load more models.');
   }
   if (state.owned) {
@@ -690,8 +742,6 @@ export async function readModelPage(context, cursor, options = {}) {
 }
 
 const ownerLabel = 'My published models';
-const isPublished = value => (!value?.availability || value.availability === 'Public') &&
-  (!value?.status || value.status === 'Published');
 const appVersionId = value => numericId(value) && value <= 2_147_483_647;
 
 export async function galleryModelSources(context, query, filters, options) {
@@ -701,8 +751,9 @@ export async function galleryModelSources(context, query, filters, options) {
   const access = modelDownloadFilter(downloadAccess);
   const families = new Set(galleryBaseModels(filters.mediaBaseModels));
   const { read, routeForModels, confirmedLists } = modelCatalogReads(context, { downloadAccess, baseModel: [...families] }, options);
-  const params = { query, limit: 12, ...(access && { [access.parameter]: true, nsfw: true }) };
-  const data = await read('Find the model named in the gallery search', access ? CATALOG.models : routeForModels, params, true);
+  const route = access ? CATALOG.models : routeForModels;
+  const params = { query, limit: 12, ...(route === CATALOG.models && { nsfw: true }), ...(access && { [access.parameter]: true }) };
+  const data = await read('Find the model named in the gallery search', route, params, true);
   if (!data) return { unavailable: true };
   let models = matchingModelRows(data, {}, undefined, params.onSale);
   if (access) {
@@ -943,7 +994,7 @@ export async function readRecordedVersions(context, plan, filters, options = {})
 
 export async function discover(context, filters, { signal, fetcher, onPhase = () => {}, onRanked, preferences, catalogOnly = false,
   rankModelEvidence = true, focusModelBrief = true, visualCrop, visualBrief, includePublishedSetup = false } = {}) {
-  const { origin, token, hosted } = context;
+  const { origin } = context;
   const scope = filters.scope || 'all';
   const gallery = isGalleryScope(scope);
   const target = filters.query?.trim() ? searchTarget(filters.query, { gallery, assets3d: scope === 'assets3d', aiServices: scope === 'aiServices' })
@@ -1000,12 +1051,14 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   if (scope === 'posts' || (target.kind === 'post' && !gallery)) {
     return discoverPosts(context, target, filters, { signal, fetcher }, { rankVersions, queryVariants });
   }
-  if (scope === 'audio') return discoverAudio(context, target, filters, { signal, fetcher }, { rankVersions, queryVariants });
+  if (scope === 'audio') return discoverAudio(context, target, filters, { signal, fetcher }, {
+    rankVersions, queryVariants, catalog: modelCatalogReads(context, filters, { signal, fetcher, collectPublicAudioLeads: true }),
+  });
   if (scope === 'assets3d') return discover3D(context, target, { signal, fetcher });
   if (gallery) return discoverGallery(context, target, filters, { signal, fetcher, onPhase,
     resolveModel: query => galleryModelSources(context, query, filters, { signal, fetcher }) });
   const ceiling = modelCatalogCeiling(context);
-  const { read, exactVersions, saleListings, confirmedLists, finishCards, flows, rateLimits, routeForModels, routeForImages } =
+  const { read, exactVersions, saleListings, confirmedLists, finishCards, flows, rateLimits, routeForModels, routeForImages, appCatalog } =
     modelCatalogReads(context, filters, { signal, fetcher });
   const access = modelDownloadFilter(filters.downloadAccess);
   const username = modelCreatorName(filters.modelAuthor);
@@ -1058,12 +1111,12 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       seenQueries.add(key);
       return true;
     }).slice(0, 3);
-    const rail = advanced || !hosted ? CATALOG.models : routeForModels;
+    const rail = advanced ? CATALOG.models : routeForModels;
     const retrieve = plan => retrieveModels(plan, rail, {
       ...(rail === CATALOG.models ? siteFilters : common), query: plan.query, limit: access ? 24 : filters.fileFormat ? 20 : 10,
     });
     const addModelLists = async sources => {
-      if (hosted && rail === CATALOG.models) {
+      if (appCatalog && rail === CATALOG.models) {
         const selected = ordered ? [sources.find(list => list.models.length) ?? sources[0]].filter(Boolean) : sources;
         lists.push(...await confirmedLists(selected, target.value));
       } else {
@@ -1110,12 +1163,12 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       const exactTags = related.tags.filter(item => queryTerms.every(word => terms(item.tag).includes(word)));
       if (exactTags.length) lists.push({ label: 'Catalog tag matches', models: await tagModels(exactTags[0].tag) });
     }
-    if (rail === CATALOG.blockModels && token && modelSearch && !lists.some(list => list.models.length) && !rateLimits.has('app')) {
+    if (rail === CATALOG.blockModels && modelSearch && !lists.some(list => list.models.length) && !rateLimits.has('app')) {
       const fallback = { label: 'Site name matches', query: variants[1]?.query ?? variants[0].query };
       const source = await retrieveModels(fallback, CATALOG.models, { ...siteFilters, query: fallback.query, limit: 12 });
       lists.push(...await confirmedLists([source], target.value));
     }
-    if (modelSearch && (!hosted || token) && target.value && !rankVersions(lists, target.value, filters, 1).length) {
+    if (modelSearch && target.value && !rankVersions(lists, target.value, filters, 1).length) {
       const prefix = !rateLimits.has(rail === CATALOG.models ? 'site' : 'app') && spellingPrefix(target.value);
       if (prefix) {
         const near = await retrieve({ query: prefix, label: 'Near model name', recovery: true, nearName: nameKey(target.value) });
@@ -1144,14 +1197,14 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
     const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
     const requested = target.air ? versions.slice(0, 1) : versions;
     const versionIds = requested.map(version => version?.id).filter(numericId).slice(0, 12);
-    const data = hosted ? await exactVersions(versionIds) : model ? [{ ...model, modelVersions: requested }] : [];
+    const data = appCatalog ? await exactVersions(versionIds) : model ? [{ ...model, modelVersions: requested }] : [];
     lists.push({ label: target.air ? 'Exact Civitai AIR' : 'Exact model', models: airFiles(data.filter(model => model?.id === target.id), target) });
   } else {
     const data = await read('Reference image', routeForImages, {
-      imageId: target.id, limit: 1, withMeta: true, ...(hosted ? {} : { browsingLevel: ceiling }),
+      imageId: target.id, limit: 1, withMeta: true, ...(appCatalog ? {} : { browsingLevel: ceiling }),
     });
     const image = listItems(data).find(item => item?.id === target.id && !item.needsReview && !item.blockedFor &&
-      (hosted || visibleRating(item.browsingLevel, ceiling)) &&
+      (appCatalog || visibleRating(item.browsingLevel ?? item.nsfwLevel, ceiling)) &&
       (!includePublishedSetup || visibleRating(item.browsingLevel ?? item.nsfwLevel, ceiling)));
     reference = extractImage(image, origin);
     if (reference) {

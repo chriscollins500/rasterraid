@@ -6,7 +6,8 @@
   <meta name="referrer" content="no-referrer">
   <title>RasterRaid</title>
   <link rel="stylesheet" href="./app.css">
-  <script type="module" src="./src/app.js"></script>
+  <script defer src="./src/startup.js"></script>
+  <script id="rasterraid-module" type="module" src="./src/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#query">Skip to search</a>
@@ -82,7 +83,13 @@
             </div>
             <input id="search-picture-files" type="file" accept="image/avif,image/bmp,image/gif,image/jpeg,image/png,image/webp" multiple hidden>
           </div>
-          <div class="search-tools">
+          <p id="startup-status" class="startup-status" role="status">Opening RasterRaid…</p>
+          <div id="startup-recovery" class="startup-recovery" hidden>
+            <span id="startup-message" role="status"></span>
+            <a class="text-button" href="">Reload app</a>
+          </div>
+          <noscript><p class="startup-status">Enable JavaScript in your browser, then reopen RasterRaid.</p></noscript>
+          <div id="search-tools" class="search-tools" inert>
             <div class="query-route">
               <span id="search-action-announcement" role="status" aria-atomic="true"></span>
               <button class="text-button" id="search-as-typed" type="button" hidden>Search as typed</button>
@@ -511,6 +518,7 @@
         <div class="results-heading">
           <h2 id="results-title" tabindex="-1">Results</h2>
           <div class="result-next">
+            <button class="chip" id="retry-catalog-search" type="button" hidden>Retry search</button>
             <button class="chip" id="report-this-search" type="button" hidden>Build a free report</button>
             <button class="chip research-toggle" id="research-jump" type="button" aria-haspopup="dialog" aria-controls="deep-search" aria-expanded="false" hidden>
               <span>Deep Search</span><span id="research-summary">Free quotes</span>
@@ -531,6 +539,21 @@
           <p id="quick-coverage-areas"></p>
         </details>
         <section id="gallery-visual-brief" class="gallery-visual-brief" aria-label="References used in this search" hidden></section>
+        <section id="subject-comparison" class="report-overview subject-comparison" aria-labelledby="subject-title" tabindex="-1" hidden>
+          <div class="report-heading">
+            <h3 id="subject-title">Find the same subject</h3>
+            <button class="chip" id="subject-start" type="button" aria-describedby="subject-help">Compare on this device</button>
+            <button class="text-button" id="subject-stop" type="button" hidden>Stop subject matching</button>
+          </div>
+          <label class="subject-reference-choice" id="subject-reference-choice" hidden>
+            Match the subject of <select id="subject-reference"></select>
+          </label>
+          <p id="subject-help">Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.</p>
+          <p id="subject-status" role="status"></p>
+          <progress id="subject-download" aria-label="On-device model download" value="0" hidden></progress>
+          <ol id="subject-results" role="list" aria-label="Subject match order"></ol>
+          <button class="text-button" id="subject-deep-search" type="button" aria-haspopup="dialog" aria-controls="deep-search" data-open-research hidden>See Deep Search options</button>
+        </section>
         <div class="gallery-tags" id="gallery-model-choices" role="group" aria-label="Matching model releases" hidden></div>
         <button class="chip" id="explore-gallery-release" type="button" hidden>Explore this release</button>
         <button class="chip" id="review-my-releases" type="button" hidden>Build a release report</button>

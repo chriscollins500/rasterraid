@@ -151,6 +151,40 @@ test('a quick search promotes an exact tool only when an exact model did not mat
   assert.deepEqual(result.related.tools, [tool]);
 });
 
+test('guest Quick Search checks public media only for an exact short catalog tag', async () => {
+  const guest = { origin: com, hosted: true, browsingLevel: 1 };
+  const tag = { id: 77, name: 'landscape' };
+  const calls = [];
+  const options = { fetcher(url, request) {
+    assert.equal(request.credentials, 'omit');
+    assert.equal(request.headers.Authorization, undefined);
+    calls.push(url.pathname);
+    if (url.pathname === '/api/search/multi-search') {
+      const { queries } = JSON.parse(request.body);
+      const tagRequest = queries.find(query => query.indexUid === 'models_v9');
+      if (queries[0].q === 'Landscape') assert.deepEqual(tagRequest.attributesToRetrieve, ['tags']);
+      else assert.equal(tagRequest, undefined);
+      return Response.json({ results: queries.map(({ indexUid }) =>
+        ({ indexUid, hits: indexUid === 'models_v9' ? [{ tags: [tag] }] : [] })) });
+    }
+    assert.equal(url.pathname, CATALOG.images);
+    assert.equal(url.searchParams.get('browsingLevel'), '1');
+    assert.equal(url.searchParams.get('tags'), '77');
+    const type = url.searchParams.get('type');
+    const item = { id: type === 'image' ? 81 : 85, type, browsingLevel: 1, postId: 412,
+      url: 'https://image.civitai.com/fixture/' + (type === 'image' ? 'sample.png' : 'clip.mp4'), tags: [tag] };
+    return Response.json({ items: [item, { ...item, id: 90, browsingLevel: 3 },
+      { ...item, id: 91, blockedFor: 'Review' }, { ...item, id: 92, tags: [] }] });
+  } };
+  const tagged = await readQuickCatalog(guest, 'Landscape', options);
+  const sampled = await sampleQuickCatalog(guest, tagged, [], options);
+  assert.deepEqual(sampled.groups.gallery.map(item => item.id), [81]);
+  assert.deepEqual(sampled.groups.videos.map(item => item.id), [85]);
+  const long = await readQuickCatalog(guest, 'A low contrast morning landscape', options);
+  assert.equal((await sampleQuickCatalog(guest, long, [], options)).groups.gallery, undefined);
+  assert.deepEqual(calls, ['/api/search/multi-search', CATALOG.images, CATALOG.images, '/api/search/multi-search']);
+});
+
 test('an unavailable cross-area sample keeps the original free catalog results', async () => {
   const context = { origin: com, hosted: true, browsingLevel: 3 };
   const unavailable = await readQuickCatalog(context, 'ComfyUI', {
@@ -486,6 +520,29 @@ test('hosted model URL lookup revalidates exact versions under the App credentia
     throw new Error('An unavailable version must not proceed to examples');
   } });
   assert.deepEqual(hidden.shortlisted, []);
+});
+
+test('a public version lookup proves the requested ID and its eligible parent without an App token', async () => {
+  const context = { origin: com, hosted: true, browsingLevel: 1 };
+  const filters = { query: com + '/models/40?modelVersionId=41', scope: 'models' };
+  const version = id => ({ id, modelId: 40, nsfwLevel: 1, status: 'Published', baseModel: 'SDXL 1.0' });
+  async function lookup(detail, parent) {
+    const routes = [];
+    const result = await discover(context, filters, { catalogOnly: true, fetcher(url, options) {
+      routes.push(url.pathname);
+      assert.equal(options.headers.Authorization, undefined);
+      if (url.pathname === '/api/v1/model-versions/41') return Response.json(detail);
+      assert.equal(url.pathname, '/api/v1/models/40');
+      return Response.json(parent);
+    } });
+    return { routes, ids: result.candidates.map(row => row.id) };
+  }
+  const parent = { id: 40, name: 'Linocut', type: 'LORA', nsfwLevel: 1, modelVersions: [version(41), version(42)] };
+  assert.deepEqual(await lookup(version(41), parent), { routes: ['/api/v1/model-versions/41', '/api/v1/models/40'], ids: [41] });
+  assert.deepEqual(await lookup(version(42), parent), { routes: ['/api/v1/model-versions/41'], ids: [] });
+  assert.deepEqual((await lookup(version(41), { ...parent, nsfwLevel: 2 })).ids, []);
+  assert.deepEqual((await lookup(version(41), { ...parent, modelVersions: [version(42)] })).ids, []);
+  assert.deepEqual((await lookup({ ...version(41), availability: 'Private' }, parent)).ids, []);
 });
 
 test('collection-only search uses the Site route, keeps public results, and applies the host ceiling to covers', async () => {

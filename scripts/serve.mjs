@@ -9,6 +9,7 @@ import { createFilterHandler } from './filter-feed.mjs';
 import { PUBLIC_FILTER_FEED } from '../src/runtime-config.mjs';
 import { PREVIEW_QUOTE_MAX_AGE_MS, quotePrice } from '../src/quotes.mjs';
 import { SITE_ORIGINS } from '../src/catalog.mjs';
+import { subjectAssetOrigins } from '../src/subject-artifacts.mjs';
 import { orchestrationOrigin } from '../src/ai-services.mjs';
 import { MOCK_API, MOCK_PAGE } from '../mock/client.mjs';
 import { createMockBackend } from '../mock/backend.mjs';
@@ -126,6 +127,7 @@ const server = createServer({ maxHeaderSize: 16_384 }, async (request, response)
   const url = request.url ?? '';
   const loopback = ['127.0.0.1:' + address.port, 'localhost:' + address.port].includes(host);
   if (!loopback && !/^dev-[a-f0-9]{16}\.civit\.ai(?::443)?$/u.test(host)) return response.writeHead(421).end();
+  const bundleOrigin = (loopback ? 'http://' : 'https://') + host;
   if (!url.startsWith('/') || url.length > 8192) return response.writeHead(400).end();
 
   const route = url.split('?', 1)[0];
@@ -190,7 +192,10 @@ const server = createServer({ maxHeaderSize: 16_384 }, async (request, response)
     'Referrer-Policy': 'no-referrer',
     'X-Content-Type-Options': 'nosniff',
     ...(privateMock ? {} : { 'Access-Control-Allow-Origin': '*' }),
-    'Content-Security-Policy': "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self' https://civitai.com https://civitai.red https://image.civitai.com https://blobs-b2.civitai.com " + orchestrationOrigin + ' ' + publicFeedOrigin + "; img-src https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " + (privateMock ? "'none'" : 'https://civitai.com https://civitai.red') + "; object-src 'none'; base-uri 'none'; form-action 'none'",
+    'Content-Security-Policy': "default-src 'none'; script-src 'self' " + bundleOrigin + " 'wasm-unsafe-eval'; worker-src data: " + bundleOrigin +
+      "; style-src 'self'; connect-src 'self' https://civitai.com https://civitai.red https://image.civitai.com https://blobs-b2.civitai.com " +
+      [orchestrationOrigin, publicFeedOrigin, ...subjectAssetOrigins].join(' ') + "; img-src blob: https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " +
+      (privateMock ? "'none'" : SITE_ORIGINS.join(' ')) + "; object-src 'none'; base-uri 'none'; form-action 'none'",
   });
   response.end(request.method === 'GET' ? asset.body : undefined);
 });

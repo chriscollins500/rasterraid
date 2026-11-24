@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
-import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
+import { galleryCandidateResearch, galleryCompositionResearch, galleryCompositionSubjectSample, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
 import { createWorkflowSession, workflowRecord } from '../src/workflow-session.mjs';
 import { workflowReportMarkdown } from '../src/workflow-results-view.js';
 
@@ -46,9 +46,23 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
   const paired = gallerySimilarityResearch(samePreviews, origin).plans[1];
   assert.deepEqual(paired.body, audit.body);
   assert.deepEqual(paired.similarity.targets.map(row => row.previewRank), [6, 5, 4, 3, 2, 1]);
+  const subjectOrder = [13, 14, 16, 17, 15, 11];
+  const [learnedQuick, shortlist, learnedAudit] = gallerySimilarityResearch(samePreviews, origin, subjectOrder).plans;
+  assert.deepEqual(learnedQuick.body, quick.body);
+  assert.deepEqual(learnedAudit.body, paired.body);
+  assert.equal(shortlist.id, 'neighborshortlist');
+  assert.deepEqual(ids(shortlist), [10, 13, 14, 17, 16]);
+  assert.equal(shortlist.body.steps.filter(step => step.$type === 'multimodalEmbedding').length, 5);
+  assert.equal(shortlist.body.steps.at(-1).$type, 'chatCompletion');
+  assert.doesNotMatch(JSON.stringify(shortlist.body), /subjectRank|previewRank|canary/u);
+  assert.deepEqual(learnedAudit.similarity.targets.map(row => row.subjectRank), [6, 1, 2, 5, 3, 4]);
+  assert.equal(gallerySimilarityResearch(samePreviews, origin, subjectOrder.slice(1)).plans.length, 2);
+  assert.equal(gallerySimilarityResearch(result, origin, subjectOrder).plans.some(plan => plan.similarity.targets.some(row => row.subjectRank)), false);
   const frameSearch = { ...samePreviews, related: { videos: ranked.map(item => item.id === 17
     ? { ...item, visualMatch: { ...item.visualMatch, frames: 3 } } : item) } };
-  assert.equal(gallerySimilarityResearch(frameSearch, origin).plans[1].similarity.targets.some(row => row.previewRank), false);
+  const framePlans = gallerySimilarityResearch(frameSearch, origin, subjectOrder).plans;
+  assert.equal(framePlans.length, 2);
+  assert.equal(framePlans[1].similarity.targets.some(row => row.previewRank), false);
 
   let time = 1_000;
   let stored;
@@ -61,9 +75,19 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
     read: async () => structuredClone(stored), write: async row => { stored = structuredClone(row); },
   } };
   const session = createWorkflowSession(config);
-  await session.prepare(paired, paired.sources);
-  assert.deepEqual(session.state().quote.price, { total: 11, authorFee: 1 });
+  await session.prepare(shortlist, shortlist.sources);
+  assert.deepEqual(session.state().quote.price, { total: 9, authorFee: 1 });
   assert.equal(stored, undefined);
+  await session.confirm();
+  time += 5_000;
+  await session.refresh();
+  const reduced = session.state();
+  assert.equal(reduced.run.status, 'succeeded');
+  assert.equal(reduced.snapshot.similarity.ranked.length, 4);
+  assert.equal(reduced.snapshot.steps.find(step => step.name === 'neighbor_catalog_check').status, 'succeeded');
+  await session.prepare(learnedAudit, learnedAudit.sources);
+  assert.deepEqual(session.state().quote.price, { total: 11, authorFee: 1 });
+  assert.equal(stored.workflowId, reduced.run.workflowId);
   await session.confirm();
   time += 5_000;
   const recovered = createWorkflowSession(config);
@@ -80,10 +104,13 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
   assert.equal(snapshot.similarity.ranked.at(-1).link, origin + '/images/11');
   assert.equal(stored.body, undefined);
   assert.match(workflowReportMarkdown([{ run, snapshot }]), /Free preview rank 6/u);
+  assert.match(workflowReportMarkdown([{ run, snapshot }]), /On-device subject rank 6/u);
   assert.match(workflowReportMarkdown([{ run, snapshot }]), /still previews for video clips/u);
   const invalidRanks = structuredClone(stored);
   invalidRanks.similarity.targets[0].previewRank = invalidRanks.similarity.targets[1].previewRank;
   assert.equal(workflowRecord(invalidRanks, origin).similarity.targets.some(row => row.previewRank), false);
+  invalidRanks.similarity.targets[0].subjectRank = invalidRanks.similarity.targets[1].subjectRank;
+  assert.equal(workflowRecord(invalidRanks, origin).similarity.targets.some(row => row.subjectRank), false);
 });
 
 test('visual trait estimates attach only whole Civitai references and preserve all match and avoid roles', async () => {
@@ -188,6 +215,16 @@ test('public preview captions use the written search and the same public matches
     assert.equal(rank.body.steps[3].input.text, 'textured ink');
     assert.deepEqual(rank.body.steps.slice(4).map(({ input }) => input.imageUrl), compare.inputs.map(row => row.preview));
     assert.doesNotMatch(JSON.stringify(review), /canary|0\.098321|0\.23/u);
+    assert.deepEqual(galleryCompositionSubjectSample(result, host).map(({ id }) => id), [10, 12, 13, 14, 11]);
+    const subjectReview = galleryCandidateResearch(result, host, [30, 6, 4, 14, 14, 11, 12, 1]);
+    assert.deepEqual(subjectReview.plans.slice(0, 2), review.plans);
+    const subject = subjectReview.plans.at(-1);
+    assert.equal(subject.id, 'publicsubjectreview');
+    assert.deepEqual(subject.inputs.map(row => row.link), [14, 11, 12].map(id => host + '/images/' + id));
+    assert.deepEqual(subject.body.steps.map(({ $type, input }) => [$type, input.mediaUrl]),
+      subject.inputs.map(row => ['mediaCaptioning', row.preview]));
+    assert.doesNotMatch(JSON.stringify(subject), /canary|0\.098321|0\.23/u);
+    assert.deepEqual(galleryCandidateResearch(result, host, [10, 12, 13]).plans, review.plans);
 
     const noWords = galleryCandidateResearch({ ...result, gallery: { ...result.gallery, query: '' } }, host);
     assert.deepEqual(noWords.plans.map(({ id }) => id), ['publicpreviewreview']);
@@ -202,8 +239,8 @@ test('public preview comparison runs, resumes and exports the same sources in si
   const ids = [11, 12, 13];
   const items = ids.map(id => ({ id, title: 'Result ' + id, link: origin + '/images/' + id,
     preview: 'https://image.civitai.com/public/' + id + '.jpeg' }));
-  const plan = galleryCandidateResearch({ target: { kind: 'text' }, gallery: { scope: 'gallery', query: 'linocut' },
-    visualComposition: { cues: [{ role: 'texture', label: 'local-file-canary.png' }], order: ids }, related: { gallery: items } }, origin).plans[1];
+  const [ , plan, subject] = galleryCandidateResearch({ target: { kind: 'text' }, gallery: { scope: 'gallery', query: 'linocut' },
+    visualComposition: { cues: [{ role: 'texture', label: 'local-file-canary.png' }], order: ids }, related: { gallery: items } }, origin, [13, 11, 12]).plans;
   let time = 1000;
   let saved;
   const calls = [];
@@ -238,6 +275,32 @@ test('public preview comparison runs, resumes and exports the same sources in si
   assert.match(instructions.content, /Compare the linked preview descriptions/u);
   assert.deepEqual(JSON.parse(data.content).previousResearch.filter(row => row.sourceLink).map(row => row.sourceLink), items.map(row => row.link));
   assert.equal(calls.filter(route => route === 'submit').length, 1);
+  await reopened.prepare(subject, subject.sources);
+  assert.deepEqual(reopened.state().quote.price, { total: 4, authorFee: 1 });
+  await reopened.confirm();
+  time += 5000;
+  await reopened.refresh();
+  const subjectResult = reopened.state();
+  assert.equal(subjectResult.run.status, 'succeeded');
+  assert.deepEqual(subjectResult.run.sources.map(row => row.link), [13, 11, 12].map(id => origin + '/images/' + id));
+  assert.equal(subjectResult.snapshot.steps.filter(step => step.$type === 'mediaCaptioning' && step.status === 'succeeded').length, 3);
+  const exported = workflowReportMarkdown([subjectResult], { simulated: true });
+  assert.match(exported, /Preview description 3/u);
+  assert.doesNotMatch(exported, /canary/u);
+  const subjectSynthesis = reportSynthesisPlan(subjectResult.run, subjectResult.snapshot);
+  await reopened.prepare(subjectSynthesis, subjectResult.run.sources, { continueRun: true });
+  assert.deepEqual(reopened.state().quote.price, { total: 4, authorFee: 1 });
+  assert.equal(calls.filter(route => route === 'submit').length, 2);
+  await reopened.confirm();
+  time += 3000;
+  const final = createWorkflowSession(config);
+  await final.restore();
+  await final.refresh();
+  await final.refreshPrevious();
+  assert.equal(final.state().run.previous.workflowId, subjectResult.run.workflowId);
+  assert.equal(final.state().run.status, 'succeeded');
+  assert.deepEqual(final.state().previousSnapshot.steps.map(step => step.sourceLink), subjectResult.run.sources.map(row => row.link));
+  assert.equal(calls.filter(route => route === 'submit').length, 3);
   assert.equal(saved.body, undefined);
 });
 

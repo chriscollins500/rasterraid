@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createReportRecovery, reportSourceFailure } from '../src/report-recovery.mjs';
+import { catalogSearchFailure, createReportRecovery, reportSourceFailure } from '../src/report-recovery.mjs';
 import { discoverReport } from '../src/report.mjs';
 
 const origin = 'https://civitai.red';
@@ -109,4 +109,19 @@ test('exact public version reads are reusable and access refusals stay distinct 
   assert.equal(reportSourceFailure({ flows: [{ status: 403 }] }), 'unavailable');
   assert.equal(reportSourceFailure({ ownerStatus: 'ready', flows: [] }), null);
   assert.equal(reportSourceFailure(row('tools')), null);
+});
+
+test('public search distinguishes a missing record from unavailable coverage', () => {
+  assert.equal(catalogSearchFailure({ flows: [{ status: 404, missing: true }] }), null);
+  assert.equal(catalogSearchFailure({ flows: [{ status: 404 }] }), 'unavailable');
+  assert.equal(catalogSearchFailure({ flows: [{ status: 200 }] }), null);
+  assert.equal(catalogSearchFailure({ flows: [{ status: 403 }] }), 'unavailable');
+  assert.equal(catalogSearchFailure({ flows: [{ status: 403 }, { status: 503 }] }), 'retryable');
+  assert.equal(catalogSearchFailure({ flows: [{ status: 'format' }] }), 'retryable');
+  assert.equal(catalogSearchFailure({ gallery: { status: 'tag-unavailable' } }), 'retryable');
+  assert.equal(catalogSearchFailure({ gallery: { status: 'gallery-unavailable', failureStatus: 403 } }), 'unavailable');
+  assert.equal(catalogSearchFailure({ gallery: { status: 'no-tag', partial: true } }), null);
+  assert.equal(catalogSearchFailure({ quickCatalog: { status: 'partial' } }), 'retryable');
+  assert.equal(catalogSearchFailure({ serviceCatalog: { missing: true }, flows: [{ status: 404 }] }), null);
+  assert.equal(catalogSearchFailure({ library: { includesPrivate: true }, flows: [{ status: 503 }] }), null);
 });

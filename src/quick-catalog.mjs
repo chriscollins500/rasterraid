@@ -34,7 +34,6 @@ function relatedCards(cards, group, query) {
 function galleryTag(query, rows) {
   const key = titleKey(query);
   const candidates = new Map();
-  if (searchWords(query).length > 3) return null;
   for (const row of rows) for (const data of Array.isArray(row?.tags) ? row.tags : []) {
     const tag = tagRecord(data);
     if (tag && titleKey(tag.name) === key) candidates.set(tag.id, tag);
@@ -47,9 +46,9 @@ export async function readQuickCatalog(context, input, { signal, fetcher } = {})
   const translated = translateCatalogTerms(literal)?.focus;
   const query = translated && titleKey(translated) !== titleKey(literal) ? translated : literal;
   const sources = [...quickDirectorySources(context, query, indexLimit), quickBountySource(context, query, indexLimit)].filter(Boolean);
-  const galleryAllowed = !context.hosted || Boolean(context.token);
-  const tagRequest = { indexUid: NATIVE_MODELS_INDEX, q: query, limit: indexLimit, attributesToRetrieve: ['tags'] };
-  const requests = [...sources.map(source => source.request), ...(galleryAllowed ? [tagRequest] : [])];
+  const requests = sources.map(source => source.request);
+  const sampleGallery = searchWords(query).length <= 3;
+  if (sampleGallery) requests.push({ indexUid: NATIVE_MODELS_INDEX, q: query, limit: indexLimit, attributesToRetrieve: ['tags'] });
   let pages;
   try {
     pages = await siteSearch(context.origin, requests, quickReadOptions(signal, fetcher));
@@ -65,7 +64,7 @@ export async function readQuickCatalog(context, input, { signal, fetcher } = {})
     return { group, scope, query, cards };
   });
   const exact = exactFirst.filter(group => areas.find(area => area.group === group)?.cards.some(card => titleKey(card.title) === titleKey(literal)));
-  const tag = galleryAllowed && galleryTag(query, pages.at(-1).hits);
+  const tag = sampleGallery ? galleryTag(query, pages.at(-1).hits) : null;
   return { status: 'ready', areas, query, exact: exact.length === 1 ? exact[0] : null, tag };
 }
 

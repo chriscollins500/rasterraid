@@ -51,7 +51,7 @@ export async function readVisualReferences(context, ids, options) {
   const requested = [...new Set(ids.filter(numericId))];
   if (!requested.length) return [];
   if (requested.length > visualReferenceLimit) throw new RangeError('Choose up to four visual references.');
-  if (context.hosted) return (await readAppMediaByIds(context, requested, { ...options, withTags: true })).filter(row => !row.audio);
+  if (context.hosted && context.token) return (await readAppMediaByIds(context, requested, { ...options, withTags: true })).filter(row => !row.audio);
   return (await Promise.all(requested.map(async id => {
     const { items } = await readGalleryPage(context, { imageId: id, tags: [], withMeta: true, sort: 'Most Reactions' }, { ...options, limit: 1 });
     const row = items.find(item => item.id === id && !item.audio);

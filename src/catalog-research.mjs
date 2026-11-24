@@ -6,6 +6,7 @@ import { embeddingStep, makeChat, pictureAnalysis, RESEARCH_MODEL } from './rese
 const mediaPage = /^\/images\/[1-9]\d{0,14}$/u;
 const articlePage = /^\/articles\/[1-9]\d{0,9}$/u;
 const modelPage = /^\/models\/[1-9]\d{0,14}(?:\/reviews)?$/u;
+const postPage = /^\/posts\/[1-9]\d{0,9}$/u;
 const collections = /^\/collections\/[1-9]\d{0,14}$/u;
 const person = /^\/user\/[\w%-]{1,240}$/u;
 const tag = /^\/tag\/[^/]{1,250}$/u;
@@ -18,7 +19,7 @@ const publicPaths = {
   crucibles: /^\/(?:articles\/[1-9]\d{0,9}|crucibles\/[1-9]\d{0,9}(?:\/[a-z\d-]+)?)$/iu,
   storylines: /^\/storylines\/[1-9]\d{0,9}(?:\/[a-z\d-]+)?$/iu,
   bounties: /^\/bounties\/[1-9]\d{0,9}(?:\/[a-z\d-]+)?$/iu,
-  posts: /^\/posts\/[1-9]\d{0,9}$/u,
+  posts: postPage,
   services: /^\/(?:services\/[1-9]\d{0,9}|user\/[\w%-]{1,240}\/shop)$/u,
   leaderboards: /^\/leaderboard\/[a-z\d-]{1,80}$/iu,
   users: person, creators: person, topics: tag, tags: tag,
@@ -118,7 +119,8 @@ function evidenceItem(group, item, origin) {
     ? new URL('/tag/' + encodeURIComponent(title), origin).href : item.link;
   const link = group === 'aiServices' && aiServiceLink(item.id) === rawLink ? rawLink : publicLink(rawLink, origin, publicPaths[group]);
   if (!link) return null;
-  const source = publicLink(item.source, origin, articlePage) ?? publicLink(item.source, origin, modelPage);
+  const source = publicLink(item.source, origin, articlePage) ?? publicLink(item.source, origin, modelPage) ??
+    publicLink(item.source, origin, postPage);
   // App workflow media must come from the public image catalog. Civitai can
   // display other public covers and icons without admitting them to workflows.
   const imageListing = publicPaths[group] === mediaPage;

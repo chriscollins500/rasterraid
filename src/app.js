@@ -16,7 +16,7 @@ import { socialScopes } from './social-search.mjs';
 import { configureSearchButtons } from './button-layout.mjs';
 import { catalogResearch } from './catalog-research.mjs';
 import { discoverReport } from './report.mjs';
-import { createReportRecovery } from './report-recovery.mjs';
+import { catalogSearchFailure, createReportRecovery } from './report-recovery.mjs';
 import { reportResearchPlans } from './report-research.mjs';
 import { renderReport, renderReportChanges } from './report-view.js';
 import { reviewReportCheckpoint } from './report-checkpoint.mjs';
@@ -36,6 +36,7 @@ import { createVisualCropEditor } from './visual-crop.js';
 import { loadPublicPreview, visualRegionLabel, visualRoles } from './visual-analysis.mjs';
 import { clipMatchTarget, refineVisualNeighbors } from './visual-discovery.mjs';
 import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualPickLimit, visualResearch } from './visual-research.mjs';
+import { configureSubjectComparison } from './subject-view.js';
 import { configureSoundMatch } from './sound-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
@@ -49,6 +50,7 @@ import { GROUPS, appendResultCards, element, evidenceSource, paintCompare, quote
 const byId = id => document.getElementById(id);
 const host = byId('host');
 const form = byId('search-form');
+const searchTools = byId('search-tools');
 const searchButton = byId('search-button');
 const filterPanel = byId('search-filters');
 const pictureButton = byId('add-search-picture');
@@ -57,6 +59,7 @@ const alternateSearch = byId('search-as-typed');
 const pictureSearch = byId('visual-compose-search');
 const cancelButton = byId('cancel-search');
 const continueButton = byId('continue-report');
+const retryButton = byId('retry-catalog-search');
 const searchStatus = byId('search-status');
 const resultArea = byId('results');
 const resultFilters = byId('result-filters');
@@ -97,6 +100,7 @@ const mockPreview = window.parent === window && location.protocol === 'http:' &&
   ['127.0.0.1', 'localhost'].includes(location.hostname) && location.pathname === '/mock-deep-search';
 const previewReceipts = new Map();
 let context;
+let mounted = false;
 let activeSearch;
 let addingSearchPicture = false;
 let activeReferenceSearch;
@@ -118,6 +122,14 @@ let probeRequest;
 let libraryMode;
 let libraryPrivate = false;
 const { query, scope } = form.elements;
+
+function completeStartup() {
+  if (!mounted || !context || !searchTools.inert) return;
+  searchTools.inert = false;
+  byId('startup-status').hidden = true;
+  byId('startup-recovery').hidden = true;
+  document.dispatchEvent(new Event('rasterraid:ready'));
+}
 
 function showResults(visible) {
   workbench.hidden = resultsJump.hidden = !visible;
@@ -218,6 +230,8 @@ function clearReportRecovery() {
 function clearSearchResults(current) {
   clearReportRecovery();
   search = undefined;
+  subjectComparison.show(null, current);
+  retryButton.hidden = true;
   searchTrail.length = 0;
   paintSearchPath();
   compareDialog.close();
@@ -239,6 +253,7 @@ function clearSearchResults(current) {
 }
 
 function setSearchBusy(busy, restore = searchButton) {
+  subjectComparison.setSearchBusy(busy);
   form.toggleAttribute('data-searching', busy);
   byId('open-search-areas').disabled = busy;
   byId('reset-search-area').disabled = busy;
@@ -246,8 +261,10 @@ function setSearchBusy(busy, restore = searchButton) {
   pictureButton.disabled = busy || addingSearchPicture || !context;
   if (busy) searchButton.setAttribute('aria-disabled', 'true');
   else searchButton.removeAttribute('aria-disabled');
-  if (busy) continueButton.setAttribute('aria-disabled', 'true');
-  else continueButton.removeAttribute('aria-disabled');
+  for (const control of [continueButton, retryButton]) {
+    if (busy) control.setAttribute('aria-disabled', 'true');
+    else control.removeAttribute('aria-disabled');
+  }
   if (!busy && document.activeElement === cancelButton) {
     (restore?.isConnected && restore !== document.body && !restore.closest('[hidden]') ? restore : searchButton).focus({ preventScroll: true });
   }
@@ -258,6 +275,7 @@ function setSearchBusy(busy, restore = searchButton) {
 const filterControls = createFilterControls(form, () => context);
 const updateButtonLayout = configureSearchButtons(window, selectSearchArea);
 const cropEditor = createVisualCropEditor(document);
+const subjectComparison = configureSubjectComparison(document, renderResearch);
 const visualReferences = configureLocalReferences(document, report => {
   if (search?.result.report !== report || !report) return;
   if (visualReferences.researchSelection(report).length) {
@@ -378,7 +396,10 @@ watchHost(window, update => {
   const visibilityReduced = context && (context.browsingLevel & update.browsingLevel) !== context.browsingLevel;
   const collectionAccessLost = context && hasCollectionAccess(context, libraryPrivate) && !hasCollectionAccess(update, libraryPrivate);
   const quoteAccessLost = context?.scopes.includes(QUOTE_SCOPE) && !update.scopes.includes(QUOTE_SCOPE);
+  if (context && (identityChanged || visibilityReduced || collectionAccessLost ||
+      context.origin !== update.origin || update.connectionLost && !context.connectionLost)) subjectComparison.release();
   context = update;
+  if (search?.context !== update) retryButton.hidden = true;
   if (searchTrail.length && searchTrail.at(-1).state.context !== update) {
     searchTrail.length = 0;
     paintSearchPath();
@@ -449,6 +470,7 @@ watchHost(window, update => {
   probeButton.disabled = Boolean(probeRequest);
   filterControls.onHostReady();
   if (search?.recordedQuote && update.scopes.includes(QUOTE_SCOPE)) quoteButton.textContent = 'Get a new live quote';
+  completeStartup();
 });
 
 byId('diagnostics').hidden = window.parent !== window && !developerPreview;
@@ -481,9 +503,12 @@ function ratedMedia(current) {
 
 function renderGroup() {
   const gallery = search.result.gallery;
+  const subjectResult = search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope) ? search.result : null;
+  subjectComparison.show(subjectResult, search.context, visualReferences.subjectReferences(subjectResult?.visualComposition));
   if (gallery && isVisualGalleryScope(gallery.scope)) filterControls.showGalleryTagNames(search.groups[gallery.scope] ?? []);
   renderResults(resultArea, search.result, search.groups, search.filter, {
     context: search.context,
+    catalogFailure: search.catalogFailure,
     chosen: search.picksEdited ? search.chosen : new Set(),
     loadingDetails: search.phase === 'loading',
     feedback: search.phase === 'complete' && !search.result.library ? preferences.feedback(search.context) : null,
@@ -620,6 +645,7 @@ function renderResultFilters() {
 function renderSearch(result, filters, current, phase = 'complete') {
   const groups = resultGroups(result);
   const resultScope = result.gallery?.scope ?? result.scope ?? (result.target.kind === 'text' ? filters.scope : 'all');
+  const catalogFailure = phase === 'complete' ? catalogSearchFailure(result) : null;
   if (result.bountyFacets) filterControls.applyBountyFacets(result.bountyFacets);
   if (result.directoryFacets) filterControls.applyDirectoryFacets(result.directoryFacets, { append: result.directoryFacetsPartial });
   const services = result.serviceCatalog;
@@ -633,7 +659,8 @@ function renderSearch(result, filters, current, phase = 'complete') {
   const chosen = keepPicks ? previous.chosen : new Set(result.shortlisted.map(({ id }) => id));
   const catalogSelections = previous?.catalogSelections ?? new Map();
   search = { result, filters, groups, filter, context: current, chosen, picksEdited: Boolean(previous?.picksEdited || filters.workspaceShortlist),
-    catalogSelections, compareVisual: previous?.compareVisual, quotes: [], phase };
+    catalogSelections, compareVisual: previous?.compareVisual, quotes: [], phase, catalogFailure };
+  retryButton.hidden = true;
   if (!previous) resultTools.open = false;
   paintSearchPath();
   paintCompareTray();
@@ -665,10 +692,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
       challenges: 'Challenges', crucibles: 'Crucibles', leaderboards: 'Leaderboards', services: 'Creator Services', marketplace: 'Buzz Marketplace',
       auctions: 'Auctions', prizes: 'Prizes', hubs: 'Hubs', topics: 'Topics', communities: 'Communities', reviews: 'Reviews', comments: 'Comments',
     }[resultScope] ?? GROUPS[resultScope] ?? 'Browse models'));
-  const needsAppToken = !['bounties', 'challenges', 'storylines', 'aiServices', ...catalogHandoffs].includes(resultScope);
-  const partial = result.gallery?.incomplete || !services?.missing && result.flows.some(flow => flow.status !== 200) ||
-    (needsAppToken && current.hosted && !current.token);
-  const pause = partial && catalogPause(current.origin);
+  const pause = catalogFailure && catalogPause(current.origin);
   const parts = [];
   if (result.alternateQueries?.length) {
     parts.push('Also searched for ' + result.alternateQueries.map(value => '“' + value + '”').join(' and ') + '.');
@@ -802,7 +826,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
     modelDownloadFilter(filters.downloadAccess)?.label, filters.supportsGeneration === 'true' && 'Supports Civitai generation'].filter(Boolean);
   if (selectedFilters.length) parts.push('Model filters · ' + selectedFilters.join(' · '));
   if (result.nativeModelExclusions) parts.push('Word exclusions apply in RasterRaid.');
-  if (partial && !pause) parts.push('Some Civitai sources were unavailable.');
+  if (catalogFailure && !pause) parts.push('Some Civitai sources could not be checked.');
   byId('result-note').textContent = parts.join(' ');
   const coverage = byId('quick-coverage');
   const quick = result.quickCatalog;
@@ -903,8 +927,9 @@ function renderSearch(result, filters, current, phase = 'complete') {
     : result.target.motion ? 'Related clips ready. Checking movement…'
     : result.visualSearch || result.visualComposition ? 'Preview matches ready. Checking video frames…' : 'Ranked results ready. Loading pictures and related matches…' : pause
       ? (count ? count + (count === 1 ? ' match · ' : ' matches · ') : '') + pause.message : count
-    ? matchLabel + ' · Free search'
+    ? matchLabel + (catalogFailure ? ' · Search incomplete' : ' · Free search')
     : result.library ? 'Choose an option below.'
+    : catalogFailure ? 'Search incomplete. Some Civitai sources could not be checked.'
     : ['asset3d', 'storyline', 'challenge', 'challengeEvent', 'crucible', 'leaderboard', 'service', 'serviceShop', 'buzzMarketplace',
       'auction', 'prize', 'user', 'article', 'tool', 'comic', 'comicChapter', 'app', 'hub', 'topic', 'modelReviews', 'comment', 'articleComments'].includes(result.target.kind)
       ? 'Ready to open on Civitai.' : 'No matches this time.';
@@ -1037,8 +1062,9 @@ function renderResearch() {
   const local = scenes ?? visual ?? sound;
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
+  const subjectOrder = subjectComparison.orderFor(search.result);
   const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin) ??
-    gallerySimilarityResearch(search.result, search.context.origin) ?? galleryCandidateResearch(search.result, search.context.origin);
+    gallerySimilarityResearch(search.result, search.context.origin, subjectOrder) ?? galleryCandidateResearch(search.result, search.context.origin, subjectOrder);
   const visualMode = Boolean(neighbors && search.compareVisual !== false);
   const legacyMock = report || local || neighbors ? null : configureMock;
   const modelMode = Boolean(legacyMock || !report && !local && search.result.candidates.length && ['all', 'models'].includes(search.filter));
@@ -1522,7 +1548,7 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
     scope.value = restored.scope;
     syncLibraryScope();
     filterControls.restore(restored);
-    byId('search-filters').open = true;
+    filterPanel.open = !link?.searchParams.has('similarTo');
   }
   if (!form.reportValidity()) return;
   const preparation = ++searchPreparation;
@@ -1587,7 +1613,10 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
 
 async function executeSearch(filters, { trigger, traceRecorded, compose, recordedReferences, editPairs, visualCrop, visualBrief, savedReport,
   recovery, continuing = false, branch }) {
-  if (!continuing) {
+  const retrying = trigger === retryButton;
+  const canRetry = !traceRecorded && !compose && !visualCrop && !savedReport && filters.scope !== 'report' &&
+    filters.scope !== 'ownedModels' && !libraryScopes.includes(filters.scope);
+  if (!continuing && !retrying) {
     if (branch && branch.state === search && branch.state.context === context) {
       if (searchTrail.length >= 4) searchTrail.shift();
       searchTrail.push(branch);
@@ -1607,7 +1636,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
   setSearchBusy(true);
   visualReferences.enableLookup(false);
   resultArea.setAttribute('aria-busy', 'true');
-  searchStatus.textContent = continuing ? 'Continuing the previous report…' : 'Searching Civitai…';
+  searchStatus.textContent = continuing ? 'Continuing the previous report…' : retrying ? 'Retrying the previous search…' : 'Searching Civitai…';
   const fromResults = workbench.contains(trigger);
   const attempt = recovery?.begin({ discoverSource: discover, recordedSource: readRecordedVersions });
   let checkpoint;
@@ -1639,13 +1668,15 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       onRanked(ranked) {
         if (signal.aborted) return;
         checkpoint = () => ranked;
-        if (hasEarlierEvidence(ranked)) return;
+        if (retrying || hasEarlierEvidence(ranked)) return;
         showLoading(ranked);
       },
     });
     signal.throwIfAborted();
     if (result.report) result.reportCheckedAt = new Date().toISOString();
+    const retryFocused = retrying && document.activeElement === retryButton;
     renderSearch(result, filters, current);
+    retryButton.hidden = !(canRetry && search.catalogFailure === 'retryable' && current === context);
     offerContinue = Boolean(attempt && (attempt.retryable || result.report?.rails.some(rail => rail.retryable)));
     if (attempt?.reused) searchStatus.textContent += ' · Reused ' + attempt.reused +
       (attempt.reused === 1 ? ' completed check.' : ' completed checks.');
@@ -1666,7 +1697,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       }
       searchStatus.textContent = summary;
     }
-    if (compose || trigger === reportThisSearch ||
+    if (compose || trigger === reportThisSearch || retryFocused && retryButton.hidden ||
         fromResults && (!trigger.isConnected || trigger.hidden) && document.activeElement === document.body) resultsTitle.focus();
     workspace.remember(current, result, filters);
   } catch (error) {
@@ -1705,6 +1736,41 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
 }
 cancelButton.addEventListener('click', () => activeSearch?.abort());
 
+async function checkReplayFilters(control, filters, isCurrent) {
+  const preparation = ++searchPreparation;
+  control.setAttribute('aria-disabled', 'true');
+  try {
+    const retired = await filterControls.retiredSearchFilter(filters);
+    if (preparation === searchPreparation && !activeSearch && !addingSearchPicture && isCurrent()) return { retired };
+  } catch {
+    if (preparation === searchPreparation && isCurrent()) {
+      searchStatus.textContent = 'Civitai could not check your filters. Try again.';
+    }
+  } finally {
+    if (!activeSearch) control.removeAttribute('aria-disabled');
+  }
+  return null;
+}
+
+retryButton.addEventListener('click', async () => {
+  const prior = search;
+  if (retryButton.hidden || retryButton.hasAttribute('aria-disabled') || activeSearch || addingSearchPicture || prior?.context !== context) return;
+  const pause = catalogPause(context.origin);
+  if (pause) {
+    searchStatus.textContent = pause.message;
+    return;
+  }
+  const checked = await checkReplayFilters(retryButton, prior.filters, () => search === prior && context === prior.context);
+  if (!checked) return;
+  if (checked.retired) {
+    searchStatus.textContent = 'Civitai removed the filter “' + checked.retired + '”. Update your filters before searching again.';
+    retryButton.hidden = true;
+    (filterPanel.hidden ? searchButton : filterPanel.querySelector('summary')).focus();
+    return;
+  }
+  await executeSearch(prior.filters, { trigger: retryButton });
+});
+
 continueButton.addEventListener('click', async () => {
   const recovery = reportRecovery;
   if (!recovery?.matches(context) || activeSearch || addingSearchPicture || continueButton.hasAttribute('aria-disabled')) return;
@@ -1713,23 +1779,10 @@ continueButton.addEventListener('click', async () => {
     searchStatus.textContent = pause.message;
     return;
   }
-  const preparation = ++searchPreparation;
-  continueButton.setAttribute('aria-disabled', 'true');
-  let retired;
-  try {
-    retired = await filterControls.retiredReportFilter(recovery.filters);
-  } catch {
-    if (preparation === searchPreparation && recovery === reportRecovery) {
-      searchStatus.textContent = 'Civitai could not check your filters. Try continuing again.';
-    }
-    return;
-  } finally {
-    if (!activeSearch) continueButton.removeAttribute('aria-disabled');
-  }
-  if (preparation !== searchPreparation || activeSearch || addingSearchPicture ||
-      recovery !== reportRecovery || !recovery.matches(context)) return;
-  if (retired) {
-    searchStatus.textContent = 'Civitai removed the filter “' + retired + '”. Update your filters to run a new report.';
+  const checked = await checkReplayFilters(continueButton, recovery.filters, () => recovery === reportRecovery && recovery.matches(context));
+  if (!checked) return;
+  if (checked.retired) {
+    searchStatus.textContent = 'Civitai removed the filter “' + checked.retired + '”. Update your filters to run a new report.';
     (filterPanel.hidden ? searchButton : filterPanel.querySelector('summary')).focus();
     clearReportRecovery();
     return;
@@ -1958,3 +2011,6 @@ if (mockPreview) {
   renderSearch(linocutSample(context.origin), { query: 'linocut', scope: 'all' }, context);
   searchStatus.textContent = 'Linocut sample · 3 model versions';
 }
+
+mounted = true;
+completeStartup();

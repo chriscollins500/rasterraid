@@ -628,7 +628,7 @@ export function resultGroupOrder(result) {
 
 export function renderResults(area, result, groups, filter, {
   context, chosen, toggle, onTag, onMediaTag, onLookup, onVisualCrop, loadingDetails, feedback, mediaFeedback, onVisualReference, onHandoff, onWorkflow,
-  onShowResultType,
+  onShowResultType, catalogFailure,
 }) {
   area.replaceChildren();
   if (result.reference && (['all', 'models', 'pictures'].includes(filter) || result.visualSearch && filter === result.gallery?.scope)) {
@@ -738,6 +738,12 @@ export function renderResults(area, result, groups, filter, {
       ? ['No matches on this page', 'Load more models to continue through your releases.']
       : ['No published models matched', 'Try a shorter name or clear a filter.']);
     empty.append(element('h3', title), element('p', message));
+    area.append(empty);
+    return;
+  }
+  if (catalogFailure && !result.gallery?.suggestions?.length) {
+    empty.append(element('h3', 'Civitai search incomplete'),
+      element('p', 'Some sources could not be checked. More matches may be available on Civitai.'));
     area.append(empty);
     return;
   }
