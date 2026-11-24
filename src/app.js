@@ -501,8 +501,8 @@ function ratedMedia(current) {
 
 function renderGroup() {
   const gallery = search.result.gallery;
-  subjectComparison.show(search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope)
-    ? search.result : null, search.context);
+  const subjectResult = search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope) ? search.result : null;
+  subjectComparison.show(subjectResult, search.context, visualReferences.subjectReferences(subjectResult?.visualComposition));
   if (gallery && isVisualGalleryScope(gallery.scope)) filterControls.showGalleryTagNames(search.groups[gallery.scope] ?? []);
   renderResults(resultArea, search.result, search.groups, search.filter, {
     context: search.context,
@@ -1060,9 +1060,9 @@ function renderResearch() {
   const local = scenes ?? visual ?? sound;
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
+  const subjectOrder = subjectComparison.orderFor(search.result);
   const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin) ??
-    gallerySimilarityResearch(search.result, search.context.origin, subjectComparison.orderFor(search.result)) ??
-    galleryCandidateResearch(search.result, search.context.origin);
+    gallerySimilarityResearch(search.result, search.context.origin, subjectOrder) ?? galleryCandidateResearch(search.result, search.context.origin, subjectOrder);
   const visualMode = Boolean(neighbors && search.compareVisual !== false);
   const legacyMock = report || local || neighbors ? null : configureMock;
   const modelMode = Boolean(legacyMock || !report && !local && search.result.candidates.length && ['all', 'models'].includes(search.filter));

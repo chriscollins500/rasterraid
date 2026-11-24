@@ -539,12 +539,15 @@
           <p id="quick-coverage-areas"></p>
         </details>
         <section id="gallery-visual-brief" class="gallery-visual-brief" aria-label="References used in this search" hidden></section>
-        <section id="subject-comparison" class="report-overview subject-comparison" aria-labelledby="subject-title" hidden>
+        <section id="subject-comparison" class="report-overview subject-comparison" aria-labelledby="subject-title" tabindex="-1" hidden>
           <div class="report-heading">
             <h3 id="subject-title">Find the same subject</h3>
             <button class="chip" id="subject-start" type="button" aria-describedby="subject-help">Compare on this device</button>
             <button class="text-button" id="subject-stop" type="button" hidden>Stop subject matching</button>
           </div>
+          <label class="subject-reference-choice" id="subject-reference-choice" hidden>
+            Match the subject of <select id="subject-reference"></select>
+          </label>
           <p id="subject-help">Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.</p>
           <p id="subject-status" role="status"></p>
           <ol id="subject-results" role="list" aria-label="Subject match order"></ol>

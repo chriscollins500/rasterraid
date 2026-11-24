@@ -1,4 +1,4 @@
-import { gallerySimilaritySample } from './visual-research.mjs';
+import { galleryCompositionSubjectSample, gallerySimilaritySample } from './visual-research.mjs';
 import { rankPreviewSubjects, subjectMatchAvailable } from './subject-matching.mjs';
 import { element, sourceLink } from './view.js';
 
@@ -6,47 +6,70 @@ export function configureSubjectComparison(document, onComplete) {
   const section = document.getElementById('subject-comparison');
   const start = document.getElementById('subject-start');
   const stop = document.getElementById('subject-stop');
+  const referenceChoice = document.getElementById('subject-reference-choice');
+  const picker = document.getElementById('subject-reference');
   const status = document.getElementById('subject-status');
   const help = document.getElementById('subject-help');
   const results = document.getElementById('subject-results');
   const deep = document.getElementById('subject-deep-search');
   let current;
   let context;
-  let selection;
+  let anchors = [];
+  let sample = [];
   let matches = [];
   let active;
+  let searchBusy = false;
 
   function cancel() {
     active?.abort();
     active = undefined;
     start.removeAttribute('aria-disabled');
     stop.hidden = true;
+    picker.disabled = searchBusy;
   }
 
-  function show(result, nextContext) {
-    if (result === current && nextContext === context) return;
+  function clearMatches() {
     cancel();
-    current = result;
-    context = nextContext;
-    selection = result?.visualSearch?.region ? null : gallerySimilaritySample(result, context?.origin);
-    section.hidden = !selection || !subjectMatchAvailable();
     start.hidden = false;
     help.hidden = false;
+    const reference = anchors[picker.selectedIndex];
+    help.textContent = reference?.file ? (reference.region ? 'Uses the selected area of your picture on this device.' : 'Your reference picture stays on this device.') +
+      ' Compares up to six public previews. About 81 MB to get started. 0 Buzz.'
+      : 'Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.';
     status.textContent = '';
     results.replaceChildren();
     matches = [];
     deep.hidden = true;
   }
 
+  function show(result, nextContext, localReferences = []) {
+    if (result === current && nextContext === context) return;
+    current = result;
+    context = nextContext;
+    const gallery = result?.visualSearch?.region ? null : gallerySimilaritySample(result, context?.origin);
+    anchors = gallery ? [gallery.reference] : localReferences;
+    sample = gallery?.sample ?? (localReferences.length ? galleryCompositionSubjectSample(result, context?.origin) : []);
+    section.hidden = !sample.length || !subjectMatchAvailable();
+    referenceChoice.hidden = localReferences.length < 2;
+    picker.replaceChildren(...anchors.map(reference => element('option', reference.label ?? reference.title)));
+    clearMatches();
+  }
+
+  picker.addEventListener('change', () => {
+    const hadMatches = matches.length > 0;
+    clearMatches();
+    if (hadMatches) onComplete();
+  });
   start.addEventListener('click', async () => {
-    if (!selection || active) return;
+    const reference = anchors[picker.selectedIndex];
+    if (!reference || !sample.length || searchBusy || active) return;
     const attempt = active = new AbortController();
-    const { reference, sample } = selection;
     start.setAttribute('aria-disabled', 'true');
+    picker.disabled = true;
     stop.hidden = false;
     status.textContent = 'Reading the previews…';
     try {
-      const ranked = await rankPreviewSubjects(document, selection, { signal: attempt.signal, onProgress: phase => {
+      const ranked = await rankPreviewSubjects(document, { reference, sample }, { signal: attempt.signal, onProgress: phase => {
         if (active === attempt) status.textContent = phase === 'loading' ? 'Loading the on-device matcher…' : 'Comparing subjects…';
       } });
       if (active !== attempt) return;
@@ -71,10 +94,11 @@ export function configureSubjectComparison(document, onComplete) {
       }
       const displayed = matches.length;
       const basis = [reference, ...sample].some(item => item.kind === 'Video poster') ? ' · Includes video posters' : '';
-      status.textContent = 'Compared ' + displayed + ' of ' + sample.length + ' previews on this device' + basis + ' · 0 Buzz';
-      deep.hidden = false;
+      const area = reference.region ? ' using your selected area' : '';
+      status.textContent = 'Compared ' + displayed + ' of ' + sample.length + ' previews on this device' + area + basis + ' · 0 Buzz';
+      deep.hidden = reference.file && sample.length < 2;
       onComplete();
-      if (document.activeElement === start || document.activeElement === stop) deep.focus({ preventScroll: true });
+      if (document.activeElement === start || document.activeElement === stop) (deep.hidden ? section : deep).focus({ preventScroll: true });
       start.hidden = true;
       help.hidden = true;
     } catch {
@@ -95,8 +119,10 @@ export function configureSubjectComparison(document, onComplete) {
   return {
     show,
     setSearchBusy(busy) {
+      searchBusy = busy;
       if (busy) stopMatching();
       start.disabled = busy;
+      picker.disabled = busy;
     },
     orderFor: result => result === current ? matches.map(({ id }) => id) : [],
   };

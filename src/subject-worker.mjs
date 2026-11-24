@@ -57,7 +57,7 @@ async function pictureVector(ort, session, input, output, rgba) {
 
 async function compare(rows) {
   if (!Array.isArray(rows) || rows.length < 2 || rows.length > 1 + subjectCandidateLimit ||
-      !rows.every(row => Number.isSafeInteger(row?.id) && row.id > 0 &&
+      !rows.every((row, index) => Number.isSafeInteger(row?.id) && row.id >= (index === 0 ? 0 : 1) &&
         row.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels) ||
       new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Invalid picture inputs.');
   const adapter = await navigator.gpu?.requestAdapter();

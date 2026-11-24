@@ -28,6 +28,8 @@ Open `http://127.0.0.1:5188/mock-deep-search`. The Linocut example lets you try 
 
 When both free rankings cover the same whole previews, Deep Search can quote a four-preview shortlist alongside the full comparison. The paid request uses only the shortlisted public Civitai URLs and catalog associations. The result can show both free ranks for that same set of previews.
 
+You can also add a picture from your device, search by reference, and run the subject comparison on the gallery results. A selected area stays part of the comparison. If you add several positive local references, choose which one supplies the subject. Deep Search can describe the top public matches and use your written search as context. Your local file, filename, metadata, crop coordinates, and scores stay in your browser.
+
 RasterRaid pins ONNX Runtime Web 1.31.1 and Google's SigLIP 2 Q4 ONNX vision export. The bundled JavaScript preserves the MIT-licensed runtime and replaces dynamic binding generation with static calls. The build checks the three vendor hashes. [Browser binary pins](src/subject-artifacts.mjs) · [Third-party notices](src/vendor/ort/LICENSE.txt)
 
 ## Civitai package

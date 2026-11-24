@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
-import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
+import { galleryCandidateResearch, galleryCompositionResearch, galleryCompositionSubjectSample, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
 import { createWorkflowSession, workflowRecord } from '../src/workflow-session.mjs';
 import { workflowReportMarkdown } from '../src/workflow-results-view.js';
 
@@ -215,6 +215,16 @@ test('public preview captions use the written search and the same public matches
     assert.equal(rank.body.steps[3].input.text, 'textured ink');
     assert.deepEqual(rank.body.steps.slice(4).map(({ input }) => input.imageUrl), compare.inputs.map(row => row.preview));
     assert.doesNotMatch(JSON.stringify(review), /canary|0\.098321|0\.23/u);
+    assert.deepEqual(galleryCompositionSubjectSample(result, host).map(({ id }) => id), [10, 12, 13, 14, 11]);
+    const subjectReview = galleryCandidateResearch(result, host, [30, 6, 4, 14, 14, 11, 12, 1]);
+    assert.deepEqual(subjectReview.plans.slice(0, 2), review.plans);
+    const subject = subjectReview.plans.at(-1);
+    assert.equal(subject.id, 'publicsubjectreview');
+    assert.deepEqual(subject.inputs.map(row => row.link), [14, 11, 12].map(id => host + '/images/' + id));
+    assert.deepEqual(subject.body.steps.map(({ $type, input }) => [$type, input.mediaUrl]),
+      subject.inputs.map(row => ['mediaCaptioning', row.preview]));
+    assert.doesNotMatch(JSON.stringify(subject), /canary|0\.098321|0\.23/u);
+    assert.deepEqual(galleryCandidateResearch(result, host, [10, 12, 13]).plans, review.plans);
 
     const noWords = galleryCandidateResearch({ ...result, gallery: { ...result.gallery, query: '' } }, host);
     assert.deepEqual(noWords.plans.map(({ id }) => id), ['publicpreviewreview']);
@@ -229,8 +239,8 @@ test('public preview comparison runs, resumes and exports the same sources in si
   const ids = [11, 12, 13];
   const items = ids.map(id => ({ id, title: 'Result ' + id, link: origin + '/images/' + id,
     preview: 'https://image.civitai.com/public/' + id + '.jpeg' }));
-  const plan = galleryCandidateResearch({ target: { kind: 'text' }, gallery: { scope: 'gallery', query: 'linocut' },
-    visualComposition: { cues: [{ role: 'texture', label: 'local-file-canary.png' }], order: ids }, related: { gallery: items } }, origin).plans[1];
+  const [ , plan, subject] = galleryCandidateResearch({ target: { kind: 'text' }, gallery: { scope: 'gallery', query: 'linocut' },
+    visualComposition: { cues: [{ role: 'texture', label: 'local-file-canary.png' }], order: ids }, related: { gallery: items } }, origin, [13, 11, 12]).plans;
   let time = 1000;
   let saved;
   const calls = [];
@@ -265,6 +275,32 @@ test('public preview comparison runs, resumes and exports the same sources in si
   assert.match(instructions.content, /Compare the linked preview descriptions/u);
   assert.deepEqual(JSON.parse(data.content).previousResearch.filter(row => row.sourceLink).map(row => row.sourceLink), items.map(row => row.link));
   assert.equal(calls.filter(route => route === 'submit').length, 1);
+  await reopened.prepare(subject, subject.sources);
+  assert.deepEqual(reopened.state().quote.price, { total: 4, authorFee: 1 });
+  await reopened.confirm();
+  time += 5000;
+  await reopened.refresh();
+  const subjectResult = reopened.state();
+  assert.equal(subjectResult.run.status, 'succeeded');
+  assert.deepEqual(subjectResult.run.sources.map(row => row.link), [13, 11, 12].map(id => origin + '/images/' + id));
+  assert.equal(subjectResult.snapshot.steps.filter(step => step.$type === 'mediaCaptioning' && step.status === 'succeeded').length, 3);
+  const exported = workflowReportMarkdown([subjectResult], { simulated: true });
+  assert.match(exported, /Preview description 3/u);
+  assert.doesNotMatch(exported, /canary/u);
+  const subjectSynthesis = reportSynthesisPlan(subjectResult.run, subjectResult.snapshot);
+  await reopened.prepare(subjectSynthesis, subjectResult.run.sources, { continueRun: true });
+  assert.deepEqual(reopened.state().quote.price, { total: 4, authorFee: 1 });
+  assert.equal(calls.filter(route => route === 'submit').length, 2);
+  await reopened.confirm();
+  time += 3000;
+  const final = createWorkflowSession(config);
+  await final.restore();
+  await final.refresh();
+  await final.refreshPrevious();
+  assert.equal(final.state().run.previous.workflowId, subjectResult.run.workflowId);
+  assert.equal(final.state().run.status, 'succeeded');
+  assert.deepEqual(final.state().previousSnapshot.steps.map(step => step.sourceLink), subjectResult.run.sources.map(row => row.link));
+  assert.equal(calls.filter(route => route === 'submit').length, 3);
   assert.equal(saved.body, undefined);
 });
 

@@ -1,4 +1,4 @@
-import { loadPublicPreview } from './visual-analysis.mjs';
+import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
 import { subjectSide } from './subject-artifacts.mjs';
 
 export function subjectMatchAvailable() {
@@ -6,15 +6,27 @@ export function subjectMatchAvailable() {
     typeof Worker === 'function' && typeof WebAssembly.Suspending === 'function' && typeof WebAssembly.promising === 'function');
 }
 
-async function previewPixels(document, { id, cover }, signal) {
-  const image = await loadPublicPreview(document, cover, signal);
+async function previewPixels(document, { id, cover, file, region }, signal) {
   signal.throwIfAborted();
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = subjectSide;
-  const drawing = canvas.getContext('2d', { alpha: false });
-  drawing.imageSmoothingQuality = 'high';
-  drawing.drawImage(image, 0, 0, subjectSide, subjectSide);
-  return { id, rgba: drawing.getImageData(0, 0, subjectSide, subjectSide).data };
+  if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
+  const image = file ? await createImageBitmap(file) : await loadPublicPreview(document, cover, signal);
+  try {
+    signal.throwIfAborted();
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = subjectSide;
+    const drawing = canvas.getContext('2d', { alpha: false });
+    if (!drawing) throw new Error('This browser cannot compare pictures locally.');
+    drawing.imageSmoothingQuality = 'high';
+    const crop = file && visualRegion(region);
+    if (crop) {
+      const [left, top, right, bottom] = crop;
+      drawing.drawImage(image, left * image.width, top * image.height, (right - left) * image.width, (bottom - top) * image.height,
+        0, 0, subjectSide, subjectSide);
+    } else drawing.drawImage(image, 0, 0, subjectSide, subjectSide);
+    return { id, rgba: drawing.getImageData(0, 0, subjectSide, subjectSide).data };
+  } finally {
+    if (file) image.close();
+  }
 }
 
 function matchInWorker(rows, signal, onProgress) {
