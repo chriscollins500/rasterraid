@@ -1,9 +1,9 @@
-import { subjectAssetOrigins, subjectCandidateLimit, subjectSide, subjectVisionModel, subjectWasm } from './subject-artifacts.mjs';
+import { subjectAssetOrigins, subjectCandidateLimit, subjectDownloadBytes, subjectSide, subjectVisionModel, subjectWasm } from './subject-artifacts.mjs';
 
 const pixels = subjectSide * subjectSide;
 const dimensions = 768;
 
-async function checkedBytes({ url, bytes, sha256 }) {
+async function checkedBytes({ url, bytes, sha256 }, received) {
   const reply = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(60_000) });
   if (!reply.ok || !reply.body || !subjectAssetOrigins.includes(new URL(reply.url).origin)) {
     throw new Error('The pinned inference file is unavailable.');
@@ -18,6 +18,7 @@ async function checkedBytes({ url, bytes, sha256 }) {
       if (position + value.byteLength > bytes) throw new Error('Unexpected inference file size.');
       output.set(value, position);
       position += value.byteLength;
+      received(position);
     }
   } finally {
     await reader.cancel().catch(() => {});
@@ -52,19 +53,31 @@ async function pictureVector(ort, session, input, output, rgba) {
     }
   } finally {
     tensor.dispose();
+    normalized.fill(0);
   }
 }
 
-async function compare(rows) {
-  if (!Array.isArray(rows) || rows.length < 2 || rows.length > 1 + subjectCandidateLimit ||
-      !rows.every((row, index) => Number.isSafeInteger(row?.id) && row.id >= (index === 0 ? 0 : 1) &&
-        row.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels) ||
-      new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Invalid picture inputs.');
+async function loadRuntime() {
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter || adapter.info?.isFallbackAdapter || typeof WebAssembly.Suspending !== 'function' ||
-      typeof WebAssembly.promising !== 'function' || !crypto.subtle) return { phase: 'unavailable' };
-  self.postMessage({ phase: 'loading' });
-  const [model, wasm] = await Promise.all([checkedBytes(subjectVisionModel), checkedBytes(subjectWasm)]);
+      typeof WebAssembly.promising !== 'function' || !crypto.subtle) {
+    self.postMessage({ phase: 'unavailable' });
+    return null;
+  }
+  const received = [0, 0];
+  let lastUpdate = -Infinity;
+  function progress(index, bytes) {
+    received[index] = bytes;
+    const now = performance.now();
+    const loaded = received[0] + received[1];
+    if (now - lastUpdate < 150 && loaded !== subjectDownloadBytes) return;
+    lastUpdate = now;
+    self.postMessage({ phase: 'loading', loaded });
+  }
+  progress(0, 0);
+  const [model, wasm] = await Promise.all([subjectVisionModel, subjectWasm].map((artifact, index) =>
+    checkedBytes(artifact, bytes => progress(index, bytes))));
+  self.postMessage({ phase: 'starting' });
   const ort = await import('./vendor/ort/ort.jspi.min.mjs');
   ort.env.wasm.numThreads = 1;
   ort.env.wasm.proxy = false;
@@ -72,28 +85,59 @@ async function compare(rows) {
   ort.env.wasm.wasmBinary = wasm.buffer;
   ort.env.webgpu.adapter = adapter;
   const session = await ort.InferenceSession.create(model, { executionProviders: ['webgpu'], graphOptimizationLevel: 'all' });
+  const input = session.inputNames.find(name => name === 'pixel_values');
+  const output = ['image_embeds', 'pooler_output', 'image_features'].find(name => session.outputNames.includes(name));
+  if (!input || !output) {
+    await session.release();
+    throw new Error('Unexpected vision model inputs or outputs.');
+  }
+  return { ort, session, input, output };
+}
+
+async function compare(rows, { ort, session, input, output }) {
+  if (!Array.isArray(rows) || rows.length < 2 || rows.length > 1 + subjectCandidateLimit ||
+      !rows.every((row, index) => Number.isSafeInteger(row?.id) && row.id >= (index === 0 ? 0 : 1) &&
+        row.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels) ||
+      new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Invalid picture inputs.');
+  self.postMessage({ phase: 'matching' });
+  const reference = await pictureVector(ort, session, input, output, rows[0].rgba);
   try {
-    const input = session.inputNames.find(name => name === 'pixel_values');
-    const output = ['image_embeds', 'pooler_output', 'image_features'].find(name => session.outputNames.includes(name));
-    if (!input || !output) throw new Error('Unexpected vision model inputs or outputs.');
-    self.postMessage({ phase: 'matching' });
-    const reference = await pictureVector(ort, session, input, output, rows[0].rgba);
     const matches = [];
     for (const { id, rgba } of rows.slice(1)) {
       const values = await pictureVector(ort, session, input, output, rgba);
       const score = reference.reduce((sum, value, index) => sum + value * values[index], 0);
+      values.fill(0);
       matches.push({ id, score });
     }
     return { phase: 'complete', matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
-    await session.release();
+    reference.fill(0);
   }
 }
 
+// The app creates this worker on the first explicit comparison. Initialization overlaps preview decoding.
+const runtime = loadRuntime().catch(() => {
+  self.postMessage({ phase: 'failed' });
+  return null;
+});
+let matching = false;
 self.addEventListener('message', async ({ data }) => {
-  try {
-    self.postMessage(await compare(data));
-  } catch {
+  if (matching) {
     self.postMessage({ phase: 'failed' });
+    return;
   }
-}, { once: true });
+  matching = true;
+  let reply;
+  try {
+    const loaded = await runtime;
+    if (loaded) reply = await compare(data, loaded);
+  } catch {
+    reply = { phase: 'failed' };
+  } finally {
+    if (Array.isArray(data)) {
+      for (const row of data) if (row?.rgba instanceof Uint8ClampedArray) row.rgba.fill(0);
+    }
+    matching = false;
+  }
+  if (reply) self.postMessage(reply);
+});

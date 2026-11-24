@@ -396,6 +396,8 @@ watchHost(window, update => {
   const visibilityReduced = context && (context.browsingLevel & update.browsingLevel) !== context.browsingLevel;
   const collectionAccessLost = context && hasCollectionAccess(context, libraryPrivate) && !hasCollectionAccess(update, libraryPrivate);
   const quoteAccessLost = context?.scopes.includes(QUOTE_SCOPE) && !update.scopes.includes(QUOTE_SCOPE);
+  if (context && (identityChanged || visibilityReduced || collectionAccessLost ||
+      context.origin !== update.origin || update.connectionLost && !context.connectionLost)) subjectComparison.release();
   context = update;
   if (search?.context !== update) retryButton.hidden = true;
   if (searchTrail.length && searchTrail.at(-1).state.context !== update) {

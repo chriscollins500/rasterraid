@@ -15,3 +15,5 @@ export const subjectWasm = Object.freeze({
   bytes: 17_920_659,
   sha256: 'b89a3efceeb6df2ba29a66fef59f48fd7b7c22a62af54c3cfe05e63863a07fd5',
 });
+
+export const subjectDownloadBytes = subjectVisionModel.bytes + subjectWasm.bytes;

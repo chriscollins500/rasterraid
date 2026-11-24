@@ -1,5 +1,6 @@
 import { galleryCompositionSubjectSample, gallerySimilaritySample } from './visual-research.mjs';
-import { rankPreviewSubjects, subjectMatchAvailable } from './subject-matching.mjs';
+import { subjectDownloadBytes } from './subject-artifacts.mjs';
+import { createSubjectMatcher, subjectMatchAvailable } from './subject-matching.mjs';
 import { element, sourceLink } from './view.js';
 
 export function configureSubjectComparison(document, onComplete) {
@@ -9,9 +10,12 @@ export function configureSubjectComparison(document, onComplete) {
   const referenceChoice = document.getElementById('subject-reference-choice');
   const picker = document.getElementById('subject-reference');
   const status = document.getElementById('subject-status');
+  const progress = document.getElementById('subject-download');
   const help = document.getElementById('subject-help');
   const results = document.getElementById('subject-results');
   const deep = document.getElementById('subject-deep-search');
+  const matcher = createSubjectMatcher(document);
+  progress.max = subjectDownloadBytes;
   let current;
   let context;
   let anchors = [];
@@ -25,6 +29,7 @@ export function configureSubjectComparison(document, onComplete) {
     active = undefined;
     start.removeAttribute('aria-disabled');
     stop.hidden = true;
+    progress.hidden = true;
     picker.disabled = searchBusy;
   }
 
@@ -69,8 +74,13 @@ export function configureSubjectComparison(document, onComplete) {
     stop.hidden = false;
     status.textContent = 'Reading the previews…';
     try {
-      const ranked = await rankPreviewSubjects(document, { reference, sample }, { signal: attempt.signal, onProgress: phase => {
-        if (active === attempt) status.textContent = phase === 'loading' ? 'Loading the on-device matcher…' : 'Comparing subjects…';
+      const ranked = await matcher.rank({ reference, sample }, { signal: attempt.signal, onProgress: ({ phase, loaded }) => {
+        if (active !== attempt) return;
+        progress.hidden = phase !== 'loading';
+        if (phase === 'loading') progress.value = loaded;
+        const message = phase === 'loading' ? 'Downloading the on-device matcher…'
+          : phase === 'starting' ? 'Preparing the matching model…' : 'Comparing subjects…';
+        if (status.textContent !== message) status.textContent = message;
       } });
       if (active !== attempt) return;
       matches = ranked;
@@ -118,6 +128,10 @@ export function configureSubjectComparison(document, onComplete) {
   });
   return {
     show,
+    release() {
+      stopMatching();
+      matcher.release();
+    },
     setSearchBusy(busy) {
       searchBusy = busy;
       if (busy) stopMatching();
