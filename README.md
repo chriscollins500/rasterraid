@@ -22,6 +22,14 @@ npm run dev -- 5188 dist --mock-deep-search
 
 Open `http://127.0.0.1:5188/mock-deep-search`. The Linocut example lets you try search, comparison and a complete simulated Deep Search run with 0 Buzz.
 
+## On-device subject matching
+
+**Find the same subject** compares up to six eligible public previews against a whole picture or video poster in supported browsers. It uses a compatible WebGPU adapter and JavaScript Promise Integration. Selecting **Compare on this device** downloads about 81 MB of pinned model and runtime files, verifies their hashes, and compares the previews in a local worker. RasterRaid sends no preview pixels or local ranks to the binary hosts. The regular appearance results stay available.
+
+When both free rankings cover the same whole previews, Deep Search can quote a four-preview shortlist alongside the full comparison. The paid request uses only the shortlisted public Civitai URLs and catalog associations. The result can show both free ranks for that same set of previews.
+
+RasterRaid pins ONNX Runtime Web 1.31.1 and Google's SigLIP 2 Q4 ONNX vision export. The bundled JavaScript preserves the MIT-licensed runtime and replaces dynamic binding generation with static calls. The build checks the three vendor hashes. [Browser binary pins](src/subject-artifacts.mjs) · [Third-party notices](src/vendor/ort/LICENSE.txt)
+
 ## Civitai package
 
 Use the official Civitai CLI to validate and package the native app. The command below builds and verifies the source archive locally.

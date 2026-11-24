@@ -34,6 +34,7 @@ export const workflowStatusLabel = status => Object.hasOwn(messages, status) ? m
 const units = simulated => simulated ? ' simulated credits' : ' Buzz';
 const comparisonBasis = 'The comparison uses still previews for video clips.';
 const previewRankNote = 'Free preview rank follows the order shown for the same set of previews in RasterRaid.';
+const subjectRankNote = 'On-device subject rank compares the same previews by subject.';
 
 function stepTitle(name, type) {
   if (type === 'composeMedia') return 'Soundtrack extraction';
@@ -114,11 +115,13 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
         (similarity.modelRevision ? ' · ' + similarity.model + ' ' + similarity.modelRevision : '')));
     if (similarity.previewBasis === 'posters') section.append(element('p', comparisonBasis));
     if (similarity.ranked.some(match => match.previewRank)) section.append(element('p', previewRankNote));
+    if (similarity.ranked.some(match => match.subjectRank)) section.append(element('p', subjectRankNote));
     const list = element('ol');
     for (const match of similarity.ranked) {
       const row = element('li');
       row.append(evidenceSource(match, context, onLookup), ' · ' + match.score.toFixed(2));
       if (match.previewRank) row.append(' · Free preview rank ' + match.previewRank);
+      if (match.subjectRank) row.append(' · On-device subject rank ' + match.subjectRank);
       list.append(row);
     }
     if (similarity.ranked.length) section.append(list);
@@ -179,8 +182,10 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
       result.push('', '### Visual similarity estimates');
       if (previewBasis === 'posters') result.push(comparisonBasis);
       if (ranked.some(match => match.previewRank)) result.push(previewRankNote);
+      if (ranked.some(match => match.subjectRank)) result.push(subjectRankNote);
       result.push(...ranked.map(match => '- [' + plain(match.title) + '](<' + match.link + '>) · ' + match.score.toFixed(2) +
-        (match.previewRank ? ' · Free preview rank ' + match.previewRank : '')));
+        (match.previewRank ? ' · Free preview rank ' + match.previewRank : '') +
+        (match.subjectRank ? ' · On-device subject rank ' + match.subjectRank : '')));
     }
     if (run.sources.length) result.push('', '### Civitai sources',
       ...run.sources.map(source => '- [' + plain(source.title) + '](<' + source.link + '>)'));

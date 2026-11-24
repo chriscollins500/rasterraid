@@ -10,6 +10,11 @@ const output = join(root, 'dist');
 const assetsByPath = Object.keys(previewFiles).map(route => route.slice(1));
 const sha256 = content => createHash('sha256').update(content).digest('hex');
 const digest = createHash('sha256');
+const subjectVendor = Object.freeze({
+  'src/vendor/ort/ort.jspi.min.mjs': '722bdee68871a7787afbd667ea2d65a1261f635455b601bc8a1a4e65f22ea46d',
+  'src/vendor/ort/ort-wasm-simd-threaded.jspi.mjs': '8f92b3c5e3723237007252f6d7079f639159ffe2a29324836472f0aae5a25071',
+  'src/vendor/ort/ort-static-emval.mjs': '8ccfdd306e038d989c151a1ba15b77822f805381ee57192577b725e6b5db04fc',
+});
 
 const folder = await lstat(output);
 assert.ok(folder.isDirectory() && !folder.isSymbolicLink(), 'Expected the local dist directory.');
@@ -33,6 +38,9 @@ for (const path of assetsByPath) {
   }
   digest.update('/' + path).update('\0').update(built);
   assets.push({ path, bytes: built.length, sha256: sha256(built) });
+}
+for (const [path, expected] of Object.entries(subjectVendor)) {
+  assert.equal(assets.find(asset => asset.path === path)?.sha256, expected, 'Subject runtime asset changed: ' + path);
 }
 
 const [manifestFile, lockFile, packageFile] = await Promise.all(

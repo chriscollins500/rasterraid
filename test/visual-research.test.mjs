@@ -46,9 +46,23 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
   const paired = gallerySimilarityResearch(samePreviews, origin).plans[1];
   assert.deepEqual(paired.body, audit.body);
   assert.deepEqual(paired.similarity.targets.map(row => row.previewRank), [6, 5, 4, 3, 2, 1]);
+  const subjectOrder = [13, 14, 16, 17, 15, 11];
+  const [learnedQuick, shortlist, learnedAudit] = gallerySimilarityResearch(samePreviews, origin, subjectOrder).plans;
+  assert.deepEqual(learnedQuick.body, quick.body);
+  assert.deepEqual(learnedAudit.body, paired.body);
+  assert.equal(shortlist.id, 'neighborshortlist');
+  assert.deepEqual(ids(shortlist), [10, 13, 14, 17, 16]);
+  assert.equal(shortlist.body.steps.filter(step => step.$type === 'multimodalEmbedding').length, 5);
+  assert.equal(shortlist.body.steps.at(-1).$type, 'chatCompletion');
+  assert.doesNotMatch(JSON.stringify(shortlist.body), /subjectRank|previewRank|canary/u);
+  assert.deepEqual(learnedAudit.similarity.targets.map(row => row.subjectRank), [6, 1, 2, 5, 3, 4]);
+  assert.equal(gallerySimilarityResearch(samePreviews, origin, subjectOrder.slice(1)).plans.length, 2);
+  assert.equal(gallerySimilarityResearch(result, origin, subjectOrder).plans.some(plan => plan.similarity.targets.some(row => row.subjectRank)), false);
   const frameSearch = { ...samePreviews, related: { videos: ranked.map(item => item.id === 17
     ? { ...item, visualMatch: { ...item.visualMatch, frames: 3 } } : item) } };
-  assert.equal(gallerySimilarityResearch(frameSearch, origin).plans[1].similarity.targets.some(row => row.previewRank), false);
+  const framePlans = gallerySimilarityResearch(frameSearch, origin, subjectOrder).plans;
+  assert.equal(framePlans.length, 2);
+  assert.equal(framePlans[1].similarity.targets.some(row => row.previewRank), false);
 
   let time = 1_000;
   let stored;
@@ -61,9 +75,19 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
     read: async () => structuredClone(stored), write: async row => { stored = structuredClone(row); },
   } };
   const session = createWorkflowSession(config);
-  await session.prepare(paired, paired.sources);
-  assert.deepEqual(session.state().quote.price, { total: 11, authorFee: 1 });
+  await session.prepare(shortlist, shortlist.sources);
+  assert.deepEqual(session.state().quote.price, { total: 9, authorFee: 1 });
   assert.equal(stored, undefined);
+  await session.confirm();
+  time += 5_000;
+  await session.refresh();
+  const reduced = session.state();
+  assert.equal(reduced.run.status, 'succeeded');
+  assert.equal(reduced.snapshot.similarity.ranked.length, 4);
+  assert.equal(reduced.snapshot.steps.find(step => step.name === 'neighbor_catalog_check').status, 'succeeded');
+  await session.prepare(learnedAudit, learnedAudit.sources);
+  assert.deepEqual(session.state().quote.price, { total: 11, authorFee: 1 });
+  assert.equal(stored.workflowId, reduced.run.workflowId);
   await session.confirm();
   time += 5_000;
   const recovered = createWorkflowSession(config);
@@ -80,10 +104,13 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
   assert.equal(snapshot.similarity.ranked.at(-1).link, origin + '/images/11');
   assert.equal(stored.body, undefined);
   assert.match(workflowReportMarkdown([{ run, snapshot }]), /Free preview rank 6/u);
+  assert.match(workflowReportMarkdown([{ run, snapshot }]), /On-device subject rank 6/u);
   assert.match(workflowReportMarkdown([{ run, snapshot }]), /still previews for video clips/u);
   const invalidRanks = structuredClone(stored);
   invalidRanks.similarity.targets[0].previewRank = invalidRanks.similarity.targets[1].previewRank;
   assert.equal(workflowRecord(invalidRanks, origin).similarity.targets.some(row => row.previewRank), false);
+  invalidRanks.similarity.targets[0].subjectRank = invalidRanks.similarity.targets[1].subjectRank;
+  assert.equal(workflowRecord(invalidRanks, origin).similarity.targets.some(row => row.subjectRank), false);
 });
 
 test('visual trait estimates attach only whole Civitai references and preserve all match and avoid roles', async () => {

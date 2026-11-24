@@ -36,6 +36,7 @@ import { createVisualCropEditor } from './visual-crop.js';
 import { loadPublicPreview, visualRegionLabel, visualRoles } from './visual-analysis.mjs';
 import { clipMatchTarget, refineVisualNeighbors } from './visual-discovery.mjs';
 import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualPickLimit, visualResearch } from './visual-research.mjs';
+import { configureSubjectComparison } from './subject-view.js';
 import { configureSoundMatch } from './sound-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
@@ -229,6 +230,7 @@ function clearReportRecovery() {
 function clearSearchResults(current) {
   clearReportRecovery();
   search = undefined;
+  subjectComparison.show(null, current);
   retryButton.hidden = true;
   searchTrail.length = 0;
   paintSearchPath();
@@ -251,6 +253,7 @@ function clearSearchResults(current) {
 }
 
 function setSearchBusy(busy, restore = searchButton) {
+  subjectComparison.setSearchBusy(busy);
   form.toggleAttribute('data-searching', busy);
   byId('open-search-areas').disabled = busy;
   byId('reset-search-area').disabled = busy;
@@ -272,6 +275,7 @@ function setSearchBusy(busy, restore = searchButton) {
 const filterControls = createFilterControls(form, () => context);
 const updateButtonLayout = configureSearchButtons(window, selectSearchArea);
 const cropEditor = createVisualCropEditor(document);
+const subjectComparison = configureSubjectComparison(document, renderResearch);
 const visualReferences = configureLocalReferences(document, report => {
   if (search?.result.report !== report || !report) return;
   if (visualReferences.researchSelection(report).length) {
@@ -497,6 +501,8 @@ function ratedMedia(current) {
 
 function renderGroup() {
   const gallery = search.result.gallery;
+  subjectComparison.show(search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope)
+    ? search.result : null, search.context);
   if (gallery && isVisualGalleryScope(gallery.scope)) filterControls.showGalleryTagNames(search.groups[gallery.scope] ?? []);
   renderResults(resultArea, search.result, search.groups, search.filter, {
     context: search.context,
@@ -1055,7 +1061,8 @@ function renderResearch() {
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin) ??
-    gallerySimilarityResearch(search.result, search.context.origin) ?? galleryCandidateResearch(search.result, search.context.origin);
+    gallerySimilarityResearch(search.result, search.context.origin, subjectComparison.orderFor(search.result)) ??
+    galleryCandidateResearch(search.result, search.context.origin);
   const visualMode = Boolean(neighbors && search.compareVisual !== false);
   const legacyMock = report || local || neighbors ? null : configureMock;
   const modelMode = Boolean(legacyMock || !report && !local && search.result.candidates.length && ['all', 'models'].includes(search.filter));
@@ -1539,7 +1546,7 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
     scope.value = restored.scope;
     syncLibraryScope();
     filterControls.restore(restored);
-    byId('search-filters').open = true;
+    filterPanel.open = !link?.searchParams.has('similarTo');
   }
   if (!form.reportValidity()) return;
   const preparation = ++searchPreparation;

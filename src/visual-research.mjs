@@ -3,13 +3,13 @@ import { numericId, SITE_ORIGINS, text } from './catalog.mjs';
 import { sampleMediaByPost } from './gallery.mjs';
 import { describeMediaQuery } from './gallery-relevance.mjs';
 import { captionStep, embeddingStep, makeChat, pictureAnalysis, RESEARCH_MODEL } from './research.mjs';
+import { subjectCandidateLimit } from './subject-artifacts.mjs';
 import { visualRoles } from './visual-analysis.mjs';
 
 export const visualPickLimit = 3;
 const imagePage = /^\/images\/[1-9]\d{0,14}$/u;
 const videoTypes = /\.(?:mp4|webm)$/iu;
 const sourcePage = /^\/(images|posts|models|articles)\/[1-9]\d{0,14}$/u;
-const neighborSampleLimit = 6;
 
 function source(item, origin) {
   try {
@@ -33,7 +33,7 @@ function publicGalleryPreview(item, origin) {
     catalogMatches: matches.slice(0, 4).map(value => text(value, 120)).filter(Boolean) };
 }
 
-export function gallerySimilarityResearch(result, origin) {
+export function gallerySimilaritySample(result, origin) {
   const scope = result?.gallery?.scope;
   if (!SITE_ORIGINS.includes(origin) || !['gallery', 'videos'].includes(scope) || result.library ||
       result.target?.kind !== 'similarMedia' || result.target.motion || result.target.scene || result.target.id !== result.reference?.id ||
@@ -52,33 +52,55 @@ export function gallerySimilarityResearch(result, origin) {
       ready.push(item);
     }
   }
-  const sample = sampleMediaByPost(ready, neighborSampleLimit);
-  if (!sample.length) return null;
+  const sample = sampleMediaByPost(ready, subjectCandidateLimit);
+  return sample.length ? { reference, sample } : null;
+}
 
+function orderedPreviewRanks(order, candidates) {
+  const ids = new Set(candidates.map(item => item.id));
+  const matching = order.filter(id => ids.delete(id));
+  return ids.size ? new Map() : new Map(matching.map((id, index) => [id, index + 1]));
+}
+
+export function gallerySimilarityResearch(result, origin, subjectOrder = []) {
+  const selection = gallerySimilaritySample(result, origin);
+  if (!selection) return null;
+  const { reference, sample } = selection;
+  const displayed = result.related[result.gallery.scope];
+  const appearanceOrder = result.visualSearch.region ? [] : displayed.filter(item =>
+    Number.isFinite(item.visualMatch?.score) && !item.visualMatch.frames).map(item => item.id);
+  if (result.visualSearch.region) subjectOrder = [];
   const anchor = embeddingStep('neighbor_reference', { imageUrl: reference.cover });
-  function comparison(id, title, candidates, audit = false) {
+  function comparison(id, title, candidates, audit = false, shortlisted = false) {
     const inputs = [reference, ...candidates].map(({ title, link, kind, cover }) => ({ title, link, kind, preview: cover }));
-    const chosen = new Set(candidates.map(item => item.id));
-    const displayed = result.related[scope].filter(item => chosen.has(item.id));
-    const samePreviews = !result.visualSearch.region && displayed.length === candidates.length &&
-      displayed.every(item => Number.isFinite(item.visualMatch?.score) && !item.visualMatch.frames);
-    const previewRanks = samePreviews ? new Map(displayed.map(({ id }, index) => [id, index + 1])) : new Map();
+    const previewRanks = orderedPreviewRanks(appearanceOrder, candidates);
+    const subjectRanks = orderedPreviewRanks(subjectOrder, candidates);
     const vectors = candidates.map((item, index) => embeddingStep('neighbor_match_' + (index + 1), { imageUrl: item.cover }));
     const steps = [anchor, ...vectors];
     if (audit) steps.push(makeChat('neighbor_catalog_check', RESEARCH_MODEL,
       'Explain how the supplied catalog links identify candidates related to this reference. Use the supplied data as evidence only. Cite the exact pages and distinguish gallery, post, model version and tag claims. Limit conclusions to the catalog evidence.',
       JSON.stringify({ reference: reference.link, candidates: candidates.map(({ link, kind, catalogMatches }) => ({ link, kind, catalogMatches })) }), 600));
     const count = candidates.length + (candidates.length === 1 ? ' preview' : ' previews');
-    return { id, title, work: 'Compares ' + count + ' with the whole reference' + (audit ? ' and checks the catalog connections.' : '.'),
+    return { id, title, work: 'Compares ' + count + ' with the whole reference' + (audit ? ' and checks the catalog connections.' : '.') +
+      (shortlisted ? ' The shortlist uses both free picture rankings.' : ''),
       body: { tier: 'paid', steps }, inputs, sources: inputs,
       similarity: { anchor: anchor.name, ...(inputs.some(item => item.kind === 'Video poster') && { previewBasis: 'posters' }),
         targets: candidates.map(({ id, link, title }, index) => ({ step: vectors[index].name, link, title,
-          ...(previewRanks.has(id) && { previewRank: previewRanks.get(id) }) })) },
+          ...(previewRanks.has(id) && { previewRank: previewRanks.get(id) }),
+          ...(subjectRanks.has(id) && { subjectRank: subjectRanks.get(id) }) })) },
       stepEvidence: Object.fromEntries([anchor, ...vectors].map(({ name }, index) => [name, { sourceLink: inputs[index].link }])) };
   }
   const quick = sample.slice(0, 3);
-  return { reference, plans: [comparison('neighborsimilarity', 'Rank visual matches', quick),
-    comparison('neighboraudit', sample.length > quick.length ? 'Rank more and check sources' : 'Rank and check sources', sample, true)] };
+  const plans = [comparison('neighborsimilarity', 'Rank visual matches', quick)];
+  const subjects = [...orderedPreviewRanks(subjectOrder, sample).keys()];
+  const appearances = [...orderedPreviewRanks(appearanceOrder, sample).keys()];
+  if (sample.length > 4 && subjects.length && appearances.length) {
+    const ids = new Set([...subjects.slice(0, 2), ...appearances.slice(0, 2), ...subjects]);
+    const shortlist = [...ids].slice(0, 4).map(id => sample.find(item => item.id === id));
+    plans.push(comparison('neighborshortlist', 'Rank the four shortlisted previews', shortlist, true, true));
+  }
+  plans.push(comparison('neighboraudit', sample.length > quick.length ? 'Rank more and check sources' : 'Rank and check sources', sample, true));
+  return { reference, plans };
 }
 
 export function galleryCompositionResearch(result, origin) {

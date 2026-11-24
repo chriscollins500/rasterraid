@@ -52,11 +52,14 @@ function normalizeSimilarity(value, steps, sources) {
     if (!source || !vector || seen.has(vector.name) || vector.input &&
         (vector.input.model !== value.model || vector.input.dimensions !== value.dimensions)) continue;
     seen.add(vector.name);
-    targets.push({ step: vector.name, ...source, ...(Number.isSafeInteger(row.previewRank) && { previewRank: row.previewRank }) });
+    targets.push({ step: vector.name, ...source, ...(Number.isSafeInteger(row.previewRank) && { previewRank: row.previewRank }),
+      ...(Number.isSafeInteger(row.subjectRank) && { subjectRank: row.subjectRank }) });
   }
-  const previewRanks = new Set(targets.map(row => row.previewRank));
-  if (previewRanks.size !== targets.length || targets.some(row => !(row.previewRank >= 1 && row.previewRank <= targets.length))) {
-    for (const row of targets) delete row.previewRank;
+  for (const key of ['previewRank', 'subjectRank']) {
+    const ranks = new Set(targets.map(row => row[key]));
+    if (ranks.size !== targets.length || targets.some(row => !(row[key] >= 1 && row[key] <= targets.length))) {
+      for (const row of targets) delete row[key];
+    }
   }
   return targets.length ? { model: value.model, dimensions: value.dimensions, anchor: anchor.name, targets,
     ...(value.previewBasis === 'posters' && { previewBasis: 'posters' }) } : null;
