@@ -37,14 +37,18 @@ const previewAssetLimit = 2_000_000n;
 const previewRoot = await realpath(dir);
 
 async function readPreviewAsset(base, path) {
-  const entry = await lstat(path, { bigint: true });
-  if (!entry.isFile() || entry.size > previewAssetLimit || !inside(base, await realpath(path))) {
+  const target = await realpath(path);
+  if (!inside(base, target)) {
     throw new Error('Preview requires regular, bounded build files.');
   }
-  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  const handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const opened = await handle.stat({ bigint: true });
-    if (!opened.isFile() || opened.dev !== entry.dev || opened.ino !== entry.ino || opened.size > previewAssetLimit) {
+    const entry = await lstat(path, { bigint: true });
+    if (!opened.isFile() || !entry.isFile() || opened.size > previewAssetLimit) {
+      throw new Error('Preview requires regular, bounded build files.');
+    }
+    if (opened.dev !== entry.dev || opened.ino !== entry.ino || await realpath(path) !== target) {
       throw new Error('The preview file changed while opening it.');
     }
     const bytes = Buffer.alloc(Number(opened.size) + 1);
