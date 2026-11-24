@@ -152,7 +152,8 @@ def package(cli, node, npm, assets, expected):
     if digest(repeat.read_bytes()) != archive_hash:
         raise ValueError("The two official ZIP files differ.")
 
-    rebuilt = output / "from-zip"
+    # npm uses the rebuild directory name for the SBOM root component.
+    rebuilt = output / app
     write_source(rebuilt, unzipped)
     run([npm, "run", "build"], rebuilt)
     rebuilt_sha = built_snapshot(rebuilt / "dist", assets, unzipped)
@@ -160,7 +161,10 @@ def package(cli, node, npm, assets, expected):
         raise ValueError("The rebuild from the ZIP differs from the workspace build.")
 
     sbom = json.loads(run([npm, "sbom", "--package-lock-only", "--omit=dev", "--sbom-format=cyclonedx"], rebuilt))
-    if sbom.get("bomFormat") != "CycloneDX" or sbom.get("metadata", {}).get("component", {}).get("version") != version:
+    component = sbom.get("metadata", {}).get("component", {})
+    if sbom.get("bomFormat") != "CycloneDX" or (
+        component.get("name"), component.get("version"), component.get("purl")
+    ) != (app, version, f"pkg:npm/{app}@{version}"):
         raise ValueError("The runtime SBOM did not match the audited App version.")
     audit = json.loads(run([npm, "audit", "--package-lock-only", "--omit=dev", "--json"], rebuilt))
     toolchain = {"civitai": run([cli, "--no-color", "--no-update-check", "--version"]).strip(),
