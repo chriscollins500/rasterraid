@@ -547,7 +547,7 @@ function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAud
     }
     const lookup = async id => {
       const version = await read('Exact version lookup', '/api/v1/model-versions/' + id, {}, optional);
-      return version?.id === id && (!publicFallback || isPublished(version)) ? version : null;
+      return version?.id === id && (!publicFallback || isPublished(version) && publicModelRating(version, ceiling)) ? version : null;
     };
     if (!optional) return verifySiteVersions(await Promise.all(ids.map(lookup)));
     const data = [];
@@ -572,7 +572,7 @@ function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAud
     if (publicFallback) return models.flatMap(model => {
       const parent = verified.get(model.id);
       const version = model.modelVersions[0];
-      return parent?.modelVersions.some(row => row.id === version.id) && isPublished(version) && publicModelRating(version, ceiling)
+      return parent?.modelVersions.some(row => row.id === version.id)
         ? [{ ...parent, modelVersions: [version] }] : [];
     });
     return models.map(model => {

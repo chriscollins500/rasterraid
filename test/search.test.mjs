@@ -151,6 +151,40 @@ test('a quick search promotes an exact tool only when an exact model did not mat
   assert.deepEqual(result.related.tools, [tool]);
 });
 
+test('guest Quick Search checks public media only for an exact short catalog tag', async () => {
+  const guest = { origin: com, hosted: true, browsingLevel: 1 };
+  const tag = { id: 77, name: 'landscape' };
+  const calls = [];
+  const options = { fetcher(url, request) {
+    assert.equal(request.credentials, 'omit');
+    assert.equal(request.headers.Authorization, undefined);
+    calls.push(url.pathname);
+    if (url.pathname === '/api/search/multi-search') {
+      const { queries } = JSON.parse(request.body);
+      const tagRequest = queries.find(query => query.indexUid === 'models_v9');
+      if (queries[0].q === 'Landscape') assert.deepEqual(tagRequest.attributesToRetrieve, ['tags']);
+      else assert.equal(tagRequest, undefined);
+      return Response.json({ results: queries.map(({ indexUid }) =>
+        ({ indexUid, hits: indexUid === 'models_v9' ? [{ tags: [tag] }] : [] })) });
+    }
+    assert.equal(url.pathname, CATALOG.images);
+    assert.equal(url.searchParams.get('browsingLevel'), '1');
+    assert.equal(url.searchParams.get('tags'), '77');
+    const type = url.searchParams.get('type');
+    const item = { id: type === 'image' ? 81 : 85, type, browsingLevel: 1, postId: 412,
+      url: 'https://image.civitai.com/fixture/' + (type === 'image' ? 'sample.png' : 'clip.mp4'), tags: [tag] };
+    return Response.json({ items: [item, { ...item, id: 90, browsingLevel: 3 },
+      { ...item, id: 91, blockedFor: 'Review' }, { ...item, id: 92, tags: [] }] });
+  } };
+  const tagged = await readQuickCatalog(guest, 'Landscape', options);
+  const sampled = await sampleQuickCatalog(guest, tagged, [], options);
+  assert.deepEqual(sampled.groups.gallery.map(item => item.id), [81]);
+  assert.deepEqual(sampled.groups.videos.map(item => item.id), [85]);
+  const long = await readQuickCatalog(guest, 'A low contrast morning landscape', options);
+  assert.equal((await sampleQuickCatalog(guest, long, [], options)).groups.gallery, undefined);
+  assert.deepEqual(calls, ['/api/search/multi-search', CATALOG.images, CATALOG.images, '/api/search/multi-search']);
+});
+
 test('an unavailable cross-area sample keeps the original free catalog results', async () => {
   const context = { origin: com, hosted: true, browsingLevel: 3 };
   const unavailable = await readQuickCatalog(context, 'ComfyUI', {

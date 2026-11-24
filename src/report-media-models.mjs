@@ -1,5 +1,5 @@
 import { numericId } from './catalog.mjs';
-import { readAppMediaByIds, sampleMediaByPost } from './gallery.mjs';
+import { readExampleMedia, sampleMediaByPost } from './gallery.mjs';
 
 const previewLimit = 3;
 const versionLookupLimit = 4;
@@ -10,7 +10,7 @@ const knownReferences = ({ item }) => item.modelReferencesChecked || item.record
 
 export async function readReportMediaReferences(context, rows, cardLimit, { signal, fetcher, onRead }) {
   const models = rows.find(row => row.scope === 'models');
-  if (!context.hosted || !context.token || !models || models.result?.flows?.some(flow => flow.status === 429)) return null;
+  if (!context.hosted || !models || models.result?.flows?.some(flow => flow.status === 429)) return null;
   const samples = new Map();
   const throttled = rows.some(row => row.result?.gallery?.throttled);
   for (const row of rows) {
@@ -27,15 +27,15 @@ export async function readReportMediaReferences(context, rows, cardLimit, { sign
   if (throttled) return { models, samples: [...samples.values()].filter(knownReferences), partial: true, throttled };
   onRead();
   try {
-    const found = await readAppMediaByIds(context, ids, { signal, fetcher });
-    const verified = new Map(found.map(item => [item.id, item]));
+    const media = await readExampleMedia(context, ids, { signal, fetcher, withSetup: false });
+    const verified = new Map(media.items.map(item => [item.id, item]));
     const checked = [...samples.values()].flatMap(({ item, rank }) => {
       if (knownReferences({ item })) return [{ item, rank }];
       const exact = verified.get(item.id);
-      return exact?.link === item.link && !exact.audio && exact.video === Boolean(item.video)
+      return exact?.link === item.link && !exact.audio && exact.video === Boolean(item.video) && (!item.postId || exact.postId === item.postId)
         ? [{ item: { ...exact, exampleSource: item.exampleSource }, rank }] : [];
     });
-    return { models, samples: checked, partial: checked.length < samples.size };
+    return { models, samples: checked, partial: media.partial || checked.length < samples.size, throttled: media.throttled };
   } catch (error) {
     signal?.throwIfAborted();
     return { models, samples: [...samples.values()].filter(knownReferences), partial: true, throttled: error.status === 429 };
@@ -90,7 +90,7 @@ export async function traceReportMediaModels(context, checked, posts, modelFilte
       const result = await recordedSource(context, { records: ids.map(versionId => ({ versionId })) }, modelFilters,
         { signal, fetcher, evidenceLabel: 'Linked to previews in this report' });
       signal?.throwIfAborted();
-      partial ||= result.flows.some(flow => flow.status !== 200);
+      partial ||= result.flows.some(flow => flow.status !== 200 && !flow.missing);
       for (const candidate of result.candidates) {
         if (ids.includes(candidate.id) && numericId(candidate.modelId) &&
             candidate.link === new URL('/models/' + candidate.modelId + '?modelVersionId=' + candidate.id, context.origin).href) {

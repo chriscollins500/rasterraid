@@ -340,16 +340,17 @@ export async function readAppMediaByIds(context, ids, { withTags = false, withSe
   return exactMediaRows(data, requested, context.origin, context.browsingLevel ?? 1, { withTags, withSetup });
 }
 
-export async function readExampleMedia(context, ids, options = {}) {
-  if (context.hosted && context.token) return { items: await readAppMediaByIds(context, ids, { ...options, withSetup: true }), partial: false };
+export async function readExampleMedia(context, ids, { withSetup = true, ...options } = {}) {
+  if (context.hosted && context.token) return { items: await readAppMediaByIds(context, ids, { ...options, withSetup }), partial: false };
   const ceiling = context.hosted ? context.browsingLevel ?? 1 : 31;
   const responses = await Promise.allSettled(ids.map(async imageId => {
     const { data } = await catalogRead(context.origin, CATALOG.images, { imageId, limit: 1, withMeta: true, browsingLevel: ceiling }, options);
-    return exactMediaRows(data, new Set([imageId]), context.origin, ceiling, { withSetup: true });
+    return exactMediaRows(data, new Set([imageId]), context.origin, ceiling, { withSetup });
   }));
   options.signal?.throwIfAborted();
   return { items: responses.flatMap(row => row.status === 'fulfilled' ? row.value : []),
-    partial: responses.some(row => row.status === 'rejected') };
+    partial: responses.some(row => row.status === 'rejected'),
+    throttled: responses.some(row => row.status === 'rejected' && row.reason?.status === 429) };
 }
 
 export async function readGalleryVersionParents(context, ids, options = {}) {

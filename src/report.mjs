@@ -680,7 +680,16 @@ export async function discoverReport(context, filters, {
   if (postId && postId <= 2_147_483_647) {
     onPhase('Checking the public post for your example…');
     const query = new URL('/posts/' + postId, context.origin).href;
-    exactPost = await verifiedRead({ scope: 'posts', query }, result => result.related.posts?.some(post => post.link === query));
+    const imageId = anchor.reference.id;
+    const matchingPost = result => result.related.posts?.find(post => post.id === postId && post.link === query &&
+      (post.verifiedMediaIds?.includes(imageId) || post.previews?.some(item => item.id === imageId && item.postId === postId)));
+    const result = await verifiedRead({ scope: 'posts', query }, matchingPost);
+    if (result) {
+      const post = matchingPost(result);
+      const previews = post.previews ?? [];
+      const members = example ? [example, ...previews.filter(item => item.id !== imageId)].slice(0, cardLimit) : previews;
+      exactPost = { ...result, related: { posts: [{ ...post, previews: members }], postMedia: members } };
+    }
   }
   let exactModels = (hasLocal || upgrade) && anchor.candidates.length ? anchor : undefined;
   const pinnedFile = parsed.kind === 'version' && parsed.fileId;
@@ -689,13 +698,17 @@ export async function discoverReport(context, filters, {
       ? await discoverSource(context, { ...modelFilters, scope: 'models', query: brief }, options) : anchor;
   }
   const linkedVersion = numericId(exactPost?.related.posts?.[0]?.modelVersionId);
-  if (followLinks && linkedVersion && !exactModels?.candidates.length && settings.sources.includes('models')) {
+  const matchesPostVersion = model => model.id === linkedVersion && numericId(model.modelId) &&
+    model.link === new URL('/models/' + model.modelId + '?modelVersionId=' + linkedVersion, context.origin).href;
+  if (followLinks && linkedVersion && settings.sources.includes('models') && !exactModels?.candidates.some(matchesPostVersion)) {
     onPhase('Checking the exact model version listed on the post…');
     const confirmed = await verifiedRead({ ...modelFilters, scope: 'models', query: 'version: ' + linkedVersion },
-      result => result.candidates.some(model => model.id === linkedVersion));
+      result => result.candidates.some(matchesPostVersion));
     if (confirmed) {
-      exactModels = confirmed;
-      interpreted = text(confirmed.candidates[0]?.model, 150) || interpreted;
+      const linked = confirmed.candidates.filter(matchesPostVersion);
+      if (!exactModels?.candidates.length) interpreted = text(linked[0].model, 150) || interpreted;
+      exactModels = { ...confirmed, candidates: [...(exactModels?.candidates ?? []), ...linked],
+        flows: [...(exactModels?.flows ?? []), ...confirmed.flows] };
     }
   }
   if (trace && anchor?.reference?.publishedSetup) {
