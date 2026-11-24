@@ -124,6 +124,43 @@ test('free model paging preserves the first ranking, validated filters, and pick
   await assert.rejects(readModelPage(context, {}, { fetcher }), /access changed/u);
 });
 
+test('hosted model search without an App token uses the public catalog on every page', async () => {
+  const guest = { origin, hosted: true, browsingLevel: 1 };
+  const requests = [];
+  const listed = (id, parent = {}, release = {}) => {
+    const entry = { ...model(id), nsfwLevel: 1, ...parent };
+    entry.modelVersions = [{ ...entry.modelVersions[0], nsfwLevel: 1, status: 'Published', ...release }];
+    return entry;
+  };
+  const fetcher = (url, options) => {
+    requests.push([url.pathname, url.searchParams.get('cursor'), options.headers.Authorization, options.credentials]);
+    if (url.pathname === CATALOG.tags) return Response.json({ items: [] });
+    if (url.pathname === CATALOG.images) {
+      assert.equal(url.searchParams.get('browsingLevel'), '1');
+      return Response.json({ items: [
+        { id: 70, url: preview, browsingLevel: 1, needsReview: true },
+        { id: 71, url: preview, browsingLevel: 2 },
+        { id: 72, url: preview, browsingLevel: 1 },
+      ] });
+    }
+    assert.equal(url.pathname, CATALOG.models);
+    assert.equal(url.searchParams.get('nsfw'), 'true');
+    return Response.json(url.searchParams.has('cursor')
+      ? { items: [listed(1), listed(10), listed(11, {}, { availability: 'EarlyAccess' })] }
+      : { items: [listed(1), listed(2, { nsfwLevel: 3 }), listed(3, { nsfwLevel: undefined }),
+        listed(4, {}, { nsfwLevel: 2 }), listed(5, {}, { status: 'Draft' }), listed(6, { mode: 'TakenDown' })],
+      metadata: { nextCursor: 'public-next' } });
+  };
+  const result = await discover(guest, { scope: 'models', query: 'Portrait' }, { fetcher });
+  assert.deepEqual(result.candidates.map(row => [row.id, row.examples.map(example => example.id)]), [[101, [72]]]);
+  const next = await readModelPage(guest, result.modelPager.nextCursor, { fetcher });
+  assert.deepEqual(next.items.map(row => row.id), [110]);
+  assert.equal(next.nextCursor, null);
+  assert.deepEqual(requests.filter(([path]) => path === CATALOG.models).map(([, cursor]) => cursor), [null, 'public-next']);
+  assert.ok(requests.every(([path, , auth, credentials]) => !path.startsWith('/api/v1/blocks/') && !auth && credentials === 'omit'));
+  await assert.rejects(readModelPage({ ...guest, token: 'connected' }, result.modelPager.nextCursor, { fetcher }), /access changed/u);
+});
+
 test('Site model continuations retain the cursor during a shared pause and resume App verification', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-11-22T15:00:00Z') });
   let failVerification = false;

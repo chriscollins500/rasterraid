@@ -49,6 +49,7 @@ import { GROUPS, appendResultCards, element, evidenceSource, paintCompare, quote
 const byId = id => document.getElementById(id);
 const host = byId('host');
 const form = byId('search-form');
+const searchTools = byId('search-tools');
 const searchButton = byId('search-button');
 const filterPanel = byId('search-filters');
 const pictureButton = byId('add-search-picture');
@@ -97,6 +98,7 @@ const mockPreview = window.parent === window && location.protocol === 'http:' &&
   ['127.0.0.1', 'localhost'].includes(location.hostname) && location.pathname === '/mock-deep-search';
 const previewReceipts = new Map();
 let context;
+let mounted = false;
 let activeSearch;
 let addingSearchPicture = false;
 let activeReferenceSearch;
@@ -118,6 +120,14 @@ let probeRequest;
 let libraryMode;
 let libraryPrivate = false;
 const { query, scope } = form.elements;
+
+function completeStartup() {
+  if (!mounted || !context || !searchTools.inert) return;
+  searchTools.inert = false;
+  byId('startup-status').hidden = true;
+  byId('startup-recovery').hidden = true;
+  document.dispatchEvent(new Event('rasterraid:ready'));
+}
 
 function showResults(visible) {
   workbench.hidden = resultsJump.hidden = !visible;
@@ -449,6 +459,7 @@ watchHost(window, update => {
   probeButton.disabled = Boolean(probeRequest);
   filterControls.onHostReady();
   if (search?.recordedQuote && update.scopes.includes(QUOTE_SCOPE)) quoteButton.textContent = 'Get a new live quote';
+  completeStartup();
 });
 
 byId('diagnostics').hidden = window.parent !== window && !developerPreview;
@@ -1958,3 +1969,6 @@ if (mockPreview) {
   renderSearch(linocutSample(context.origin), { query: 'linocut', scope: 'all' }, context);
   searchStatus.textContent = 'Linocut sample · 3 model versions';
 }
+
+mounted = true;
+completeStartup();

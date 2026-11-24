@@ -1,6 +1,7 @@
 export const previewFiles = Object.freeze({
   '/index.html': 'text/html; charset=utf-8',
   '/app.css': 'text/css; charset=utf-8',
+  '/src/startup.js': 'text/javascript; charset=utf-8',
   '/src/app.js': 'text/javascript; charset=utf-8',
   '/src/civitai-host.js': 'text/javascript; charset=utf-8',
   '/src/catalog.mjs': 'text/javascript; charset=utf-8',

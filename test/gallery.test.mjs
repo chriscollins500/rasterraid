@@ -51,6 +51,34 @@ function media(id, type, fields = {}) {
   };
 }
 
+test('public gallery fallback retains exact tags, visibility, and moderation gates', async () => {
+  const origin = 'https://civitai.red';
+  const guest = { origin, hosted: true, browsingLevel: 1 };
+  const plan = { type: 'image', tags: [cats.id], sort: 'Newest' };
+  const routes = [];
+  const fetcher = (url, options) => {
+    routes.push(url.pathname);
+    if (url.pathname === CATALOG.blockImages) {
+      assert.equal(options.headers.Authorization, 'Bearer signed');
+      return Response.json({}, { status: 403 });
+    }
+    assert.equal(url.origin, origin);
+    assert.equal(url.pathname, CATALOG.images);
+    assert.equal(url.searchParams.get('tags'), String(cats.id));
+    assert.equal(url.searchParams.get('browsingLevel'), '1');
+    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.credentials, 'omit');
+    return Response.json({ items: [media(1, 'image'), media(2, 'image', { browsingLevel: 2 }),
+      media(3, 'image', { tags: [landscape] }), media(4, 'image', { needsReview: true }), media(5, 'video')],
+    metadata: { nextCursor: 'public-images' } });
+  };
+  const page = await readGalleryPage(guest, plan, { fetcher });
+  assert.deepEqual(page.items.map(row => row.id), [1]);
+  assert.equal(page.nextCursor, 'public-images');
+  await assert.rejects(readGalleryPage({ ...guest, token: 'signed' }, plan, { fetcher }), /HTTP 403/u);
+  assert.deepEqual(routes, [CATALOG.images, CATALOG.blockImages]);
+});
+
 test('native image and video links preserve public choices and hold unsupported filters', () => {
   const host = 'https://civitai.red';
   const link = new URL('/videos', host);

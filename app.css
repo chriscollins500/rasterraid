@@ -151,6 +151,10 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .primary { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 46px; padding: 9px 17px; border: 1px solid transparent; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 800; white-space: nowrap; }
 .primary:hover:not(:disabled) { filter: brightness(1.065); }
 .search-tools { display: grid; gap: 10px; margin-top: 10px; }
+.search-tools[inert] { opacity: .54; }
+.startup-status, .startup-recovery { margin: 8px 0 0; color: var(--text); font-size: .87rem; }
+.startup-recovery { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 12px; }
+#startup-status:has(~ noscript .startup-status) { display: none; }
 #search-form[data-with-picture] #search-examples { display: none; }
 #search-form[data-with-picture] #visual-reference-setup { order: -1; }
 .catalog-order { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; width: fit-content; color: var(--text); font-size: .84rem; font-weight: 650; }

@@ -6,7 +6,8 @@
   <meta name="referrer" content="no-referrer">
   <title>RasterRaid</title>
   <link rel="stylesheet" href="./app.css">
-  <script type="module" src="./src/app.js"></script>
+  <script defer src="./src/startup.js"></script>
+  <script id="rasterraid-module" type="module" src="./src/app.js"></script>
 </head>
 <body>
   <a class="skip-link" href="#query">Skip to search</a>
@@ -82,7 +83,13 @@
             </div>
             <input id="search-picture-files" type="file" accept="image/avif,image/bmp,image/gif,image/jpeg,image/png,image/webp" multiple hidden>
           </div>
-          <div class="search-tools">
+          <p id="startup-status" class="startup-status" role="status">Opening RasterRaid…</p>
+          <div id="startup-recovery" class="startup-recovery" hidden>
+            <span id="startup-message" role="status"></span>
+            <a class="text-button" href="">Reload app</a>
+          </div>
+          <noscript><p class="startup-status">Enable JavaScript in your browser, then reopen RasterRaid.</p></noscript>
+          <div id="search-tools" class="search-tools" inert>
             <div class="query-route">
               <span id="search-action-announcement" role="status" aria-atomic="true"></span>
               <button class="text-button" id="search-as-typed" type="button" hidden>Search as typed</button>

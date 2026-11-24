@@ -488,6 +488,29 @@ test('hosted model URL lookup revalidates exact versions under the App credentia
   assert.deepEqual(hidden.shortlisted, []);
 });
 
+test('a public version lookup proves the requested ID and its eligible parent without an App token', async () => {
+  const context = { origin: com, hosted: true, browsingLevel: 1 };
+  const filters = { query: com + '/models/40?modelVersionId=41', scope: 'models' };
+  const version = id => ({ id, modelId: 40, nsfwLevel: 1, status: 'Published', baseModel: 'SDXL 1.0' });
+  async function lookup(detail, parent) {
+    const routes = [];
+    const result = await discover(context, filters, { catalogOnly: true, fetcher(url, options) {
+      routes.push(url.pathname);
+      assert.equal(options.headers.Authorization, undefined);
+      if (url.pathname === '/api/v1/model-versions/41') return Response.json(detail);
+      assert.equal(url.pathname, '/api/v1/models/40');
+      return Response.json(parent);
+    } });
+    return { routes, ids: result.candidates.map(row => row.id) };
+  }
+  const parent = { id: 40, name: 'Linocut', type: 'LORA', nsfwLevel: 1, modelVersions: [version(41), version(42)] };
+  assert.deepEqual(await lookup(version(41), parent), { routes: ['/api/v1/model-versions/41', '/api/v1/models/40'], ids: [41] });
+  assert.deepEqual(await lookup(version(42), parent), { routes: ['/api/v1/model-versions/41'], ids: [] });
+  assert.deepEqual((await lookup(version(41), { ...parent, nsfwLevel: 2 })).ids, []);
+  assert.deepEqual((await lookup(version(41), { ...parent, modelVersions: [version(42)] })).ids, []);
+  assert.deepEqual((await lookup({ ...version(41), availability: 'Private' }, parent)).ids, []);
+});
+
 test('collection-only search uses the Site route, keeps public results, and applies the host ceiling to covers', async () => {
   const origin = 'https://civitai.red';
   const cover = 'https://image.civitai.com/key/22b36de2-61e3-4f94-aba9-f8974614257a/original=true/cat.jpeg';
