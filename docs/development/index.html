@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Run the native RasterRaid source locally, exercise the zero-Buzz simulation, and rebuild the documentation.">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta name="theme-color" content="#111319">
+  <meta name="theme-color" content="#11130f">
   <title>Build and verify RasterRaid · RasterRaid</title>
   <link rel="canonical" href="https://chriscollins500.github.io/rasterraid/development/">
   <meta property="og:type" content="website">
@@ -13,7 +13,8 @@
   <meta property="og:description" content="Run the native RasterRaid source locally, exercise the zero-Buzz simulation, and rebuild the documentation.">
   <meta property="og:url" content="https://chriscollins500.github.io/rasterraid/development/">
   <meta property="og:image" content="https://chriscollins500.github.io/rasterraid/assets/rasterraid-preview.png">
-  <link rel="stylesheet" href="../assets/site.css">
+  <link rel="icon" type="image/png" sizes="64x64" href="../assets/rasterraid-icon.png">
+  <link rel="stylesheet" href="../assets/site.css?v=a3ad3fe4d50a">
 
 </head>
 <body>
@@ -22,11 +23,14 @@
     <div class="masthead-inner page-width">
       <a class="wordmark" href="../" aria-label="RasterRaid home"><span class="brand-mark" aria-hidden="true"></span><span>Raster<span>Raid</span></span></a>
       <nav class="navigation" aria-label="Main navigation"><a href="../guide/">Guide</a><a href="../coverage/">Coverage</a><a href="../deep-search/">Deep Search</a><a href="../workspace/">Workspace</a><a href="../releases/">Releases</a></nav>
-      <a class="repo-link" href="https://github.com/chriscollins500/rasterraid">GitHub<span aria-hidden="true"> ↗</span></a>
+      <a class="repo-link" href="https://github.com/chriscollins500/rasterraid">GitHub <span aria-hidden="true">↗</span></a>
     </div>
   </header>
   <main id="main-content" tabindex="-1" class="doc page-width">
-    <div class="doc-heading"><h1>Build and verify RasterRaid</h1></div><div class="doc-content">
+    <div class="doc-heading"><h1>Build and verify RasterRaid</h1></div>
+    <div class="doc-layout has-outline"><nav class="page-outline" aria-label="On this page">
+      <p class="eyebrow">On this page</p><ul><li><a href="#local-app">Run the app locally</a></li><li><a href="#documentation">Build the documentation</a></li><li><a href="#verification">Repository checks</a></li></ul>
+    </nav><div class="doc-content">
 <h2 id="local-app">Run the app locally</h2>
 <p>Use Node.js 24 or newer. The native app uses static browser modules and has no runtime npm packages. From the repository root, build the app, run its tests and start the local example.</p>
 <pre><code>npm run build
@@ -38,8 +42,8 @@ npm run dev -- 5188 dist --mock-deep-search</code></pre>
 <p>Run <code>node site/build.mjs</code> at the repository root to regenerate <code>docs/</code>. Use <code>node site/build.mjs --check</code> to compare the committed pages and assets to their source. GitHub Pages serves the generated folder.</p>
 <h2 id="verification">Repository checks</h2>
 <p>GitHub CI runs the app tests, verifies the browser bundle and checks the generated documentation. CodeQL scans the native code. Dependabot monitors npm and GitHub Actions. Consult the repository’s Actions and Security pages for the current results.</p>
-<p><a href="https://github.com/chriscollins500/rasterraid">Source repository</a> · <a href="https://github.com/chriscollins500/rasterraid/actions">Actions</a> · <a href="https://github.com/chriscollins500/rasterraid/security">Security</a></p></div>
+<p><a href="https://github.com/chriscollins500/rasterraid">Source repository</a> · <a href="https://github.com/chriscollins500/rasterraid/actions">Actions</a> · <a href="https://github.com/chriscollins500/rasterraid/security">Security</a></p></div></div>
   </main>
-  <footer class="footer"><div class="page-width footer-inner"><p>RasterRaid for Civitai</p><nav aria-label="Project information"><a href="../privacy/">Privacy</a><a href="../development/" aria-current="page">Development</a><a href="../support/">Support</a></nav></div></footer>
+  <footer class="footer"><div class="page-width footer-inner"><p>RasterRaid for Civitai</p><nav aria-label="Project information"><a href="../privacy/">Privacy</a><a href="../development/" aria-current="page">Development</a><a href="../support/">Support</a><a href="https://github.com/chriscollins500/rasterraid/wiki">Wiki <span aria-hidden="true">↗</span></a></nav></div></footer>
 </body>
 </html>

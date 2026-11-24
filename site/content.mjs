@@ -51,37 +51,52 @@ const coverageGroups = [
 const sectionHeading = (id, title) => `<h2 id="${id}">${title}</h2>`;
 const supportLink = `${site.repository}/issues/new/choose`;
 const previewLinks = `<div class="actions"><a class="button secondary" href="${site.previews.com}">Civitai.com preview</a><a class="button secondary" href="${site.previews.red}">Civitai.red preview</a></div>`;
+const coverageCount = coverageGroups.reduce((total, [, rows]) => total + rows.length, 0);
+const coverageMethods = [...new Set(coverageGroups.flatMap(([, rows]) => rows.map(([, method]) => method)))];
 const coverageTable = coverageGroups.map(([group, rows]) => `<section class="coverage-group" data-coverage-group>
-  <h2>${group}</h2>
-  <dl class="coverage-list">${rows.map(([title, method, description]) => `<div class="coverage-row" data-coverage-row>
+  ${sectionHeading(group.toLowerCase().match(/[a-z0-9]+/gu).join('-'), group)}
+  <dl class="coverage-list">${rows.map(([title, method, description]) => `<div class="coverage-row" data-coverage-row data-method="${method}">
     <dt>${title}</dt><dd><span class="coverage-method">${method}</span><p>${description}</p></dd>
   </div>`).join('')}</dl>
 </section>`).join('');
 
 export const pages = [
-  { slug: '', name: 'Home', title: 'Find your way through Civitai', description: 'RasterRaid is a native Civitai search app for models, pictures, clips, guides and the links between them.', body: `
-<section class="hero page-width">
-  <div class="hero-copy">
-    <p class="eyebrow">Civitai search and research</p>
-    <h1>Find what you <em>came for.</em></h1>
-    <p class="intro">Search models, pictures, video, music and guides in one place. Follow the examples back to the exact releases and people behind them.</p>
-    <div class="actions"><a class="button primary" href="{{root}}guide/">Get started <span aria-hidden="true">↗</span></a><a class="button secondary" href="{{root}}coverage/">See what’s searchable</a></div>
-    <a class="release-link" href="{{root}}releases/">Developer preview <span aria-hidden="true">·</span> ${site.version}</a>
+  { slug: '', name: 'Home', title: 'Find the look. Follow the trail.', description: 'RasterRaid is a native Civitai search app for models, pictures, clips, guides and the links between them.', body: `
+<section class="front-hero" aria-labelledby="hero-title">
+  <div class="hero page-width">
+    <div class="hero-copy">
+      <p class="eyebrow">Civitai search and research</p>
+      <h1 id="hero-title">Find the look.<em>Follow the trail.</em></h1>
+      <p class="intro">Search Civitai models, pictures, clips, music and guides. Follow the work you like back to the exact releases and creators behind it.</p>
+      <div class="actions"><a class="button primary" href="{{root}}guide/">Get started <span aria-hidden="true">→</span></a><a class="button secondary" href="#app-preview">See RasterRaid in action</a></div>
+      <a class="release-link" href="{{root}}releases/">Developer preview ${site.version} <span aria-hidden="true">↗</span></a>
+    </div>
+    <div class="hero-art" aria-hidden="true"><img src="{{root}}assets/rasterraid-hero.webp" alt="" width="1536" height="1024" fetchpriority="high"></div>
   </div>
-  <figure class="app-preview">
-    <div class="frame-title"><span class="signal" aria-hidden="true"></span> RasterRaid <span class="frame-caption">Inside Civitai</span></div>
-    <img src="{{root}}assets/rasterraid-preview.png" alt="RasterRaid’s search page with one search field, a picture upload option, and example searches for Linocut, ComfyUI guides and a story project." width="1280" height="820" fetchpriority="high">
-  </figure>
 </section>
 <section class="page-width home-paths" aria-labelledby="start-path">
   <h2 id="start-path">Start with what you have</h2>
   <div class="card-grid">
-    <a class="path-card" href="{{root}}guide/#search-a-brief"><strong>A few words</strong><span>Describe a look or enter a model name. Fine-tune the results with Civitai’s filters.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
-    <a class="path-card" href="{{root}}guide/#search-a-picture"><strong>A picture or clip</strong><span>Choose what to match, from palette and layout to a moment in a video.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
-    <a class="path-card" href="{{root}}guide/#search-a-link"><strong>An exact link</strong><span>Open the item, check its recorded model versions and trace the related sources.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
+    <a class="path-card" href="{{root}}guide/#search-a-brief"><span class="path-icon type-icon" aria-hidden="true">Aa</span><strong>A few words</strong><span class="path-detail">Describe a look or enter a model name. Refine the results with Civitai’s filters.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
+    <a class="path-card" href="{{root}}guide/#search-a-picture"><span class="path-icon picture-icon" aria-hidden="true"></span><strong>A picture or clip</strong><span class="path-detail">Match a palette, a visual detail or a moment in a video.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
+    <a class="path-card" href="{{root}}guide/#search-a-link"><span class="path-icon link-icon" aria-hidden="true">↗</span><strong>An exact link</strong><span class="path-detail">Open the item, see its recorded model versions and follow related sources.</span><span class="path-arrow" aria-hidden="true">↗</span></a>
   </div>
 </section>
-<section class="page-width home-close"><div><h2>Bring sources together.</h2><p>Build a free report, compare exact releases and save your findings. Get a live price for a closer look when it’s useful.</p></div><a class="button secondary" href="{{root}}deep-search/">Explore Deep Search</a></section>` },
+<section class="product-section" id="app-preview" aria-labelledby="product-title">
+  <div class="page-width product-layout">
+    <div class="product-copy">
+      <h2 id="product-title">One search.<br>More ways in.</h2>
+      <p>Start free. Compare exact model releases, build a report with source links and keep the results you want to revisit.</p>
+      <p>Deep Search shows a live Buzz estimate, with the app author fee, before you choose whether to run it.</p>
+      <div class="actions"><a class="button primary" href="{{root}}deep-search/">Explore Deep Search <span aria-hidden="true">→</span></a><a class="text-link" href="{{root}}workspace/">See Workspace</a></div>
+    </div>
+    <figure class="app-preview">
+      <img src="{{root}}assets/rasterraid-preview.png" alt="RasterRaid’s search page with a picture upload option and examples for Linocut, ComfyUI guides and a story project." width="1280" height="820" loading="lazy">
+      <figcaption>RasterRaid ${site.version} search interface <a href="{{root}}assets/rasterraid-preview.png">Open full-size image <span aria-hidden="true">↗</span></a></figcaption>
+    </figure>
+  </div>
+</section>
+<section class="page-width home-close"><div><h2>${coverageCount} ways to search Civitai</h2><p>See what RasterRaid can find, which areas use your Civitai sign-in and where the wider search opens on Civitai.</p></div><a class="button secondary" href="{{root}}coverage/">Browse coverage <span aria-hidden="true">→</span></a></section>` },
   { slug: 'guide', name: 'Guide', title: 'Get started with RasterRaid', description: 'Start a Civitai search from a brief, picture, or exact link and follow the results into a report.', body: `
 <aside class="callout"><strong>Opening the preview</strong><p>RasterRaid runs inside Civitai. Developer previews are available to the app author. Sign in on the same domain as the preview you open.</p>${previewLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
 ${sectionHeading('search-a-brief', 'Search from a few words')}
@@ -96,7 +111,11 @@ ${sectionHeading('compare-and-report', 'Compare, refine and report')}
 <p><a href="{{root}}workspace/">Save your search or picks</a> · <a href="{{root}}deep-search/">Get live Deep Search quotes</a></p>` },
   { slug: 'coverage', name: 'Coverage', title: 'What RasterRaid can search', description: 'Browse all RasterRaid search areas and see which results open on Civitai or require sign-in.', body: `
 <p>Both domains have been checked with the current developer build. The catalog you see depends on your Civitai account, browsing settings and the host’s available routes. For some areas RasterRaid finds the relevant listing, then opens Civitai’s full feed.</p>
-<div class="coverage-controls" id="coverage-controls" hidden><label for="coverage-filter">Filter search areas</label><input id="coverage-filter" type="search" placeholder="Try audio, auctions or downloads" autocomplete="off"><p id="coverage-status" role="status" aria-atomic="true"></p></div>
+<div class="coverage-controls" id="coverage-controls" hidden>
+  <div><label for="coverage-filter">Filter search areas</label><input id="coverage-filter" type="search" placeholder="Try audio, auctions or downloads" autocomplete="off"></div>
+  <div><label for="coverage-method">Access</label><select id="coverage-method"><option value="">All access types</option>${coverageMethods.map(method => `<option>${method}</option>`).join('')}</select></div>
+  <p id="coverage-status" role="status" aria-atomic="true"></p>
+</div>
 ${coverageTable}
 <p>Filters and sorts depend on the chosen area. Model families and model types refresh from Civitai’s current public list. <a href="{{root}}guide/#search-a-brief">Learn how to refine a search</a>.</p>` },
   { slug: 'deep-search', name: 'Deep Search', title: 'Deep Search and Buzz', description: 'Learn what each Deep Search option checks, how live estimates work, and how to recover a receipt.', body: `
@@ -138,7 +157,9 @@ ${sectionHeading('latest', 'What’s in 0.0.4')}
 <ul><li>One search field for text, links and picture references, with live model filters and configurable shortcuts.</li><li>Free reports that connect exact releases with published examples, posts, guides and creator profiles.</li><li>Visual, motion and sound comparisons, plus local metadata and workflow checks.</li><li>Four itemized Linocut quotes on each developer preview and a tested confirmation and receipt-recovery flow for the published app.</li></ul>
 <p>Checked on <time datetime="${site.checked}">November 24, 2026</time>. The source archive rebuilt 96 browser assets. The repository includes 294 automated app tests. The rebuilt archive passed 162 automated accessibility scans across Chrome, Firefox and WebKit.</p>
 <p>Source archive SHA-256 <code class="digest">81d24a913e0eb1dfdc7a08f4e19ebd2ec58b2d0e83781f6abfccdfb999c28661</code>.</p>
-<p><a class="button secondary" href="${site.repository}/releases">GitHub releases</a></p>` },
+${sectionHeading('signatures', 'Verify the signed release')}
+<p>GitHub reproduced the published source archive byte for byte. Its build provenance and runtime software inventory are signed. The release notes show how to check the ZIP and its signer.</p>
+<div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.version}">Release and verification commands <span aria-hidden="true">↗</span></a></div>` },
   { slug: 'development', name: 'Development', title: 'Build and verify RasterRaid', description: 'Run the native RasterRaid source locally, exercise the zero-Buzz simulation, and rebuild the documentation.', body: `
 ${sectionHeading('local-app', 'Run the app locally')}
 <p>Use Node.js 24 or newer. The native app uses static browser modules and has no runtime npm packages. From the repository root, build the app, run its tests and start the local example.</p>

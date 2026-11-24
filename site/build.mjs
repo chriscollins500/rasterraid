@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +13,11 @@ const navigation = ['guide', 'coverage', 'deep-search', 'workspace', 'releases']
 const secondary = ['privacy', 'development', 'support'];
 const expected = new Map();
 const escaped = value => String(value).replace(/[&<>"']/gu, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+const files = ['site.css', 'coverage.js', 'rasterraid-preview.png', 'rasterraid-hero.webp', 'rasterraid-icon.png'];
+for (const file of files) expected.set('assets/' + file, await readFile(join(dir, 'assets', file)));
+const assetVersion = file => createHash('sha256').update(expected.get('assets/' + file)).digest('hex').slice(0, 12);
+const styles = `assets/site.css?v=${assetVersion('site.css')}`;
+const coverageScript = `assets/coverage.js?v=${assetVersion('coverage.js')}`;
 
 function route(page) {
   return page.slug === '404.html' ? page.slug : [page.slug, 'index.html'].filter(Boolean).join('/');
@@ -30,6 +36,12 @@ function render(page) {
   const title = home ? `${site.name} · ${page.title}` : `${page.title} · ${site.name}`;
   const canonical = new URL(home ? '' : page.slug + '/', site.canonical).href;
   const contents = page.body.replaceAll('{{root}}', root);
+  const sections = [...contents.matchAll(/<h2 id="([a-z0-9-]+)">([^<]+)<\/h2>/gu)];
+  const outline = !home && sections.length > 1 ? `<nav class="page-outline" aria-label="On this page">
+      <p class="eyebrow">On this page</p><ul>${sections.map(([, id, label]) => `<li><a href="#${id}">${escaped(label)}</a></li>`).join('')}</ul>
+    </nav>` : '';
+  const document = `<div class="doc-heading"><h1>${escaped(page.title)}</h1></div>
+    <div class="doc-layout${outline ? ' has-outline' : ''}">${outline}<div class="doc-content">${contents}</div></div>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -37,7 +49,7 @@ function render(page) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="${escaped(page.description)}">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta name="theme-color" content="#111319">
+  <meta name="theme-color" content="#11130f">
   <title>${escaped(title)}</title>
   ${missing ? '<meta name="robots" content="noindex">' : `<link rel="canonical" href="${canonical}">
   <meta property="og:type" content="website">
@@ -45,8 +57,9 @@ function render(page) {
   <meta property="og:description" content="${escaped(page.description)}">
   <meta property="og:url" content="${canonical}">
   <meta property="og:image" content="${site.canonical}assets/rasterraid-preview.png">`}
-  <link rel="stylesheet" href="${root}assets/site.css">
-  ${page.slug === 'coverage' ? `<script src="${root}assets/coverage.js" defer></script>` : ''}
+  <link rel="icon" type="image/png" sizes="64x64" href="${root}assets/rasterraid-icon.png">
+  <link rel="stylesheet" href="${root}${styles}">
+  ${page.slug === 'coverage' ? `<script src="${root}${coverageScript}" defer></script>` : ''}
 </head>
 <body${home ? ' class="home"' : ''}>
   <a class="skip" href="#main-content">Skip to content</a>
@@ -54,22 +67,19 @@ function render(page) {
     <div class="masthead-inner page-width">
       <a class="wordmark" href="${root}" aria-label="${site.name} home"><span class="brand-mark" aria-hidden="true"></span><span>Raster<span>Raid</span></span></a>
       <nav class="navigation" aria-label="Main navigation">${navigation.map(slug => navLink(slug, page.slug, root)).join('')}</nav>
-      <a class="repo-link" href="${site.repository}">GitHub<span aria-hidden="true"> ↗</span></a>
+      <a class="repo-link" href="${site.repository}">GitHub <span aria-hidden="true">↗</span></a>
     </div>
   </header>
   <main id="main-content" tabindex="-1"${home ? '' : ' class="doc page-width"'}>
-    ${home ? contents : `<div class="doc-heading"><h1>${escaped(page.title)}</h1></div><div class="doc-content">${contents}</div>`}
+    ${home ? contents : document}
   </main>
-  <footer class="footer"><div class="page-width footer-inner"><p>RasterRaid for Civitai</p><nav aria-label="Project information">${secondary.map(slug => navLink(slug, page.slug, root)).join('')}</nav></div></footer>
+  <footer class="footer"><div class="page-width footer-inner"><p>RasterRaid for Civitai</p><nav aria-label="Project information">${secondary.map(slug => navLink(slug, page.slug, root)).join('')}<a href="${site.repository}/wiki">Wiki <span aria-hidden="true">↗</span></a></nav></div></footer>
 </body>
 </html>
 `.replace(/^[\t ]+$/gmu, '');
 }
 
 for (const page of pages) expected.set(route(page), Buffer.from(render(page)));
-for (const file of ['site.css', 'coverage.js', 'rasterraid-preview.png']) {
-  expected.set('assets/' + file, await readFile(join(dir, 'assets', file)));
-}
 const sitemap = pages.filter(page => page.slug !== '404.html').map(page =>
   `<url><loc>${site.canonical}${page.slug ? page.slug + '/' : ''}</loc></url>`).join('\n');
 expected.set('sitemap.xml', Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${sitemap}\n</urlset>\n`));
