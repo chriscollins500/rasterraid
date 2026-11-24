@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The audited developer build was checked in signed frames on `civitai.com` and `civitai.red`. Its fixes cover live filter retirement, dialog controls, and Deep Search picture, clip, and audio evidence. The signed GitHub v0.0.4 archive preserves the earlier build. Public execution depends on Civitai review and deployment. [Current availability and verified builds](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.5 source candidate adds public media discovery for guests, retry for incomplete searches, and on-device subject matching. The earlier 0.0.4 build is in Civitai review for both domains. A signed GitHub archive is available for v0.0.4. [Current availability and verified builds](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 
@@ -32,7 +32,7 @@ When both free rankings cover the same whole previews, Deep Search can quote a f
 
 You can also add a picture from your device, search by reference, and run the subject comparison on the gallery results. A selected area stays part of the comparison. If you add several positive local references, choose which one supplies the subject. Deep Search can describe the top public matches and use your written search as context. Your local file, filename, metadata, crop coordinates, and scores stay in your browser.
 
-RasterRaid pins ONNX Runtime Web 1.31.1 and Google's SigLIP 2 Q4 ONNX vision export. The bundled JavaScript preserves the MIT-licensed runtime and replaces dynamic binding generation with static calls. The build checks the three vendor hashes. [Browser binary pins](src/subject-artifacts.mjs) · [Third-party notices](src/vendor/ort/LICENSE.txt)
+RasterRaid pins ONNX Runtime Web 1.31.1 and the ONNX Community Q4 export of Google’s SigLIP 2 vision model. The bundled JavaScript preserves the MIT-licensed runtime and replaces dynamic binding generation with static calls. Bundle verification checks five vendored script hashes. [Browser binary pins](src/subject-artifacts.mjs) · [Third-party notices](src/vendor/ort/LICENSE.txt)
 
 ## Civitai package
 
