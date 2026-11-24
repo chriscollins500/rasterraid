@@ -172,7 +172,7 @@ export async function discoverAppStore(context, target, filters, options) {
     if (page.partial) result.flows.push({ label: 'Civitai App Store', status: null });
   } catch (error) {
     options.signal?.throwIfAborted();
-    if (error.status !== 404) result.flows.push({ label: 'Civitai App Store', status: error.status ?? null });
+    if (error.status !== 404 || target.kind !== 'app') result.flows.push({ label: 'Civitai App Store', status: error.status ?? null });
   }
   return result;
 }

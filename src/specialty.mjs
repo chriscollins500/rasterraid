@@ -113,8 +113,9 @@ export async function discoverAudio(context, target, filters, options, { rankVer
           ...item, title: item.creator ? 'Music example by ' + item.creator : 'Music example',
           category: 'Video example', description: item.prompt, tags: [], source, sourceTitle: [model, version].filter(Boolean).join(' · '),
         }));
-    } catch {
+    } catch (error) {
       signal?.throwIfAborted();
+      flows.push({ label: 'Music examples for version ' + id, status: error.status ?? null });
       return [];
     }
   }));
@@ -125,7 +126,10 @@ export async function discoverAudio(context, target, filters, options, { rankVer
     try {
       const page = await readGalleryPage(context, { ...result.gallery.plan, type: 'video' }, { ...options, limit: 8 });
       result.related.audio = page.items.filter(item => item.stream).map(item => ({ ...item, category: 'Linked video', tags: [] }));
-    } catch { signal?.throwIfAborted(); }
+    } catch (error) {
+      signal?.throwIfAborted();
+      flows.push({ label: 'Linked video examples', status: error.status ?? null });
+    }
   }
   const seen = new Set(result.related.audio.map(item => item.id));
   result.related.audioExamples = examples.flat().filter(item => {

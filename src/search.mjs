@@ -510,7 +510,8 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
       signal?.throwIfAborted();
       const status = error.status ?? null;
       if (status === 429) rateLimits.add(rail);
-      flows.push({ label, status, count: 0, retryAfter: error.retryAfter ?? null });
+      const missing = status === 404 && /^\/api\/v1\/(?:models|model-versions|collections)\/\d+$/u.test(route);
+      flows.push({ label, status, count: 0, retryAfter: error.retryAfter ?? null, ...(missing && { missing }) });
       if (optional || status === 403 || status === 404 || status === 429) return null;
       throw error;
     }

@@ -585,7 +585,8 @@ test('gallery filters survive every ranked lane, explicit sort, and pagination w
   assert.equal(conflict.gallery.status, 'creator-conflict');
 });
 
-test('an unavailable lane keeps its cursor while a successful lane continues to return results', async () => {
+test('an unavailable lane keeps its cursor while a successful lane continues to return results', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-11-24T19:30:00Z') });
   const context = contextFor('https://civitai.com');
   const plan = { type: 'video', tags: [cats.id], sort: 'Most Reactions', ranking: {
     routes: [[cats.id], [landscape.id]], terms: ['cat', 'landscape'], subject: 'cat', excluded: [],
@@ -602,6 +603,8 @@ test('an unavailable lane keeps its cursor while a successful lane continues to 
   assert.deepEqual(first.items.map(item => item.id), [7]);
   assert.equal(first.partial, true);
   assert.deepEqual(first.nextCursor, { positions: [false, 'b:2'] });
+  await assert.rejects(readGalleryPage(context, plan, { cursor: first.nextCursor, fetcher }), { status: 503, retryAfter: '2' });
+  t.mock.timers.tick(2_000);
   const next = await readGalleryPage(context, plan, { cursor: first.nextCursor, fetcher });
   assert.deepEqual(requested, [[String(cats.id), 'a:0'], [String(landscape.id), 'b:2'], [String(landscape.id), 'b:2']]);
   assert.equal(next.nextCursor, null);

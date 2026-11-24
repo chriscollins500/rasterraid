@@ -24,6 +24,9 @@ export const CATALOG = Object.freeze({
 });
 
 const routes = new Set(Object.values(CATALOG));
+const listRoutes = new Set([CATALOG.models, CATALOG.images, CATALOG.articles, CATALOG.collections,
+  CATALOG.creators, CATALOG.users, CATALOG.tags, CATALOG.comics, CATALOG.apps,
+  CATALOG.blockModels, CATALOG.blockImages, CATALOG.blockResources]);
 const exactRoute = /^\/api\/v1\/(?:models\/\d+|model-versions\/(?:\d+|by-hash\/[a-fA-F0-9]{64})|(?:blocks\/)?collections\/\d+|articles\/\d+|posts\/\d+|comics\/\d+(?:\/chapters\/\d+)?|apps\/[a-z\d][a-z\d-]{0,63})$/u;
 
 export const text = (value, max = 220) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -103,29 +106,41 @@ export function catalogPause(origin, fetcher = fetch) {
   return remaining > 0 ? catalogPauseError(remaining) : null;
 }
 
-function checkCatalogPause(origin, fetcher, signal) {
+function checkCatalogPause(origin, fetcher, signal, source) {
   signal?.throwIfAborted();
   const pause = catalogPause(origin, fetcher);
   if (pause) throw pause;
+  const deadlines = catalogDeadlines.get(fetcher);
+  const remaining = (deadlines?.get(source) ?? 0) - Date.now();
+  if (remaining > 0) {
+    throw new CatalogError('Civitai asked us to wait before checking this source again.', {
+      status: 503, retryAfter: String(Math.ceil(remaining / 1_000)),
+    });
+  }
+  deadlines?.delete(source);
 }
 
-function catalogResponseError(response, origin, fetcher, message) {
+function catalogResponseError(response, origin, fetcher, source, message) {
   const after = response.headers.get('retry-after');
   void response.body?.cancel().catch(() => {});
-  if (response.status !== 429) return new CatalogError(message, { status: response.status, retryAfter: after });
-
+  const { status } = response;
+  const error = new CatalogError(message, { status, retryAfter: after });
+  if (status !== 429 && status !== 503) return error;
   const now = Date.now();
   const value = after?.trim() ?? '';
   const deadline = /^\d+$/u.test(value) ? now + Number(value) * 1_000 : /^[a-z]+[ ,]/iu.test(value) ? Date.parse(value) : NaN;
-  const retryAt = Number.isSafeInteger(deadline) ? Math.max(now + 1_000, deadline) : now + 15_000;
+  if (status === 503 && Number.isSafeInteger(deadline) && deadline <= now) return error;
+  const retryAt = Number.isSafeInteger(deadline) ? Math.max(now + 1_000, deadline) : now + (status === 429 ? 15_000 : 2_000);
   let deadlines = catalogDeadlines.get(fetcher);
   if (!deadlines) {
     deadlines = new Map();
     catalogDeadlines.set(fetcher, deadlines);
   }
-  const latest = Math.max(deadlines.get(origin) ?? 0, retryAt);
-  deadlines.set(origin, latest);
-  return catalogPauseError(latest - now);
+  for (const [key, until] of deadlines) if (until <= now) deadlines.delete(key);
+  const key = status === 429 ? origin : source;
+  const latest = Math.max(deadlines.get(key) ?? 0, retryAt);
+  deadlines.set(key, latest);
+  return status === 429 ? catalogPauseError(latest - now) : error;
 }
 
 export function catalogUrl(origin, route, query = {}) {
@@ -157,7 +172,12 @@ export async function catalogRead(origin, route, query, { token, signal, headerP
   }
   if (token && route.startsWith('/api/v1/blocks/')) headers.Authorization = `Bearer ${token}`;
   if (headerProbe) headers.Origin = 'null';
-  checkCatalogPause(origin, fetcher, signal);
+  const body = hashLookup ? JSON.stringify(fileHashes) : null;
+  const selection = new URL(url);
+  // Ranked gallery lanes can request a larger next batch after a sibling lane finishes.
+  if (Number(selection.searchParams.get('limit')) > 0) selection.searchParams.delete('limit');
+  const source = body ? selection.href + '\0' + body : selection.href;
+  checkCatalogPause(origin, fetcher, signal, source);
   const timeout = AbortSignal.timeout(14_000);
   const response = await fetcher(url, {
     headers,
@@ -166,34 +186,40 @@ export async function catalogRead(origin, route, query, { token, signal, headerP
     credentials: 'omit',
     referrerPolicy: 'no-referrer',
     ...(privateRead || hashLookup ? { cache: 'no-store' } : {}),
-    ...(hashLookup ? { method: 'POST', body: JSON.stringify(fileHashes) } : {}),
+    ...(hashLookup ? { method: 'POST', body } : {}),
   });
   const details = {
     status: response.status,
     cors: response.headers.get('access-control-allow-origin'),
     cache: response.headers.get('cache-control'),
   };
-  if (!response.ok) throw catalogResponseError(response, origin, fetcher, `Civitai returned HTTP ${response.status}.`);
+  if (!response.ok) throw catalogResponseError(response, origin, fetcher, source, `Civitai returned HTTP ${response.status}.`);
   if (!response.headers.get('content-type')?.includes('application/json')) {
-    throw new CatalogError('Civitai returned a response outside the catalog contract.', details);
+    void response.body?.cancel().catch(() => {});
+    throw new CatalogError('Civitai returned a response outside the catalog contract.');
   }
   const data = await response.json();
-  if (!data || typeof data !== 'object') throw new CatalogError('Empty catalog response.', details);
+  if (!data || typeof data !== 'object' || listRoutes.has(route) && !Array.isArray(data) && !Array.isArray(data.items)) {
+    throw new CatalogError('Civitai did not return the requested catalog data.');
+  }
   return { data, ...details };
 }
 
 async function siteSearchRequest(origin, path, body, { signal, fetcher = fetch } = {}) {
   if (!SITE_ORIGINS.includes(origin)) throw new TypeError('Unsupported Civitai search host.');
-  checkCatalogPause(origin, fetcher, signal);
+  const url = new URL(path, origin);
+  const payload = JSON.stringify(body);
+  const source = url.href + '\0' + payload;
+  checkCatalogPause(origin, fetcher, signal, source);
   const timeout = AbortSignal.timeout(7_000);
-  const response = await fetcher(new URL(path, origin), {
+  const response = await fetcher(url, {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: payload,
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer',
   });
-  if (!response.ok) throw catalogResponseError(response, origin, fetcher, 'Civitai site search did not respond.');
+  if (!response.ok) throw catalogResponseError(response, origin, fetcher, source, 'Civitai site search did not respond.');
   return response.json();
 }
 

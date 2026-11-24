@@ -418,9 +418,11 @@ export async function prepareGallery(context, target, filters, options = {}) {
   if (gallery.status === 'ready' && plan.modelId && plan.modelVersionId) {
     try {
       gallery.status = await checkGalleryRelease(context, plan.modelId, plan.modelVersionId, options);
+      if (gallery.status === 'source-unavailable') gallery.failureStatus = 'unverified';
     } catch (error) {
       options.signal?.throwIfAborted();
       gallery.status = 'source-unavailable';
+      gallery.failureStatus = error.status ?? null;
       if (error.status === 429) gallery.throttled = true;
     }
   }
@@ -476,10 +478,13 @@ export async function prepareGallery(context, target, filters, options = {}) {
         const matched = new Set(gallery.tags.flatMap(tag => phrase(tag.name).split(' ')));
         gallery.partial = !gallery.correctedTag && words.some(word => !matched.has(word));
         if (!gallery.tags.length && !plan.ranking && !hasLinkedFilters) gallery.status = 'no-tag';
-      } catch {
+      } catch (error) {
         options.signal?.throwIfAborted();
         if (hasLinkedFilters) gallery.incomplete = gallery.partial = true;
-        else gallery.status = 'tag-unavailable';
+        else {
+          gallery.status = 'tag-unavailable';
+          gallery.failureStatus = error.status ?? null;
+        }
       }
     }
     plan.tags = gallery.tags.map(tag => tag.id);
@@ -515,6 +520,7 @@ export async function discoverGallery(context, target, filters, options = {}) {
     } catch (error) {
       options.signal?.throwIfAborted();
       gallery.status = 'gallery-unavailable';
+      gallery.failureStatus = error.status ?? null;
       if (error.status === 429) gallery.throttled = true;
     }
   }

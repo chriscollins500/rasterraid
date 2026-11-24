@@ -618,7 +618,7 @@ export function createFilterControls(form, getContext) {
   sync();
   return {
     sync, readFilters, searchAction,
-    async retiredReportFilter(filters) {
+    async retiredSearchFilter(filters) {
       const models = [...modelFilterValues(filters.baseModel), ...galleryBaseModels(filters.mediaBaseModels)];
       const types = modelFilterValues(filters.resourceType);
       if (models.length || types.length || filters.sort || filters.period || filters.mediaPeriod) await refresh();
