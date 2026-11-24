@@ -1,0 +1,115 @@
+name: Attest RasterRaid release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-attestation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rebuild:
+    if: >-
+      github.repository == 'chriscollins500/rasterraid' &&
+      (github.event_name == 'release' || github.ref == 'refs/heads/main')
+    runs-on: windows-2025
+    timeout-minutes: 10
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.13.0
+          package-manager-cache: false
+      - name: Reproduce the Civitai archive and runtime SBOM
+        id: package
+        shell: pwsh
+        env:
+          CIVITAI_BASE_URL: https://offline.invalid
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $cli = Join-Path $env:RUNNER_TEMP 'civitai.exe'
+          Invoke-WebRequest -OutFile $cli -Uri 'https://github.com/civitai/cli/releases/download/v0.1.150/civitai_0.1.150_windows_amd64.exe'
+          $digest = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($digest -ne 'c7ed90b7b3c55bd7e3f16f0e192634b3f20b305a4ccd86f94de33fdb9f0fc19b') {
+            throw 'The Civitai CLI does not match the pinned release digest.'
+          }
+          npm run build
+          $receipt = python scripts/package-release.py --civitai $cli | ConvertFrom-Json
+          $package = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'rasterraid-package')
+          Copy-Item -LiteralPath $receipt.archive -Destination $package.FullName
+          Copy-Item -LiteralPath (Join-Path $receipt.releaseFolder 'runtime-sbom.cdx.json') -Destination $package.FullName
+          "directory=$($package.FullName)" >> $env:GITHUB_OUTPUT
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: upload
+        with:
+          name: rebuilt-rasterraid-release
+          path: ${{ steps.package.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 7
+
+  sign:
+    needs: rebuild
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.rebuild.outputs.artifact-id }}
+          path: ${{ runner.temp }}/rasterraid-package
+          merge-multiple: true
+      - name: Match the published archive digest
+        id: release
+        shell: bash
+        env:
+          PACKAGE_DIR: ${{ runner.temp }}/rasterraid-package
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          archives=("$PACKAGE_DIR"/rasterraid-*-civitai-source.zip)
+          if (( ${#archives[@]} != 1 )); then
+            echo 'Expected exactly one rebuilt source archive.' >&2
+            exit 1
+          fi
+          archive=${archives[0]}
+          name=${archive##*/}
+          version=${name#rasterraid-}
+          version=${version%-civitai-source.zip}
+          if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?$ ]]; then
+            echo 'The package version is invalid.' >&2
+            exit 1
+          fi
+          if [[ $GITHUB_EVENT_NAME == release && $GITHUB_REF_NAME != "v$version" ]]; then
+            echo 'The triggering tag differs from the package version.' >&2
+            exit 1
+          fi
+          expected=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v$version" |
+            jq -er --arg name "$name" 'select(.draft == false) | .assets[] | select(.name == $name) | .digest')
+          actual=$(sha256sum -- "$archive")
+          if [[ $expected != "sha256:${actual%% *}" ]]; then
+            echo 'The rebuilt archive does not match the published release digest.' >&2
+            exit 1
+          fi
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+      - name: Sign build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.release.outputs.archive }}
+      - name: Sign the runtime SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ steps.release.outputs.archive }}
+          sbom-path: ${{ runner.temp }}/rasterraid-package/runtime-sbom.cdx.json
