@@ -175,7 +175,7 @@ function connectionsFor(candidates, related, evidence, origin, verifiedEdges, li
       if (linked?.postId === post.id) add('post-media', 'The picture or clip is part of this public post', linked.link, post.link);
     }
   }
-  for (const item of evidence) if (item.source) add('citation', 'This result points to the source article or model', item.link, item.source);
+  for (const item of evidence) if (item.source) add('citation', 'Civitai source for this result', item.link, item.source);
   return [...connections.values()];
 }
 

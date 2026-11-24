@@ -472,7 +472,7 @@ export function hashLookupNote(status) {
   }[status];
 }
 
-function modelCatalogReads(context, filters, { signal, fetcher }) {
+function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAudioLeads = false }) {
   const { origin, token, hosted } = context;
   const ceiling = modelCatalogCeiling(context);
   const appCatalog = hasModelAppAccess(context);
@@ -480,9 +480,25 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
   const flows = [];
   const rateLimits = new Set();
   const checkedVersions = new Map();
+  const publicAudioLeads = new Map();
   const routeForModels = appCatalog ? CATALOG.blockModels : CATALOG.models;
   const routeForImages = appCatalog ? CATALOG.blockImages : CATALOG.images;
   const ordered = Boolean(filters.sort || filters.period);
+
+  function rememberPublicAudioLead(model, query) {
+    if (!collectPublicAudioLeads || !numericId(model?.id) || model.availability !== 'Public' ||
+        !isPublished(model) || model.mode === 'TakenDown') return;
+    if (query?.username && modelChoiceKey(model.creator?.username) !== modelChoiceKey(query.username)) return;
+    if (query) {
+      const wanted = words(query.query);
+      const name = words(model.name);
+      if (!wanted.length || !wanted.every(word => name.includes(word))) return;
+    }
+    for (const version of listItems(model.modelVersions)) {
+      if (!numericId(version?.id) || version.availability !== 'Public' || !isPublished(version)) continue;
+      publicAudioLeads.set(version.id, { id: version.id, modelId: model.id, base: text(version.baseModel, 80) });
+    }
+  }
 
   async function read(label, route, query, optional = false, fileHashes) {
     signal?.throwIfAborted();
@@ -499,9 +515,12 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
         }
       }
       let result = data;
-      if (publicFallback && route === CATALOG.models && Array.isArray(data?.items)) {
-        result = { ...data, items: data.items.map(model => visibleSiteModel(model, ceiling)).filter(Boolean) };
+      if (publicFallback && route === CATALOG.models) {
+        const models = listItems(data);
+        if (collectPublicAudioLeads) for (const model of models) rememberPublicAudioLead(model, query);
+        result = { metadata: data.metadata, items: models.map(model => visibleSiteModel(model, ceiling)).filter(Boolean) };
       } else if (publicFallback && /^\/api\/v1\/models\/\d+$/u.test(route)) {
+        if (Number(route.split('/').at(-1)) === data.id) rememberPublicAudioLead(data);
         result = visibleSiteModel(data, ceiling);
       }
       flows.push({ label, status: 200, count: listItems(result).length });
@@ -528,7 +547,7 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
     }
     const lookup = async id => {
       const version = await read('Exact version lookup', '/api/v1/model-versions/' + id, {}, optional);
-      return version?.id === id ? version : null;
+      return version?.id === id && (!publicFallback || isPublished(version)) ? version : null;
     };
     if (!optional) return verifySiteVersions(await Promise.all(ids.map(lookup)));
     const data = [];
@@ -615,7 +634,7 @@ function modelCatalogReads(context, filters, { signal, fetcher }) {
     });
   }
 
-  return { flows, rateLimits, read, exactVersions, saleListings, confirmedLists, finishCards, routeForModels, routeForImages, appCatalog };
+  return { flows, rateLimits, read, exactVersions, saleListings, confirmedLists, finishCards, routeForModels, routeForImages, appCatalog, publicAudioLeads };
 }
 
 const triggerWords = value => Array.isArray(value) ? value.map(word => text(word, 100)).filter(Boolean).slice(0, 6) : [];
@@ -1032,7 +1051,9 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   if (scope === 'posts' || (target.kind === 'post' && !gallery)) {
     return discoverPosts(context, target, filters, { signal, fetcher }, { rankVersions, queryVariants });
   }
-  if (scope === 'audio') return discoverAudio(context, target, filters, { signal, fetcher }, { rankVersions, queryVariants });
+  if (scope === 'audio') return discoverAudio(context, target, filters, { signal, fetcher }, {
+    rankVersions, queryVariants, catalog: modelCatalogReads(context, filters, { signal, fetcher, collectPublicAudioLeads: true }),
+  });
   if (scope === 'assets3d') return discover3D(context, target, { signal, fetcher });
   if (gallery) return discoverGallery(context, target, filters, { signal, fetcher, onPhase,
     resolveModel: query => galleryModelSources(context, query, filters, { signal, fetcher }) });
