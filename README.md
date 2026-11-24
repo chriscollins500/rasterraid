@@ -26,7 +26,7 @@ Open `http://127.0.0.1:5188/mock-deep-search`. The Linocut example lets you try 
 
 **Find the same subject** compares up to six eligible public previews against a whole picture or video poster in supported browsers. It uses WebGPU with JavaScript Promise Integration when available and runs the same model with single-threaded WebAssembly SIMD otherwise. Selecting **Compare on this device** downloads about 78–81 MB of pinned model and runtime files, verifies their hashes, and compares the previews in a local worker. RasterRaid sends no preview pixels or local ranks to the binary hosts. The regular appearance results stay available.
 
-The first comparison shows download progress. Subsequent comparisons in the same tab can reuse the loaded model for up to two minutes between uses. Each comparison reads and ranks its own inputs. The app releases the worker when you leave the page, when the idle tab is hidden, or when the viewing context changes.
+The first comparison shows download progress. Subsequent comparisons in the same tab can reuse the loaded model for up to two minutes between uses. Each comparison revalidates public preview requests and analyzes the reference again. The worker can reuse analysis for up to 24 eligible public previews whose decoded pixels match. The app releases the worker and its cache when you leave the page, when the idle tab is hidden, or when viewing access changes.
 
 When both free rankings cover the same whole previews, Deep Search can quote a four-preview shortlist alongside the full comparison. The paid request uses only the shortlisted public Civitai URLs and catalog associations. The result can show both free ranks for that same set of previews.
 

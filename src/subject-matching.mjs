@@ -1,16 +1,26 @@
-import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
+import { visualRegion } from './visual-analysis.mjs';
 import { subjectDownloadBytes, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 
 const idleLifetime = 120_000;
 
 export function subjectMatchAvailable() {
-  return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && typeof Worker === 'function' && subjectWasmAvailable());
+  return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && typeof Worker === 'function' &&
+    typeof createImageBitmap === 'function' && subjectWasmAvailable());
+}
+
+async function readPreview(cover, signal) {
+  const response = await fetch(cover, {
+    credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-cache',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(5500)]),
+  });
+  if (!response.ok) throw new Error('The public preview is unavailable.');
+  return response.blob();
 }
 
 async function previewPixels(document, { id, cover, file, region }, signal) {
   signal.throwIfAborted();
   if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
-  const image = file ? await createImageBitmap(file) : await loadPublicPreview(document, cover, signal);
+  const image = await createImageBitmap(file ?? await readPreview(cover, signal));
   try {
     signal.throwIfAborted();
     const canvas = document.createElement('canvas');
@@ -26,7 +36,7 @@ async function previewPixels(document, { id, cover, file, region }, signal) {
     } else drawing.drawImage(image, 0, 0, subjectSide, subjectSide);
     return { id, rgba: drawing.getImageData(0, 0, subjectSide, subjectSide).data };
   } finally {
-    if (file) image.close();
+    image.close();
   }
 }
 

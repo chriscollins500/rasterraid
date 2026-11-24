@@ -2,6 +2,13 @@ import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectSide
 
 const pixels = subjectSide * subjectSide;
 const dimensions = 768;
+const previewCacheLimit = 24;
+const previewVectors = new Map();
+
+async function sha256Hex(bytes) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 async function checkedBytes({ url, bytes, sha256 }, received) {
   const reply = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(60_000) });
@@ -24,13 +31,11 @@ async function checkedBytes({ url, bytes, sha256 }, received) {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
-  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', output)), byte =>
-    byte.toString(16).padStart(2, '0')).join('');
-  if (position !== bytes || digest !== sha256) throw new Error('Inference file verification failed.');
+  if (position !== bytes || await sha256Hex(output) !== sha256) throw new Error('Inference file verification failed.');
   return output;
 }
 
-async function pictureVector(ort, session, input, output, rgba) {
+async function pictureVector({ ort, session, input, output }, rgba) {
   const normalized = new Float32Array(3 * pixels);
   for (let index = 0; index < pixels; index++) {
     for (let channel = 0; channel < 3; channel++) {
@@ -55,6 +60,23 @@ async function pictureVector(ort, session, input, output, rgba) {
     tensor.dispose();
     normalized.fill(0);
   }
+}
+
+async function previewVector(runtime, id, rgba) {
+  // An eligible catalog preview still has to be read and decoded to reuse its vector.
+  const digest = await sha256Hex(rgba);
+  const previous = previewVectors.get(id);
+  const reused = previous?.digest === digest;
+  const values = reused ? previous.values : await pictureVector(runtime, rgba);
+  if (!reused) previous?.values.fill(0);
+  previewVectors.delete(id);
+  previewVectors.set(id, { digest, values });
+  if (previewVectors.size > previewCacheLimit) {
+    const [oldestId, oldest] = previewVectors.entries().next().value;
+    oldest.values.fill(0);
+    previewVectors.delete(oldestId);
+  }
+  return { values, reused };
 }
 
 async function gpuAdapter() {
@@ -106,24 +128,26 @@ async function loadRuntime() {
   return { ort, session, input, output, provider };
 }
 
-async function compare(rows, { ort, session, input, output, provider }) {
+async function compare(rows, runtime) {
   if (!Array.isArray(rows) || rows.length < 2 || rows.length > 1 + subjectCandidateLimit ||
       !rows.every((row, index) => Number.isSafeInteger(row?.id) && row.id >= (index === 0 ? 0 : 1) &&
         row.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels) ||
       new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Invalid picture inputs.');
+  const { provider } = runtime;
   const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: rows.length - 1 });
   reportCount(0);
-  const reference = await pictureVector(ort, session, input, output, rows[0].rgba);
+  const reference = await pictureVector(runtime, rows[0].rgba);
   try {
     const matches = [];
+    let reusedPreviews = 0;
     for (const { id, rgba } of rows.slice(1)) {
-      const values = await pictureVector(ort, session, input, output, rgba);
+      const { values, reused } = await previewVector(runtime, id, rgba);
       const score = reference.reduce((sum, value, index) => sum + value * values[index], 0);
-      values.fill(0);
+      if (reused) reusedPreviews++;
       matches.push({ id, score });
       if (provider === 'wasm') reportCount(matches.length);
     }
-    return { phase: 'complete', matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
+    return { phase: 'complete', reusedPreviews, matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
     reference.fill(0);
   }
