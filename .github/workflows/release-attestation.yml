@@ -43,6 +43,8 @@ jobs:
           if ($digest -ne 'c7ed90b7b3c55bd7e3f16f0e192634b3f20b305a4ccd86f94de33fdb9f0fc19b') {
             throw 'The Civitai CLI does not match the pinned release digest.'
           }
+          # The Civitai ZIP writer stores local DOS timestamps. The release uses Eastern time.
+          Set-TimeZone -Id 'Eastern Standard Time'
           npm run build
           $receipt = python scripts/package-release.py --civitai $cli | ConvertFrom-Json
           $package = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP 'rasterraid-package')
