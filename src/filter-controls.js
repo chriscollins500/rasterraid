@@ -517,7 +517,11 @@ export function createFilterControls(form, getContext) {
     const useMediaFilters = isVisualGalleryScope(scope.value) || releaseGallerySearch();
     const priorBases = mediaBaseModels.value;
     const priorPeriod = mediaPeriod.value;
-    const modelSnapshot = () => JSON.stringify(modelFacets.map(facet => [facet.selected, facet.input.value]));
+    const modelSnapshot = () => JSON.stringify([
+      modelFacets.map(facet => [facet.selected, facet.input.value]),
+      sort.value,
+      period.disabled ? '' : period.value,
+    ]);
     const priorModels = modelSnapshot();
     if (scope.value === 'audio' || reportSources?.includes('audio') ||
         useMediaFilters && (panel.open || priorBases || mediaBaseInput.value || priorPeriod) ||

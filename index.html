@@ -443,7 +443,7 @@
     <dialog id="search-areas" class="button-layout search-areas" aria-labelledby="search-areas-title">
       <div class="search-areas-heading">
         <h2 id="search-areas-title">Search areas</h2>
-        <form method="dialog"><button class="dialog-close" aria-label="Close search areas"><span aria-hidden="true">×</span></button></form>
+        <button class="dialog-close" type="button" data-close-dialog aria-label="Close search areas"><span aria-hidden="true">×</span></button>
       </div>
       <label class="sr-only" for="search-area-query">Find a search area</label>
       <input id="search-area-query" type="search" placeholder="Try music, creators, or downloads" maxlength="120" autocomplete="off" spellcheck="false">
@@ -500,7 +500,7 @@
       <ol id="button-layout-list" aria-label="Search button order"></ol>
       <div class="button-layout-actions">
         <button id="button-layout-reset" class="chip" type="button">Restore defaults</button>
-        <form method="dialog"><button class="chip">Close</button></form>
+        <button class="chip" type="button" data-close-dialog>Close</button>
         <button id="button-layout-apply" class="primary" type="button">Apply</button>
       </div>
     </dialog>
@@ -611,11 +611,11 @@
       <dialog id="compare-models" class="button-layout model-comparison" aria-labelledby="compare-title">
         <div class="workspace-heading">
           <h2 id="compare-title" tabindex="-1">Compare models</h2>
-          <form method="dialog"><button class="dialog-close" aria-label="Close model comparison"><span aria-hidden="true">×</span></button></form>
+          <button class="dialog-close" type="button" data-close-dialog aria-label="Close model comparison"><span aria-hidden="true">×</span></button>
         </div>
         <div id="comparison-results"></div>
         <div class="comparison-actions">
-          <form method="dialog"><button class="chip">Back to results</button></form>
+          <button class="chip" type="button" data-close-dialog>Back to results</button>
           <button id="comparison-prices" class="chip" type="button" aria-haspopup="dialog" aria-controls="deep-search">See Deep Search prices</button>
         </div>
       </dialog>

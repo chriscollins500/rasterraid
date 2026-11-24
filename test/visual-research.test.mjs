@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
-import { galleryCompositionResearch, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
+import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
 import { createWorkflowSession, workflowRecord } from '../src/workflow-session.mjs';
 import { workflowReportMarkdown } from '../src/workflow-results-view.js';
 
@@ -155,6 +155,90 @@ test('visual trait estimates attach only whole Civitai references and preserve a
   assert.deepEqual(JSON.parse(material.content).previousResearch.slice(0, 6).map(step => step.purpose), purposes);
   assert.equal(reportSynthesisPlan(run, { ...snapshot, restricted: true }), null);
   assert.equal(stored.body, undefined);
+});
+
+test('public preview captions use the written search and the same public matches for both paths', () => {
+  const search = 'textured ink without cartoon';
+  for (const host of [origin, 'https://civitai.com']) {
+    const media = (id, postId = id, extra = {}) => ({ id, postId, title: 'Public result ' + id, link: host + '/images/' + id,
+      preview: 'https://image.civitai.com/public/' + id + '.jpeg', visualSources: ['private-version-canary'],
+      visualMatch: { score: .098321 }, prompt: 'catalog-prompt-canary', ...extra });
+    const reference = media(1);
+    const rows = [media(30), reference, media(2, 2, { preview: reference.preview }),
+      media(3, 3, { preview: media(3).preview + '?private=canary' }), media(4, 4, { link: 'https://example.test/images/4' }),
+      media(5, 5, { preview: 'blob:local-picture-canary' }), media(6, 6, { link: host + '/user/vault' }),
+      media(10, 70, { video: true, stream: 'https://image.civitai.com/public/private-stream-canary.mp4' }),
+      media(11, 70), media(12, 74), media(13, 75), media(14, 76)];
+    const result = { target: { kind: 'text', value: search }, gallery: { scope: 'videos', query: search },
+      visualComposition: { cues: [{ label: 'local-file-canary.png', role: 'lighting', region: [.23, .17, .99, .58] },
+        { label: 'public-crop-canary', role: 'texture', public: reference }], order: rows.slice(1).map(row => row.id) }, related: { videos: rows } };
+    const review = galleryCandidateResearch(result, host);
+    const [compare, rank] = review.plans;
+    assert.equal(review.writtenSearch, search);
+    assert.deepEqual(compare.inputs.map(row => row.link), [10, 12, 13].map(id => host + '/images/' + id));
+    assert.deepEqual(compare.inputs.map(row => row.kind), ['Video poster', 'Picture', 'Picture']);
+    assert.equal(rank.similarity.previewBasis, 'posters');
+    assert.deepEqual(rank.inputs, compare.inputs);
+    const captions = compare.body.steps;
+    assert.deepEqual(captions.map(({ $type, input }) => [$type, input.mediaUrl]), compare.inputs.map(row => ['mediaCaptioning', row.preview]));
+    assert.ok(captions.every(({ input }) => input.customInstructions.includes('visible conflicts') && input.customInstructions.includes(search)));
+    assert.deepEqual(captions.map(({ name }) => compare.stepEvidence[name].sourceLink), compare.inputs.map(row => row.link));
+    assert.equal(rank.body.steps.length, 7);
+    assert.deepEqual(rank.body.steps.slice(0, 3), captions);
+    assert.equal(rank.body.steps[3].input.text, 'textured ink');
+    assert.deepEqual(rank.body.steps.slice(4).map(({ input }) => input.imageUrl), compare.inputs.map(row => row.preview));
+    assert.doesNotMatch(JSON.stringify(review), /canary|0\.098321|0\.23/u);
+
+    const noWords = galleryCandidateResearch({ ...result, gallery: { ...result.gallery, query: '' } }, host);
+    assert.deepEqual(noWords.plans.map(({ id }) => id), ['publicpreviewreview']);
+    assert.ok(noWords.plans[0].body.steps.every(({ input }) => !input.customInstructions.includes('this search')));
+    assert.equal(galleryCandidateResearch({ ...result, library: {} }, host), null);
+    assert.equal(galleryCandidateResearch({ ...result, related: { videos: [rows.at(-1)] } }, host), null);
+    assert.equal(galleryCandidateResearch({ ...result, visualComposition: { ...result.visualComposition, unavailableReferences: 1 } }, host), null);
+  }
+});
+
+test('public preview comparison runs, resumes and exports the same sources in simulation', async () => {
+  const ids = [11, 12, 13];
+  const items = ids.map(id => ({ id, title: 'Result ' + id, link: origin + '/images/' + id,
+    preview: 'https://image.civitai.com/public/' + id + '.jpeg' }));
+  const plan = galleryCandidateResearch({ target: { kind: 'text' }, gallery: { scope: 'gallery', query: 'linocut' },
+    visualComposition: { cues: [{ role: 'texture', label: 'local-file-canary.png' }], order: ids }, related: { gallery: items } }, origin).plans[1];
+  let time = 1000;
+  let saved;
+  const calls = [];
+  const service = createWorkflowSimulation({ now: () => time });
+  const client = createWorkflowSimulationClient('http://127.0.0.1:8000', async (url, request) => {
+    const body = JSON.parse(request.body);
+    assert.doesNotMatch(request.body, /canary/u);
+    calls.push(url.pathname.split('/').at(-1));
+    const reply = service(request.method, url.pathname, body);
+    return Response.json(reply.body, { status: reply.status });
+  });
+  const config = { client, origin, now: () => time, journal: {
+    read: async () => structuredClone(saved), write: async value => { saved = structuredClone(value); },
+  } };
+  const session = createWorkflowSession(config);
+  await session.prepare(plan, plan.sources);
+  assert.deepEqual(session.state().quote.price, { total: 8, authorFee: 1 });
+  assert.deepEqual(calls, ['estimate']);
+  assert.equal(saved, undefined);
+  await session.confirm();
+  time += 5000;
+  const reopened = createWorkflowSession(config);
+  await reopened.restore();
+  await reopened.refresh();
+  const { run, snapshot } = reopened.state();
+  assert.equal(run.status, 'succeeded');
+  assert.deepEqual(run.sources.map(row => row.link), items.map(row => row.link));
+  assert.equal(snapshot.similarity.ranked.length, 3);
+  assert.match(workflowReportMarkdown([{ run, snapshot }], { simulated: true }), /Preview description 1/u);
+  const synthesis = reportSynthesisPlan(run, snapshot);
+  const [instructions, data] = synthesis.body.steps[0].input.messages;
+  assert.match(instructions.content, /Compare the linked preview descriptions/u);
+  assert.deepEqual(JSON.parse(data.content).previousResearch.filter(row => row.sourceLink).map(row => row.sourceLink), items.map(row => row.link));
+  assert.equal(calls.filter(route => route === 'submit').length, 1);
+  assert.equal(saved.body, undefined);
 });
 
 test('public selections bind exact moment, evidence and comparison anchor while excluding local data', () => {

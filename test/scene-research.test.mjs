@@ -8,7 +8,7 @@ const origin = 'https://civitai.red';
 const clip = (id, title) => ({ link: origin + '/images/' + id, title, video: true,
   stream: `https://image.civitai.com/covers/aa00bb11-cc22-dd33-ee44-ff00aa11bb${id}/original=true/clip.mp4` });
 const split = clip(10, 'Split cues');
-const together = clip(11, 'Together');
+const together = { ...clip(11, 'Together'), music: true };
 const mismatched = clip(12, 'Different source');
 const unrelated = clip(13, 'Unlisted clip');
 const frame = (item, timestamp, score) => ({ item, stream: clipAnalysisUrl(item.stream), timestamp, score, cues: [] });
@@ -42,6 +42,7 @@ test('scene quotes bind the frame and audio to the same measured public stream a
   const [frames, study] = result.plans.map(appEstimateBody);
   assert.equal(frames.steps[0].input.startTime, 4.1234);
   assert.equal(frames.steps[1].input.mediaUrl.$ref, 'scene_frame_1');
+  assert.equal(study.steps[4].$type, 'audioClassification');
   assert.equal(study.steps[4].input.mediaUrl, frames.steps[0].input.videoUrl);
   assert.equal(study.steps[6].input.returnTimeStamps, true);
   assert.doesNotMatch(JSON.stringify(study), /private-reference/u);
@@ -50,6 +51,11 @@ test('scene quotes bind the frame and audio to the same measured public stream a
   assert.equal(sceneResearch(report, origin, [{ ...moment(together), timestamp: 9 }]), null);
   const late = sceneResearch(report, origin, [{ ...moment(together), timestamp: 72, start: 68 }]);
   assert.equal(appEstimateBody(late.plans[0]).steps[0].input.startTime, 72);
+  const lateStudy = appEstimateBody(late.plans[1]);
+  assert.equal(lateStudy.steps.length, 7);
+  assert.equal(lateStudy.steps.find(step => step.name === 'scene_music_audio').input.elements[0].url, clipAnalysisUrl(together.stream));
+  assert.deepEqual(lateStudy.steps.find(step => step.name === 'scene_music').input.mediaUrl,
+    { $ref: 'scene_music_audio', path: 'output.audioBlob.url' });
   assert.equal(sceneResearch(report, origin, [{ ...moment(together), timestamp: 240, start: 236 }]), null);
   assert.equal(sceneResearch(report, 'https://civitai.com', [moment(together)]), null);
   assert.equal(sceneResearch({ ...report, rails: [{ status: 'waiting' }] }, origin, [moment(together)]), null);

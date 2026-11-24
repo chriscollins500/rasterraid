@@ -94,6 +94,8 @@ test('an upgrade report batches exact files and combines public permissions, cre
   assert.doesNotMatch(copied, new RegExp(privateMarker, 'u'));
   const plans = reportResearchPlans(report);
   assert.deepEqual(plans.map(plan => plan.title), ['Draft a migration checklist', 'Cross-check the upgrade', 'Check the upgrade and examples']);
+  const expectedLinks = [upgrade.termsLink, ...upgrade.guides.map(guide => guide.link)];
+  assert.ok(plans.every(plan => expectedLinks.every(link => plan.sources.some(source => source.link === link))));
   assert.doesNotMatch(JSON.stringify(plans), /private-workflow-folder|Bearer fixture/u);
   assert.match(JSON.stringify(plans), /catalogFit[\s\S]*fileId/u);
 });

@@ -2,6 +2,7 @@ import { downloadJson, workflowReportFilename } from './download-json.js';
 import { showReportExport } from './report-view.js';
 import { element, evidenceSource } from './view.js';
 import { isWorkflowId, workflowIdBelongsToViewer } from './workflow-client.mjs';
+import { workflowOutputPending } from './workflow-session.mjs';
 import { workflowReportFile } from './workflow-report-file.mjs';
 
 const labels = {
@@ -9,6 +10,7 @@ const labels = {
   report_brief: 'Research brief', report_source_check: 'Source check', report_fit: 'Options that fit',
   report_alternatives: 'Alternatives', report_picture_check: 'Picture comparison', report_transcript: 'Transcript',
   report_music: 'Music description', report_synthesis: 'Decision and next steps', visual_picture_review: 'Public picture comparison',
+  compare_public_previews: 'Public preview review response', public_preview_search_words: 'Written search comparison input',
   visual_catalog_check: 'Catalog evidence', visual_clip_transcript: 'Clip transcript', visual_clip_music: 'Music description',
   scene_transcript: 'Full-clip transcript', scene_catalog_check: 'Linked Civitai records',
   transcript: 'Transcript', sound_transcript: 'Full-clip transcript', describe_sound: 'Music description',
@@ -34,10 +36,12 @@ const comparisonBasis = 'The comparison uses still previews for video clips.';
 const previewRankNote = 'Free preview rank follows the order shown for the same set of previews in RasterRaid.';
 
 function stepTitle(name, type) {
+  if (type === 'composeMedia') return 'Soundtrack extraction';
+  if (type === 'audioClassification') return 'Music, singing and speech estimates';
   if (Object.hasOwn(labels, name)) return labels[name];
   const picture = /^model_picture_(\d+)$/u.exec(name);
   if (picture) return 'Example picture ' + picture[1];
-  const preview = /^(?:catalog|report|compose|visual)_picture_(\d+)$/u.exec(name);
+  const preview = /^(?:catalog|report|compose|visual|public_preview)_picture_(\d+)$/u.exec(name);
   if (preview) return 'Preview description ' + preview[1];
   const sample = /^(?:visual|scene|report_clip)_(frame|caption|vector|audio)(?:_(\d+))?$/u.exec(name);
   if (sample) return ({ frame: 'Sampled frame', caption: 'Scene description', vector: 'Visual comparison input',
@@ -101,6 +105,7 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
   }
   for (const line of snapshot.text ?? []) children.push(element('p', line, 'workflow-step'));
   if (snapshot.withheld) children.push(element('p', snapshot.withheld, 'workflow-step'));
+  if (workflowOutputPending(run, snapshot)) children.push(element('p', 'Waiting for or missing some results from Civitai.', 'workflow-step'));
   const similarity = snapshot.similarity;
   if (similarity) {
     const section = element('section', null, 'workflow-step');
@@ -168,6 +173,7 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
     }
     for (const note of snapshot.text ?? []) result.push(...note.split(/\r?\n/u).map(line => '> ' + plain(line)));
     if (snapshot.withheld) result.push('', '> ' + plain(snapshot.withheld));
+    if (workflowOutputPending(run, snapshot)) result.push('', 'Some results were unavailable when this report was copied.');
     if (snapshot.similarity?.ranked.length) {
       const { ranked, previewBasis } = snapshot.similarity;
       result.push('', '### Visual similarity estimates');

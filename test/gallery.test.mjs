@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CATALOG } from '../src/catalog.mjs';
-import { applyNativeGalleryFilters, readGalleryPage, readNativeGallerySearch } from '../src/gallery.mjs';
+import { applyNativeGalleryFilters, discoverGallery, readGalleryPage, readNativeGallerySearch } from '../src/gallery.mjs';
 import { watchHost } from '../src/civitai-host.js';
 import { discover, searchTarget } from '../src/search.mjs';
 import { NATIVE_MODELS_INDEX } from '../src/runtime-config.mjs';
@@ -761,6 +761,162 @@ test('text keeps the normal catalog filters and accepts local visual traits with
   assert.equal(result.visualComposition.cues[0].label, 'local-name-fixture.png');
   assert.doesNotMatch(searches.join('\n'), /local-name-fixture|0\.2/u);
   assert.ok(searches.every(url => !url.includes('ids=')));
+});
+
+test('opted-in local picture versions add eligible results while keeping the file and other metadata local on both hosts', async () => {
+  for (const origin of ['https://civitai.com', 'https://civitai.red']) {
+    const context = contextFor(origin);
+    const original = { id: 701, preview: 'https://image.civitai.com/official/701.jpeg' };
+    const linked = (id, extra = {}) => media(id, 'image', { baseModel: 'SDXL 1.0', tags: [cats],
+      url: `https://image.civitai.com/official/${id}.jpeg`, ...extra });
+    const plan = { type: 'image', tags: [cats.id], baseModels: 'SDXL 1.0', username: 'a-creator', period: 'Month',
+      sort: 'Newest', exclusions: [['motorcycle']] };
+    const reads = [];
+    const cue = { label: 'private-file-canary.png', role: 'lighting', features: { lighting: [1] }, region: [.1, .2, .6, .8],
+      recordedVersions: [{ id: 120, modelId: 20, sha256: 'digest-canary' }, { id: 121, modelId: 21 },
+        { id: 122, modelId: 22 }, { id: 123 }, { id: 124 }] };
+    const result = await discoverVisualComposition(context, { kind: 'text', value: 'cat without motorcycle' }, { scope: 'gallery' }, [cue,
+      { ...cue, polarity: 'avoid', recordedVersions: [{ id: 777 }] }], {
+      searchCatalog: () => ({ gallery: { status: 'ready', plan }, related: { gallery: [original] } }),
+      fetcher(url, init) {
+        reads.push(url.href + (init.body ?? ''));
+        assert.equal(url.origin, origin);
+        const q = Object.fromEntries(url.searchParams);
+        if (url.pathname === CATALOG.blockModels) {
+          assert.deepEqual(q, { modelVersionIds: '120,121,122,123', limit: '4' });
+          return Response.json({ items: [{ id: 20, modelVersions: [{ id: 120 }] }, { id: 21, modelVersions: [{ id: 121 }] },
+            { id: 99, modelVersions: [{ id: 122 }, { id: 124 }] }] });
+        }
+        assert.equal(url.pathname, CATALOG.blockImages);
+        assert.ok(['120', '121'].includes(q.modelVersionId));
+        assert.equal(q.tags, '5132');
+        assert.equal(q.baseModels, 'SDXL 1.0');
+        assert.equal(q.username, 'a-creator');
+        assert.equal(q.period, 'Month');
+        assert.equal(q.sort, 'Newest');
+        return Response.json({ items: q.modelVersionId === '120' ? [linked(710), linked(711, { tags: [cats, motorcycle] }),
+          linked(712, { browsingLevel: 8 })] : [linked(720), linked(721, { baseModel: 'Flux.1 D' })] });
+      },
+      rank: items => ({ items, compared: items.length, sampled: 0 }),
+    });
+    assert.equal(reads.length, 3);
+    assert.doesNotMatch(reads.join('\n'), /private-file-canary|digest-canary|0\.2|777/u);
+    assert.deepEqual(result.related.gallery.map(({ id }) => id), [701, 710, 720]);
+    assert.match(result.related.gallery[1].visualSources[0], /Recorded model version #120/u);
+    assert.equal(result.visualComposition.referenceMatchesAdded, 2);
+    assert.equal(result.visualComposition.recordedVersionsUnavailable, 2);
+  }
+});
+
+test('recorded version examples preserve the blank clip search and stop when a source is fixed', async () => {
+  const context = contextFor('https://civitai.com');
+  const cue = { role: 'texture', features: { texture: [1, 0] }, recordedVersions: [{ id: 120 }] };
+  const base = { id: 800, video: true, preview: 'https://image.civitai.com/official/800.jpeg' };
+  for (const state of ['available', 'unavailable', 'fixed-source']) {
+    let reads = 0;
+    const plan = { type: 'video', tags: [], sort: 'Newest', ...(state === 'fixed-source' && { postId: 25 }) };
+    const result = await discoverVisualComposition(context, { kind: 'text', value: '' }, { scope: 'videos' }, [cue], {
+      searchCatalog: () => ({ gallery: { status: 'ready', query: '', plan }, related: { videos: [base] } }),
+      fetcher(url) {
+        reads++;
+        if (url.pathname === CATALOG.blockModels) return state === 'unavailable' ? Response.json({}, { status: 429 })
+          : Response.json({ items: [{ id: 20, modelVersions: [{ id: 120 }] }] });
+        assert.equal(url.searchParams.get('modelVersionId'), '120');
+        assert.equal(url.searchParams.get('type'), 'video');
+        return Response.json({ items: [media(801, 'video')] });
+      },
+      rank: items => ({ items, compared: items.length, sampled: 0 }),
+    });
+    assert.equal(reads, { available: 2, unavailable: 1, 'fixed-source': 0 }[state]);
+    assert.deepEqual(result.related.videos.map(({ id }) => id), state === 'available' ? [800, 801] : [800]);
+    assert.equal(result.visualComposition.recordedVersionsUnavailable ?? 0, state === 'unavailable' ? 1 : 0);
+  }
+});
+
+test('an empty tag query checks opted-in version descriptions with every word, exclusion, and explicit filter', async () => {
+  const context = contextFor('https://civitai.com');
+  const woodcut = { id: 610, name: 'woodcut' };
+  const filters = { scope: 'gallery', query: '@a-creator carved woodcut without cartoon', mediaSort: 'Newest', mediaPeriod: 'Month',
+    mediaBaseModels: 'SDXL 1.0', mediaTags: String(landscape.id), mediaPublishedPrompt: 'true' };
+  const cue = { role: 'lighting', features: { lighting: [1] }, label: 'private-brief-fixture.png', recordedVersions: [{ id: 120, modelId: 20 }] };
+  const requests = [];
+  const row = (id, prompt, extra = {}) => media(id, 'image', { baseModel: 'SDXL 1.0', tags: [landscape],
+    url: `https://image.civitai.com/official/${id}.jpeg`, meta: { prompt }, ...extra });
+  function fetcher(url, init) {
+    requests.push(url.href);
+    assert.equal(url.origin, context.origin);
+    assert.doesNotMatch(url.href + (init.body ?? ''), /private-brief-fixture|browsingLevel/u);
+    if (url.pathname === '/api/search/multi-search') {
+      const { queries } = JSON.parse(init.body);
+      return Response.json({ results: queries.map(({ q }) => ({ hits: q ? [{ tags: [woodcut] }] : [] })) });
+    }
+    if (url.pathname === CATALOG.blockModels) return Response.json({ items: [{ id: 20, modelVersions: [{ id: 120 }] }] });
+    assert.equal(url.pathname, CATALOG.blockImages);
+    const q = Object.fromEntries(url.searchParams);
+    assert.equal(q.username, 'a-creator');
+    assert.equal(q.baseModels, 'SDXL 1.0');
+    assert.equal(q.period, 'Month');
+    assert.equal(q.sort, 'Newest');
+    assert.equal(q.withMeta, 'true');
+    if (!q.modelVersionId) return Response.json({ items: [] });
+    assert.equal(q.modelVersionId, '120');
+    assert.equal(q.tags, String(landscape.id));
+    assert.equal(q.type, 'image');
+    return Response.json({ items: [row(720, 'hand carved woodcut and paper grain'), row(721, 'just woodcut'),
+      row(722, 'carved woodcut cartoon'), row(723, 'carved woodcut', { browsingLevel: 8 }),
+      row(724, 'carved woodcut', { tags: [woodcut] }), row(725, 'carved woodcut', { baseModel: 'SD 1.5' }),
+      row(726, 'carved woodcut', { username: 'other' }), row(727, '', { tags: [landscape, woodcut], meta: { title: 'carved woodcut' } })] });
+  }
+  const base = await discover(context, filters, { fetcher, visualBrief: [{ ...cue, recordedVersions: undefined }] });
+  assert.equal(base.gallery.status, 'ready');
+  assert.ok(base.gallery.partial);
+  assert.deepEqual(base.related.gallery, []);
+  assert.equal(requests.length, 2);
+  assert.match(decodeURIComponent(requests[1]), /tags=8363,610/u);
+  requests.length = 0;
+  const result = await discover(context, filters, { fetcher, visualBrief: [cue] });
+  assert.deepEqual(result.related.gallery.map(({ id }) => id), [720]);
+  assert.deepEqual(result.related.gallery[0].mediaMatch.description, ['carved', 'woodcut']);
+  assert.equal(result.visualComposition.referenceMatchesAdded, 1);
+  assert.equal(result.visualComposition.referenceTextChecked, true);
+  assert.equal(requests.length, 4);
+  assert.doesNotMatch(requests.slice(2).join('\n'), /carved|woodcut|cartoon/u);
+});
+
+test('a public reference recovers clips without a known Civitai tag and keeps the native brief', async () => {
+  const context = contextFor('https://civitai.red');
+  const target = { kind: 'text', value: 'luminescent enamel' };
+  const filters = { scope: 'videos', mediaSort: 'Oldest' };
+  const reads = [];
+  function fetcher(url, init) {
+    reads.push(url.pathname);
+    if (url.pathname === '/api/search/multi-search') {
+      return Response.json({ results: JSON.parse(init.body).queries.map(() => ({ hits: [] })) });
+    }
+    assert.equal(url.pathname, CATALOG.blockImages);
+    const { ids, modelVersionId, type, tags, sort, withMeta } = Object.fromEntries(url.searchParams);
+    if (ids) return Response.json({ items: [media(801, 'video', { modelVersionIds: [120], tags: [] })] });
+    assert.equal(type, 'video');
+    assert.equal(tags, undefined);
+    assert.equal(sort, 'Oldest');
+    assert.equal(modelVersionId, '120');
+    assert.equal(withMeta, 'true');
+    return Response.json({ items: [media(802, 'video', { thumbnail: 'https://image.civitai.com/official/enamel.jpeg',
+      meta: { prompt: 'Luminescent enamel in moonlight' } }), media(803, 'video', { meta: { prompt: 'Only luminescent' } })] });
+  }
+  const base = await discoverGallery(context, target, filters, { fetcher });
+  assert.equal(base.gallery.status, 'no-tag');
+  assert.deepEqual(base.related.videos, []);
+  const result = await discoverVisualComposition(context, target, filters,
+    [{ role: 'texture', mediaId: 801, publicPreview: poster, features: { texture: [1, 0] } }], {
+      searchCatalog: () => base, fetcher, rank: items => ({ items, compared: items.length, sampled: 0 }),
+    });
+  assert.equal(result.gallery.status, 'ready');
+  assert.deepEqual(result.related.videos.map(({ id }) => id), [802]);
+  assert.equal(result.visualComposition.referenceTextChecked, true);
+  assert.equal(result.gallery.nativeLink, base.gallery.nativeLink);
+  assert.equal(new URL(result.gallery.nativeLink).searchParams.get('query'), target.value);
+  assert.deepEqual(reads, ['/api/search/multi-search', CATALOG.blockImages, CATALOG.blockImages]);
 });
 
 test('visual references expand descriptive search within the same subject, filters, and candidate limit', async () => {

@@ -80,15 +80,29 @@ test('paid sound plans use chosen public URLs, timestamped source evidence, and 
   assert.deepEqual(soundCandidates({ ...report, library: {} }, {}, origin), []);
   const picks = available.map(({ link }, index) => ({ link, seconds: 62.27 + index, name: 'private-reference-canary.wav' }));
   const research = soundResearch(available, [...picks, { link: mixed.at(-1).link, seconds: 0 }], origin);
-  assert.deepEqual(research.plans.map(plan => [plan.id, plan.body.steps.length]), [['soundwords', 1], ['soundnotes', 4], ['soundscene', 6]]);
+  assert.deepEqual(research.plans.map(plan => [plan.id, plan.body.steps.length]), [['soundwords', 1], ['soundnotes', 5], ['soundscene', 7]]);
   const scene = research.plans.at(-1);
   assert.equal(scene.body.steps[0].input.startTime, 62.3);
   assert.deepEqual(scene.body.steps[1].input.mediaUrl, { $ref: 'sound_frame', path: 'output.frames[0].url' });
   assert.equal(scene.stepEvidence.sound_scene.sourceLink, tracks[0].link);
   assert.equal(scene.stepEvidence.sound_scene.seconds, 62.3);
   assert.equal(scene.stepEvidence.sound_description_2.sourceLink, tracks[1].link);
+  assert.deepEqual(scene.body.steps[3].input.mediaUrl, { $ref: 'sound_description_1_audio', path: 'output.audioBlob.url' });
+  assert.equal(scene.body.steps[4].input.mediaUrl, tracks[1].stream);
   assert.equal(scene.dependentInputs, true);
   assert.doesNotMatch(JSON.stringify(research), /private|canary/u);
+});
+
+test('three selected videos preserve every recording with separately scoped sound and scene plans', () => {
+  const recordings = [21, 22, 23].map(id => ({ ...tracks[0], link: origin + '/images/' + id, stream: cdn + id + '.mp4' }));
+  const { plans } = soundResearch(recordings, recordings.map(({ link }) => ({ link, seconds: 0 })), origin);
+  const [, sound, scene] = plans;
+  assert.equal(sound.body.steps.length, 8);
+  assert.equal(sound.body.steps.filter(step => step.$type === 'audioCaptioning').length, 3);
+  assert.equal(scene.body.steps.length, 7);
+  assert.deepEqual(scene.body.steps.filter(step => step.$type === 'audioClassification').map(step => step.input.mediaUrl),
+    recordings.map(row => row.stream));
+  assert.match(scene.work, /estimates music, singing and speech in each recording/u);
 });
 
 test('recovered sound captions preserve documented string tempo and related musical estimates', () => {

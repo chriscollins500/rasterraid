@@ -5,11 +5,11 @@ import { MOCK_API } from './client.mjs';
 
 export const SIMULATION_WORKFLOWS = MOCK_API + '/workflows/';
 const expiry = 30 * 60_000;
-const stepPrice = { chatCompletion: 3, transcription: 2, audioCaptioning: 1, multimodalEmbedding: 1,
-  videoFrameExtraction: 1, mediaCaptioning: 1 };
+const stepPrice = { chatCompletion: 3, transcription: 2, audioCaptioning: 1, audioClassification: 1,
+  composeMedia: 1, multimodalEmbedding: 1, videoFrameExtraction: 1, mediaCaptioning: 1 };
 const namePattern = /^[a-z][a-z\d_-]{0,31}$/u;
 const operationPattern = /^[a-z\d_-]{1,64}$/iu;
-const frameReference = step => step.$type === 'mediaCaptioning' && step.input?.mediaUrl?.$ref;
+const mediaReference = step => ['mediaCaptioning', 'audioCaptioning'].includes(step.$type) && step.input?.mediaUrl?.$ref;
 
 function workflowSteps(body) {
   const steps = body?.steps;
@@ -18,17 +18,23 @@ function workflowSteps(body) {
       steps.some(step => step.$type === 'multimodalEmbedding' && (!Number.isInteger(step.input.dimensions) ||
         step.input.dimensions < 16 || step.input.dimensions > 4096)) ||
       new Set(steps.map(step => step.name)).size !== steps.length) return null;
-  const frames = new Set();
+  const mediaOutputs = new Map();
   for (const step of steps) {
     if (step.$type === 'videoFrameExtraction') {
       const { videoUrl, startTime, maxFrames } = step.input;
       if (!mediaUrl(videoUrl) || !Number.isFinite(startTime) || startTime < 0 || startTime >= soundMaximumSeconds || maxFrames !== 1) return null;
-      frames.add(step.name);
+      mediaOutputs.set(step.name, 'output.frames[0].url');
     }
-    if (step.$type === 'mediaCaptioning') {
+    if (step.$type === 'composeMedia') {
+      const { elements, output } = step.input;
+      if (elements?.length !== 1 || !mediaUrl(elements[0]?.url) || output?.type !== 'audio' || output.container !== 'mp3') return null;
+      mediaOutputs.set(step.name, 'output.audioBlob.url');
+    }
+    if (['mediaCaptioning', 'audioCaptioning', 'audioClassification'].includes(step.$type)) {
       const url = step.input.mediaUrl;
-      if (typeof url === 'string' ? !mediaUrl(url) : url?.path !== 'output.frames[0].url' ||
-          Object.keys(url).length !== 2 || !frames.has(frameReference(step))) return null;
+      const expected = step.$type === 'mediaCaptioning' ? 'output.frames[0].url' : 'output.audioBlob.url';
+      if (typeof url === 'string' ? !mediaUrl(url) : !url || url.path !== expected || Object.keys(url).length !== 2 ||
+          mediaOutputs.get(mediaReference(step)) !== expected) return null;
     }
   }
   return steps;
@@ -40,6 +46,10 @@ function sampleOutput(step, producer) {
     { startTime: .3, endTime: .6, text: 'from the selected clip.' },
   ] } };
   if (step.$type === 'videoFrameExtraction') return { output: { totalFramesExtracted: 1 } };
+  if (step.$type === 'composeMedia') return { output: { type: 'audio' } };
+  if (step.$type === 'audioClassification') return { output: { hasAudio: true, segments: [
+    { durationSeconds: 8, musicScore: .92, singingScore: .25, speechScore: .02 },
+  ] } };
   if (step.$type === 'mediaCaptioning') return { output: { caption: producer
     ? 'Simulated description of the colors and layout in the frame near ' + producer.input.startTime + ' seconds.'
     : 'Simulated description of the selected public media.' } };
@@ -85,9 +95,9 @@ export function createWorkflowSimulation({ now = Date.now, failStep = null } = {
       : failStep !== null && failStep < run.steps.length ? 'failed' : 'succeeded';
     const completed = Math.max(0, Math.floor((elapsed - 400) / 400));
     const steps = [];
-    const composed = run.steps.some(frameReference);
+    const composed = run.steps.some(mediaReference);
     for (const [index, step] of run.steps.entries()) {
-      const reference = frameReference(step);
+      const reference = mediaReference(step);
       const producer = reference && steps.find(row => row.name === reference);
       const canComplete = composed ? index !== failStep && (!reference || producer?.status === 'succeeded')
         : failStep === null || index < failStep;

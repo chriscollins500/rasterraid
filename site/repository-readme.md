@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-Version 0.0.4 was checked in signed developer frames on `civitai.com` and `civitai.red`. Free search and live Deep Search quotes are available in those previews. Public execution depends on Civitai review and deployment. [Current availability](https://chriscollins500.github.io/rasterraid/releases/)
+The audited developer build was checked in signed frames on `civitai.com` and `civitai.red`. Its fixes cover live filter retirement, dialog controls, and Deep Search picture, clip, and audio evidence. The signed GitHub v0.0.4 archive preserves the earlier build. Public execution depends on Civitai review and deployment. [Current availability and verified builds](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 

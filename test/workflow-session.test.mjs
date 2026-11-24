@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { appRunTransport } from '../src/workflow-client.mjs';
-import { createWorkflowSession, historyResearchOutput, researchOutput, transcriptEvidence } from '../src/workflow-session.mjs';
+import { createWorkflowSession, historyResearchOutput, researchOutput, transcriptEvidence, workflowOutputPending } from '../src/workflow-session.mjs';
 import { embeddingStep } from '../src/research.mjs';
 import { workflowRecoveryStep } from '../src/workflow-recovery.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
@@ -29,6 +29,55 @@ test('transcription keeps valid time labels and distinguishes whole clips from r
     { scope: 'repetitive', lines: [] });
   assert.deepEqual(transcriptEvidence({ hasAudio: false }), { scope: 'silent', lines: [] });
   assert.deepEqual(transcriptEvidence({ text: '', hasAudio: true }), { scope: 'empty', lines: [] });
+});
+
+test('a succeeded snapshot can still be waiting for output from the same run', () => {
+  const chat = { name: 'compare_evidence', $type: 'chatCompletion', status: 'succeeded' };
+  const words = { name: 'transcript', $type: 'transcription', status: 'succeeded' };
+  const run = { status: 'succeeded', steps: [chat, words] };
+  const initial = researchOutput({ status: 'succeeded', steps: run.steps }, run);
+  assert.equal(workflowOutputPending(run, initial), true);
+  assert.equal(initial.steps[1].transcriptScope, undefined);
+  const ready = researchOutput({ status: 'succeeded', textOutputs: ['Ranked sources.'], steps: [
+    chat, { ...words, output: { text: '', hasAudio: true } },
+  ] }, run, initial);
+  assert.equal(workflowOutputPending(run, ready), false);
+  assert.equal(ready.steps[1].transcriptScope, 'empty');
+  assert.deepEqual(ready.steps[0].lines, ['Ranked sources.']);
+  assert.equal(workflowOutputPending(run, { ...initial, withheld: 'Provider withheld output.' }), false);
+});
+
+test('Civitai WeMM text and video preprocessing profiles compare within the same embedding space', () => {
+  const link = origin + '/images/48';
+  const anchor = 'search_embedding';
+  const target = 'video_embedding_1';
+  const similarity = { model: 'wemm-2b', dimensions: 64, anchor, targets: [{ step: target, title: 'Clip', link }] };
+  const vector = (name, profile, modelRevision = 'fixture-revision', precision = 'float32') => ({ name,
+    $type: 'multimodalEmbedding', status: 'succeeded', output: {
+      ...{ model: similarity.model, dimensions: similarity.dimensions, modelRevision, precision, profile },
+      embedding: [1, ...Array(63).fill(0)],
+    } });
+  const textProfile = 'wemm-2b-bf16-image262144-v1';
+  const videoProfile = 'wemm-2b-bf16-video-fps2-frames16-pixels4194304-v1';
+  const start = vector(anchor, textProfile);
+  const rank = matching => researchOutput({ steps: [start, matching] }, { status: 'succeeded', steps: [start, matching], similarity }).similarity.ranked;
+  assert.deepEqual(rank(vector(target, videoProfile)).map(row => [row.link, row.score]), [[link, 1]]);
+  assert.deepEqual(rank(vector(target, videoProfile, 'different')), []);
+  assert.deepEqual(rank(vector(target, videoProfile, 'fixture-revision', 'float16')), []);
+  assert.deepEqual(rank(vector(target, 'unknown-profile')), []);
+});
+
+test('sound classifications summarize only valid segments using their analyzed durations', () => {
+  const step = { name: 'scene_audio_1', $type: 'audioClassification', sourceLink: origin + '/images/48', status: 'succeeded' };
+  const segments = [{ durationSeconds: 20, musicScore: 1, singingScore: .3, speechScore: 0 },
+    { durationSeconds: 10, musicScore: .4, singingScore: 0, speechScore: .3 },
+    { durationSeconds: 10, musicScore: 4, singingScore: 0, speechScore: 0 }];
+  const run = { steps: [step], status: 'succeeded' };
+  const snapshot = researchOutput({ steps: [{ ...step, output: { hasAudio: true, segments } }] }, run);
+  assert.deepEqual(snapshot.steps[0].lines, ['Estimated music 80/100 · Singing 20/100 · Speech 10/100',
+    'Analyzed 30 seconds across 2 segments.']);
+  assert.equal(snapshot.steps[0].sourceLink, step.sourceLink);
+  assert.equal(workflowOutputPending(run, snapshot), false);
 });
 
 test('a repeated transcript keeps its source link and cannot become synthesis evidence', () => {

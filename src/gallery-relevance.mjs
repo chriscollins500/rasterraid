@@ -17,13 +17,13 @@ function termKey(word) {
 
 const termsIn = value => searchTerms(value).filter(word => !filler.has(word)).map(termKey);
 
-export function describeMediaQuery(value) {
+export function describeMediaQuery(value, { allowShort = false } = {}) {
   const source = text(value, 160);
   const localized = translateCatalogTerms(source)?.brief;
   const [positive, negative] = (localized ?? source.toLowerCase()).split(/\s+without\s+/u, 2);
   const words = searchTerms(positive).filter(word => !filler.has(word));
   const terms = [...new Set(words.map(termKey))];
-  if (!terms.length || terms.length < 4 && !negative) return null;
+  if (!terms.length || !allowShort && terms.length < 4 && !negative) return null;
   // Look up each clause's last useful word before its modifiers. Those words tend to name what must be in the scene.
   const clauses = positive.split(links).map(part => termsIn(part).filter(term => !motion.has(term)).reverse()).filter(part => part.length);
   const priority = [...new Set([...clauses.map(part => part[0]), ...clauses.flat()])];
