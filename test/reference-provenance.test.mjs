@@ -568,5 +568,5 @@ test('local-image trace joins approved examples and catalog sources without putt
   const plans = JSON.stringify(reportResearchPlans(result.report));
   assert.match(plans, /localReferenceCatalogLinks/u);
   assert.ok(!plans.includes('private-reference-filename') && !plans.includes(digest));
-  assert.match(plans, /https:\/\/image\.civitai\.com\/fixture\.jpg/u);
+  assert.ok(reportResearchPlans(result.report).some(option => option.inputs?.some(item => item.preview === 'https://image.civitai.com/fixture.jpg')));
 });

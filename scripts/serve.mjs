@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { constants } from 'node:fs';
 import { createServer } from 'node:http';
-import { lstat, readFile, realpath } from 'node:fs/promises';
+import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { previewFiles } from './assets.mjs';
@@ -32,13 +33,36 @@ const workflowSimulation = mockBackend ? createWorkflowSimulation() : null;
 
 const assets = new Map();
 const digest = createHash('sha256');
-for (const [route, type] of Object.entries(previewFiles)) {
-  const path = resolve(dir, route.slice(1));
-  const info = await lstat(path);
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 2_000_000 || (customBuild >= 0 && !inside(dir, await realpath(path)))) {
+const previewAssetLimit = 2_000_000n;
+const previewRoot = await realpath(dir);
+
+async function readPreviewAsset(base, path) {
+  const entry = await lstat(path, { bigint: true });
+  if (!entry.isFile() || entry.size > previewAssetLimit || !inside(base, await realpath(path))) {
     throw new Error('Preview requires regular, bounded build files.');
   }
-  const body = await readFile(path);
+  const handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.dev !== entry.dev || opened.ino !== entry.ino || opened.size > previewAssetLimit) {
+      throw new Error('The preview file changed while opening it.');
+    }
+    const bytes = Buffer.alloc(Number(opened.size) + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length !== Number(opened.size)) throw new Error('The preview file changed while reading it.');
+    return bytes.subarray(0, length);
+  } finally {
+    await handle.close();
+  }
+}
+
+for (const [route, type] of Object.entries(previewFiles)) {
+  const body = await readPreviewAsset(previewRoot, resolve(dir, route.slice(1)));
   digest.update(route);
   digest.update('\0');
   digest.update(body);
@@ -46,9 +70,11 @@ for (const [route, type] of Object.entries(previewFiles)) {
 }
 const mockAssets = new Map();
 if (mockBackend) {
+  const workspaceRoot = await realpath(root);
   for (const file of ['panel.mjs', 'client.mjs', 'sample.mjs']) {
     const route = '/mock/' + file;
-    mockAssets.set(route, { type: 'text/javascript; charset=utf-8', body: await readFile(join(root, route.slice(1))) });
+    const body = await readPreviewAsset(workspaceRoot, join(root, route.slice(1)));
+    mockAssets.set(route, { type: 'text/javascript; charset=utf-8', body });
   }
 }
 

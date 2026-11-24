@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { publicMedia } from '../src/catalog-research.mjs';
 import { isWorkflowId } from '../src/workflow-client.mjs';
@@ -38,13 +39,13 @@ export function isZeroBuzzWorkflow(snapshot) {
 export async function getOrchestrationCredential({ useExistingCli = false, env = process.env } = {}) {
   const provided = env.CIVITAI_TOKEN || env.CIVITAI_API_KEY;
   if (provided && tokenPattern.test(provided)) return provided;
-  if (!useExistingCli || !env.APPDATA) {
+  if (!useExistingCli || process.platform !== 'win32') {
     throw new Error('Use a Civitai credential in the local environment or explicitly select the existing Windows CLI credential.');
   }
 
   // Only the documented CLI personal-key field is read. OAuth state and refresh
   // tokens remain with the official CLI. Nothing from this file is echoed.
-  const path = join(env.APPDATA, 'civitai', 'config.yaml');
+  const path = join(homedir(), 'AppData', 'Roaming', 'civitai', 'config.yaml');
   let config;
   try {
     config = await readFile(path, 'utf8');

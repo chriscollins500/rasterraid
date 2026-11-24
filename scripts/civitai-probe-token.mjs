@@ -1,20 +1,12 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { runCivitai } from './civitai-cli.mjs';
 
-const run = promisify(execFile);
 const browsingMask = value => Number.isInteger(value) && value >= 0 && value <= 63 ? value : null;
 const scopeName = /^[a-z][a-z\d-]{0,39}(?::[a-z][a-z\d-]{0,39}){1,5}$/u;
 
 export async function mintProbeToken(cli, origin) {
   const result = { tokenMinted: false, credential: null };
   try {
-    const { stdout } = await run(cli, ['--no-update-check', '--no-color', 'app', 'dev-token', 'rasterraid'], {
-      cwd: new URL('..', import.meta.url),
-      env: { ...process.env, CIVITAI_BASE_URL: origin },
-      timeout: 20_000,
-      maxBuffer: 32_768,
-      windowsHide: true,
-    });
+    const stdout = await runCivitai(cli, origin, ['app', 'dev-token', 'rasterraid']);
     const token = stdout.split(/\r?\n/u).map(line => line.trim()).find(line => /^[\w-]+\.[\w-]+\.[\w-]+$/u.test(line));
     if (token) {
       const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));

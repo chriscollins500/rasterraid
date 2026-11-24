@@ -910,9 +910,8 @@ export function editReferenceSource(report, reference) {
   return report.evidence.find(item => item.group === 'models' && item.versionId === reference.versionId) ?? null;
 }
 
-const markdownLine = value => String(value ?? '').replace(/\r?\n|\r/gu, ' ').replace(/[\\[\]\u0060*<>]/gu, '\\$&');
-const markdownLink = item => '[' + markdownLine(item.title) + '](<' + item.link + '>)';
-const tableCell = value => markdownLine(value).replace(/\|/gu, '\\|');
+const markdownLine = value => String(value ?? '').replace(/\r?\n|\r/gu, ' ').replace(/[\\[\]\u0060*<>|]/gu, '\\$&');
+const markdownLink = item => '[' + markdownLine(item.title) + '](<' + item.link.replaceAll('|', '%7C') + '>)';
 
 export function reportMarkdown(report) {
   const lines = ['# ' + markdownLine(report.title), ''];
@@ -944,14 +943,14 @@ export function reportMarkdown(report) {
     }
     if (settings.length) {
       lines.push('', '### Recorded settings', '| Setting | First example | Second example |', '|---|---|---|');
-      for (const { label, values } of settings) lines.push('| ' + [label, ...values.map(value => value ?? 'Unreported')].map(tableCell).join(' | ') + ' |');
+      for (const { label, values } of settings) lines.push('| ' + [label, ...values.map(value => value ?? 'Unreported')].map(markdownLine).join(' | ') + ' |');
     }
     if (versions.length) {
       lines.push('', '### Recorded model versions', '| Version | First example | Second example |', '|---|---|---|');
       for (const { id, model, values } of versions) {
         const version = model ? markdownLink({ title: model.model + ' · ' + model.version + ' · #' + id, link: model.link })
-          .replace(/\|/gu, '\\|') : 'Version #' + id + ' · Listing unverified';
-        lines.push('| ' + [version, ...values.map(value => tableCell(exampleVersionUse(value)))].join(' | ') + ' |');
+          : 'Version #' + id + ' · Listing unverified';
+        lines.push('| ' + [version, ...values.map(value => markdownLine(exampleVersionUse(value)))].join(' | ') + ' |');
       }
     }
     const unlinked = examples.map(({ item }) => item?.publishedSetup.unlinked.length ?? 0);
@@ -996,7 +995,7 @@ export function reportMarkdown(report) {
     if (comparison.next) lines.push('- Proposed · ' + markdownLink(comparison.next));
     lines.push('', '| Catalog detail | Current | Proposed |', '| --- | --- | --- |');
     for (const { label, current, next } of upgradeFacts(comparison)) {
-      lines.push('| ' + [label, current, next].map(tableCell).join(' | ') + ' |');
+      lines.push('| ' + [label, current, next].map(markdownLine).join(' | ') + ' |');
     }
     const size = upgradeStorageChange(comparison);
     lines.push('', ...(size ? [size] : []), 'Generation access is the signed-out check. Loader behavior and memory use require a local test.');

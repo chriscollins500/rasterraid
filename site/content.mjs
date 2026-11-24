@@ -136,8 +136,8 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Developer preview</p><h2>Verified on both Civitai domains</h2><p>The signed developer previews show live prices for the current build. The public Civitai run page requires Civitai review and deployment.</p>${previewLinks}</aside>
 ${sectionHeading('latest', 'What’s in 0.0.4')}
 <ul><li>One search field for text, links and picture references, with live model filters and configurable shortcuts.</li><li>Free reports that connect exact releases with published examples, posts, guides and creator profiles.</li><li>Visual, motion and sound comparisons, plus local metadata and workflow checks.</li><li>Four itemized Linocut quotes on each developer preview and a tested confirmation and receipt-recovery flow for the published app.</li></ul>
-<p>Checked on <time datetime="${site.checked}">November 24, 2026</time>. The source package reproduced 96 browser assets. The candidate passed 292 automated app tests and 162 browser accessibility scans.</p>
-<p>Source archive SHA-256 <code class="digest">4b17883d1be853746a5ee38e789016a2604e5fc606bd3b8807a7a8861d626e76</code>.</p>
+<p>Checked on <time datetime="${site.checked}">November 24, 2026</time>. The source archive rebuilt 96 browser assets. The repository includes 294 automated app tests. The rebuilt archive passed 162 automated accessibility scans across Chrome, Firefox and WebKit.</p>
+<p>Source archive SHA-256 <code class="digest">81d24a913e0eb1dfdc7a08f4e19ebd2ec58b2d0e83781f6abfccdfb999c28661</code>.</p>
 <p><a class="button secondary" href="${site.repository}/releases">GitHub releases</a></p>` },
   { slug: 'development', name: 'Development', title: 'Build and verify RasterRaid', description: 'Run the native RasterRaid source locally, exercise the zero-Buzz simulation, and rebuild the documentation.', body: `
 ${sectionHeading('local-app', 'Run the app locally')}

@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
+import { mkdtemp, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { get } from 'node:http';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as pause } from 'node:timers/promises';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { createMockBackend } from '../mock/backend.mjs';
 import { createMockClient, createWorkflowSimulationClient, MOCK_API, MOCK_PAGE } from '../mock/client.mjs';
 import { installMockPanel } from '../mock/panel.mjs';
@@ -19,6 +23,34 @@ const draft = (site = origin) => ({
   picks: linocutSample(site).candidates.map(row => ({ id: row.id, modelId: row.modelId, title: row.model, baseModel: row.base })),
 });
 const jobPath = id => MOCK_API + '/jobs/' + id;
+
+async function expectRejectedPreviewAsset(t, create) {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const directory = await mkdtemp(join(root, '.preview-check-'));
+  const asset = join(directory, 'index.html');
+  t.after(async () => {
+    await unlink(asset).catch(error => { if (error.code !== 'ENOENT') throw error; });
+    await rmdir(directory);
+  });
+  if (await create(asset, root) === false) return;
+  await assert.rejects(promisify(execFile)(process.execPath,
+    ['scripts/serve.mjs', '0', '--build-dir', directory], { cwd: root, timeout: 5_000, windowsHide: true }),
+  error => error.code === 1 && error.stderr.includes('Preview requires regular, bounded build files.'));
+}
+
+test('the preview rejects assets above the file size limit', t =>
+  expectRejectedPreviewAsset(t, asset => writeFile(asset, Buffer.alloc(2_000_001), { flag: 'wx' })));
+
+test('the preview rejects a symbolic link in place of a build asset', t =>
+  expectRejectedPreviewAsset(t, async (asset, root) => {
+    try {
+      await symlink(join(root, 'index.html'), asset, 'file');
+    } catch (error) {
+      if (process.platform !== 'win32' || error.code !== 'EPERM') throw error;
+      t.skip('Symbolic links require Windows privileges.');
+      return false;
+    }
+  }));
 
 async function preview(t, ...flags) {
   const dir = process.env.RASTERRAID_TEST_DIST === '1' ? ['dist'] : [];

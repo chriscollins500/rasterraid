@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { runCivitai } from './civitai-cli.mjs';
 import { SITE_ORIGINS } from '../src/catalog.mjs';
 import { catalogResearch } from '../src/catalog-research.mjs';
 import { discover } from '../src/search.mjs';
@@ -53,18 +52,7 @@ const groupedExamples = catalogExamples || quickToolsExample || reportExamples |
   portfolioExamples || creatorExamples || releaseExamples || neighborExamples || compositionExamples || mediaModelExamples || setupExamples || pairExamples || storyExamples;
 const appCliIndex = args.indexOf('--app-cli');
 const appCli = appCliIndex >= 0 ? args[appCliIndex + 1] : null;
-const run = promisify(execFile);
-
-async function runLocalCli(argumentsList) {
-  const { stdout } = await run(appCli, ['--no-update-check', '--no-color', ...argumentsList], {
-    cwd: new URL('..', import.meta.url),
-    env: { ...process.env, CIVITAI_BASE_URL: origin },
-    timeout: 20_000,
-    maxBuffer: 32_768,
-    windowsHide: true,
-  });
-  return stdout;
-}
+const runLocalCli = args => runCivitai(appCli, origin, args);
 
 async function appCredential({ forEstimate = false } = {}) {
   try {

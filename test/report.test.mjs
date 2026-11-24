@@ -157,6 +157,10 @@ test('a pair compares reported settings and strengths and verifies each linked p
   assert.match(markdown, /Version #12 · Listing unverified \| Unreported \| Strength 0/u);
   assert.match(markdown, /Version listed by the post/u);
   assert.doesNotMatch(markdown, /do-not-include-example-prompt|example\.com/u);
+  const escapedTable = reportMarkdown({ ...result.report, exampleComparison: { ...result.report.exampleComparison,
+    settings: [{ label: 'Test field', values: [String.raw`one\|two`, '<three>'] }],
+  } });
+  assert.ok(escapedTable.includes(String.raw`| Test field | one\\\|two | \<three\> |`));
   const plans = reportResearchPlans(result.report);
   assert.deepEqual(plans.map(plan => plan.body.steps.length), [1, 3, 5]);
   assert.deepEqual(plans.at(-1).inputs.map(input => input.link), [origin + '/images/201', origin + '/images/202']);
