@@ -1,4 +1,4 @@
-import { createWorkflowSession, runFinished } from './workflow-session.mjs';
+import { createWorkflowSession, runFinished, workflowOutputPending } from './workflow-session.mjs';
 import { reportSynthesisPlan } from './report-research.mjs';
 import { element } from './view.js';
 import { copyWorkflowReport, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
@@ -7,6 +7,7 @@ const busyMessages = { restoring: 'Restoring your run…', quoting: 'Pricing the
   confirming: 'Checking the latest price before starting the run…', submitting: 'Starting the run…',
   reconciling: 'Looking for the original run on Civitai…', archiving: 'Saving the unresolved receipt…',
   saving: 'Saving the receipt…', checking: 'Checking for results…', canceling: 'Requesting cancellation…' };
+const outputCheckLimit = 3;
 
 export function installWorkflowRun(container, { client, journal, context, simulated = false, onLookup, onOpenHistory, onAvailability }) {
   const session = createWorkflowSession({ client, journal, origin: context.origin, browsingLevel: simulated ? undefined : context.browsingLevel });
@@ -31,6 +32,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
   let problem = '';
   let readFailures = 0;
   let checkAfter = 0;
+  let outputCheckId;
+  let outputChecks = 0;
   const units = simulated ? ' simulated credits' : ' Buzz';
   const viewOptions = { context, simulated, onLookup };
 
@@ -68,7 +71,10 @@ export function installWorkflowRun(container, { client, journal, context, simula
     const unknown = run?.status === 'unknown';
     const done = runFinished(run?.status);
     const availableResults = run?.workflowId && outputsAccessible && !snapshot?.restricted && Boolean(
-      snapshot?.similarity?.ranked.length || snapshot?.text?.length || snapshot?.steps?.some(step => step.lines.length));
+      snapshot?.similarity?.ranked.length || snapshot?.text?.length || snapshot?.steps?.some(step => step.lines.length || step.transcriptScope));
+    const outputsPending = outputsAccessible && workflowOutputPending(run, snapshot);
+    const outputsMissing = outputsPending || outputsAccessible && run?.status === 'succeeded' && Boolean(snapshot?.withheld);
+    const canCheckOutput = outputsPending && outputChecks < outputCheckLimit;
     const waitingForUpdate = !done && availableResults && snapshot.steps.length > 0 &&
       snapshot.steps.every(step => step.status === 'succeeded');
     const retry = unknown && !originalInTab ? selected?.plan ?? reportSynthesisPlan(run.previous, previousSnapshot) : undefined;
@@ -81,7 +87,9 @@ export function installWorkflowRun(container, { client, journal, context, simula
         : !retryAvailable ? 'The submission outcome is unknown. Review history or keep the unresolved receipt.'
         : originalInTab || retry ? 'The submission outcome is unknown. Check history or review a fresh estimate to retry the original operation.'
           : 'The submission outcome is unknown. Check history or recreate the original picks to review a retry.'
-        : waitingForUpdate ? 'Analysis steps finished · Waiting for Civitai’s final update'
+        : canCheckOutput ? 'Analysis finished · Waiting for Civitai to return results'
+          : outputsMissing ? 'Analysis finished · Some results are unavailable'
+          : waitingForUpdate ? 'Analysis steps finished · Waiting for Civitai’s final update'
         : run ? workflowStatusLabel(run.status) : '');
     status.textContent = ticket?.revised && !busy && !problem
       ? 'The estimate changed. Review the updated price before confirming. ' + message : message;
@@ -114,11 +122,11 @@ export function installWorkflowRun(container, { client, journal, context, simula
       if (!runFinished(run.status)) button('Cancel run', session.cancel);
     }
     if (!busy && run?.previous && !previousSnapshot) button('Load previous research', session.refreshPrevious);
-    if (!busy && outputsAccessible && snapshot && (done || availableResults)) button(done ? 'Copy research results' : 'Copy available results', () => {
+    if (!busy && availableResults) button(done && !outputsMissing ? 'Copy research results' : 'Copy available results', () => {
       const records = previousSnapshot ? [{ run: run.previous, snapshot: previousSnapshot }] : [];
-      exported = copyWorkflowReport([...records, { run, snapshot }], { context, simulated, partial: !done });
+      exported = copyWorkflowReport([...records, { run, snapshot }], { context, simulated, partial: !done || outputsMissing });
     });
-    const synthesis = !busy && !ticket && !receiptPending && outputsAccessible ? reportSynthesisPlan(run, snapshot) : null;
+    const synthesis = !busy && !ticket && !receiptPending && outputsAccessible && !canCheckOutput ? reportSynthesisPlan(run, snapshot) : null;
     if (synthesis) button('Quote a final synthesis', () => {
       selected = { plan: synthesis, sources: run.sources };
       return session.prepare(synthesis, run.sources, { continueRun: true });
@@ -140,8 +148,9 @@ export function installWorkflowRun(container, { client, journal, context, simula
 
   function nextCheck() {
     clearTimeout(timer);
-    const { busy, run } = session.state();
-    if (disposed || busy || problem && !checkAfter || !run?.workflowId || runFinished(run.status) && !checkAfter) return;
+    const { busy, run, snapshot, outputsAccessible } = session.state();
+    const pending = outputsAccessible && outputChecks < outputCheckLimit && workflowOutputPending(run, snapshot);
+    if (disposed || busy || problem && !checkAfter || !run?.workflowId || runFinished(run.status) && !checkAfter && !pending) return;
     timer = setTimeout(() => { void act(session.refresh); }, Math.max(simulated ? 750 : 2800, checkAfter - Date.now()));
   }
 
@@ -153,7 +162,13 @@ export function installWorkflowRun(container, { client, journal, context, simula
       const pending = task();
       paint();
       await pending;
-      if (task === session.refresh || runFinished(session.state().run?.status)) { readFailures = 0; checkAfter = 0; }
+      const { run, snapshot } = session.state();
+      if (run?.workflowId !== outputCheckId) {
+        outputCheckId = run?.workflowId;
+        outputChecks = 0;
+      }
+      if (task === session.refresh && workflowOutputPending(run, snapshot)) outputChecks++;
+      if (task === session.refresh || runFinished(run?.status)) { readFailures = 0; checkAfter = 0; }
     } catch (error) {
       if (!disposed && error.name !== 'AbortError') {
         const temporary = task === session.refresh && (error.code === 'workflow-throttled' ||

@@ -120,7 +120,10 @@ export function orchestrationClient(token, fetcher = fetch) {
       const encoded = JSON.stringify({ tier: 'free', upgradeMode: 'manual', tags: [operationId], steps: eligibleSteps });
       const quote = await workflowPost(JSON.parse(encoded), true);
       if (quote?.status !== 'unassigned' || !isZeroBuzzWorkflow(quote)) {
-        throw new Error('Civitai must return an explicit 0 Buzz free-tier estimate.');
+        const stage = typeof quote?.status === 'string' && /^[a-z-]{1,30}$/u.test(quote.status) ? quote.status : 'missing';
+        const tier = typeof quote?.tier === 'string' && /^[a-z-]{1,30}$/u.test(quote.tier) ? quote.tier : 'missing';
+        const total = Number.isSafeInteger(quote?.cost?.total) && quote.cost.total >= 0 ? quote.cost.total : 'missing';
+        throw new Error('Civitai must return an explicit 0 Buzz free-tier estimate. Received ' + stage + ', ' + tier + ', ' + total + ' Buzz.');
       }
       const capturedAt = Date.now();
       let submitted = false;

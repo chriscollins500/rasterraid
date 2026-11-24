@@ -273,7 +273,8 @@ test('the report simulation confirms a multi-step workflow and restores its resu
   const step = ($type, name) => ({ $type, name, input: { model: 'fixture' } });
   const plan = { title: 'Mixed analysis', body: { tier: 'paid', steps: [
     step('chatCompletion', 'report_source_check'), step('chatCompletion', 'report_fit'),
-    step('transcription', 'report_transcript'), step('audioCaptioning', 'report_music'),
+    step('transcription', 'report_transcript'),
+    { $type: 'audioCaptioning', name: 'report_music', input: { mediaUrl: 'https://image.civitai.com/fixture/clip.mp3' } },
   ] } };
   const mount = () => {
     const view = new TestElement('section');
@@ -312,4 +313,38 @@ test('the report simulation confirms a multi-step workflow and restores its resu
   await waitForText(synthesis.view, '0:00 · Simulated words from the selected clip.');
   assert.ok(findElement(synthesis.view, 'Decision and next steps'));
   assert.ok(!findElement(synthesis.view, 'Quote a final synthesis'));
+});
+
+test('a succeeded submission checks the original workflow again when its answer has yet to appear', async t => {
+  const oldDocument = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { createElement: tag => new TestElement(tag) } });
+  t.after(() => oldDocument ? Object.defineProperty(globalThis, 'document', oldDocument) : delete globalThis.document);
+  let saved;
+  let submitted = 0;
+  let checked = 0;
+  const workflowId = '12345-late-text-fixture';
+  const step = { $type: 'chatCompletion', name: 'compare_evidence', input: { model: 'fixture' } };
+  const { name, $type } = step;
+  const snapshot = { workflowId, status: 'succeeded', cost: { total: 1 }, steps: [{ name, $type, status: 'succeeded' }] };
+  const client = {
+    async estimate() { return { status: 'pending', cost: { total: 1, authorFee: 0 } }; },
+    async submit() { submitted++; return snapshot; },
+    async poll(id) {
+      assert.equal(id, workflowId);
+      checked++;
+      return { ...snapshot, textOutputs: ['Three exact versions, with their differences.'] };
+    },
+  };
+  const view = new TestElement('section');
+  const journal = { read: async () => saved, write: async value => { saved = value; } };
+  const ui = installWorkflowRun(view, { client, journal, context: { origin }, simulated: true });
+  t.after(() => ui.dispose());
+  await pause(25);
+  ui.offer({ title: 'Rank versions', body: { tier: 'paid', steps: [step] } }, []);
+  (await waitForText(view, 'Confirm simulation')).dispatchEvent(new Event('click'));
+  await waitForText(view, 'Analysis finished · Waiting for Civitai to return results');
+  await waitForText(view, 'Three exact versions, with their differences.');
+  assert.equal(checked, 1);
+  assert.equal(submitted, 1);
+  assert.equal(saved.workflowId, workflowId);
 });

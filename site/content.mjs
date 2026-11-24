@@ -153,9 +153,14 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
 <p><a href="https://developer.civitai.com/apps/guide/storage.md#user-controls">Civitai’s storage controls</a> · <a href="{{root}}support/">Get help with RasterRaid</a></p>` },
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Developer preview</p><h2>Verified on both Civitai domains</h2><p>The signed developer previews show live prices for the current build. The public Civitai run page requires Civitai review and deployment.</p>${previewLinks}</aside>
-${sectionHeading('latest', 'What’s in 0.0.4')}
+${sectionHeading('audit', 'Latest developer build')}
+<p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
+<ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>
+<p>The developer build passed 304 tests and 186 automated accessibility scans across Chrome, Firefox, and WebKit. Browser asset SHA-256 <code class="digest">d57bca37ada4008ddf9ccce4efc4f081f6b8b06936acccc94b6099e175cca26b</code>.</p>
+${sectionHeading('latest', 'Signed 0.0.4 archive')}
+<p>The published GitHub archive preserves the earlier build and its verification record.</p>
 <ul><li>One search field for text, links and picture references, with live model filters and configurable shortcuts.</li><li>Free reports that connect exact releases with published examples, posts, guides and creator profiles.</li><li>Visual, motion and sound comparisons, plus local metadata and workflow checks.</li><li>Four itemized Linocut quotes on each developer preview and a tested confirmation and receipt-recovery flow for the published app.</li></ul>
-<p>Checked on <time datetime="${site.checked}">November 24, 2026</time>. The source archive rebuilt 96 browser assets. The repository includes 294 automated app tests. The rebuilt archive passed 162 automated accessibility scans across Chrome, Firefox and WebKit.</p>
+<p>Checked on <time datetime="${site.checked}">November 24, 2026</time>. The archived source rebuilt 96 browser assets and passed 162 automated accessibility scans across Chrome, Firefox, and WebKit.</p>
 <p>Source archive SHA-256 <code class="digest">81d24a913e0eb1dfdc7a08f4e19ebd2ec58b2d0e83781f6abfccdfb999c28661</code>.</p>
 ${sectionHeading('signatures', 'Verify the signed release')}
 <p>GitHub reproduced the published source archive byte for byte. Its build provenance and runtime software inventory are signed. The release notes show how to check the ZIP and its signer.</p>

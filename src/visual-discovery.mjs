@@ -1,6 +1,8 @@
 import { catalogRead, clipAnalysisUrl, mediaUrl, numericId, SITE_ORIGINS } from './catalog.mjs';
 import { compareClipScenes } from './clip-scenes.mjs';
-import { applyNativeGalleryFilters, gallerySourceFilters, isVisualGalleryScope, prepareGallery, readAppMediaByIds, readGalleryPage, sampleMediaByPost } from './gallery.mjs';
+import { applyNativeGalleryFilters, gallerySourceFilters, isVisualGalleryScope, prepareGallery, readAppMediaByIds, readGalleryPage,
+  readGalleryVersionParents, sampleMediaByPost } from './gallery.mjs';
+import { describeMediaQuery } from './gallery-relevance.mjs';
 import { searchWords } from './query-language.mjs';
 import { loadPublicPreview, samplePublicClip, samplePublicMotion, visualPreview, visualRegion, visualRoles, visualScorer } from './visual-analysis.mjs';
 import { comparePictureCopies, pictureCopyProfile } from './visual-copy.mjs';
@@ -12,6 +14,7 @@ const clipsToCheck = 3;
 const motionClipsToCheck = 6;
 const referenceQueryLanes = 2;
 const referenceQueryMatches = 8;
+const recordedVersionLimit = 4;
 const basicTags = new Set(['image', 'video', 'outdoors', 'indoors', 'solo', 'standing', 'sitting', 'scenery', 'no humans', 'looking at viewer']);
 export const visualReferenceLimit = 4;
 
@@ -320,13 +323,29 @@ function constrainedReferencePlan(plan, query, textCursor) {
     cursor: next && plan.ranking ? { positions: [next] } : next };
 }
 
-async function readCompositionLeads(context, references, plan, options, { matchQuery = false, textCursor } = {}) {
+function recordedVersionClaims(references) {
+  const recorded = new Map();
+  for (const ref of references) {
+    if (ref.mediaId || ref.polarity === 'avoid' || !Array.isArray(ref.recordedVersions)) continue;
+    for (const claim of ref.recordedVersions) {
+      const id = claim?.id;
+      if (!numericId(id) || id > 2_147_483_647 || (!recorded.has(id) && recorded.size >= recordedVersionLimit)) continue;
+      if (!recorded.has(id)) recorded.set(id, new Set());
+      if (numericId(claim.modelId)) recorded.get(id).add(claim.modelId);
+    }
+  }
+  return recorded;
+}
+
+async function readCompositionLeads(context, references, recorded, plan, options, { matchQuery = false, requireAllTerms = false, textCursor } = {}) {
   const lanes = new Map();
-  function add(query, label) {
+  function add(query, label, local = false) {
     if (!compatibleLead(plan, query)) return;
     const key = JSON.stringify(query);
-    if (!lanes.has(key)) lanes.set(key, { query, labels: [] });
-    lanes.get(key).labels.push(label);
+    if (!lanes.has(key)) lanes.set(key, { query, labels: [], local: false });
+    const lane = lanes.get(key);
+    lane.labels.push(label);
+    lane.local ||= local;
   }
   for (const ref of references) {
     const version = ref.associated[0] ?? ref.recorded[0];
@@ -336,21 +355,39 @@ async function readCompositionLeads(context, references, plan, options, { matchQ
     if (tag) add({ tags: [tag.id] }, tag.name + ' tag from reference #' + ref.id);
     else if (version && ref.postId) add({ postId: ref.postId }, 'Post #' + ref.postId + ' from reference #' + ref.id);
   }
+  let recordedUnavailable = recorded.size;
+  if (recorded.size) {
+    try {
+      const signal = AbortSignal.any([options.signal, AbortSignal.timeout(2_500)].filter(Boolean));
+      const parents = await readGalleryVersionParents(context, [...recorded.keys()], { ...options, signal });
+      const eligible = [...recorded].filter(([id, models]) => parents.has(id) &&
+        (!models.size || models.size === 1 && models.has(parents.get(id))));
+      recordedUnavailable -= eligible.length;
+      const limit = matchQuery && lanes.size ? 1 : referenceQueryLanes;
+      for (const [id] of eligible.slice(0, limit)) {
+        add({ modelVersionId: id }, 'Recorded model version #' + id + ' from your picture', true);
+      }
+    } catch {
+      options.signal?.throwIfAborted();
+    }
+  }
   const checked = [];
   let unavailable = 0;
   const available = [...lanes.values()].flatMap(lane => {
     const source = matchQuery ? constrainedReferencePlan(plan, lane.query, textCursor) : { request: { ...plan, ...lane.query } };
     return source ? [{ ...lane, ...source }] : [];
   });
-  const goals = matchQuery ? available.sort((a, b) => Number(Boolean(a.query.tags)) - Number(Boolean(b.query.tags))).slice(0, referenceQueryLanes) : available;
+  const goals = matchQuery ? available.sort((a, b) => Number(b.local) - Number(a.local) + Number(Boolean(a.query.tags)) - Number(Boolean(b.query.tags)))
+    .slice(0, referenceQueryLanes) : available;
   const limit = matchQuery ? 12 : goals.length <= 2 ? 12 : 8;
-  const readOptions = matchQuery ? { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(2_500)].filter(Boolean)) } : options;
+  const ranking = matchQuery && plan.ranking;
+  const minimumTerms = ranking && (requireAllTerms ? ranking.terms.length : Math.min(2, ranking.terms.length));
+  const readOptions = matchQuery || recorded.size ? { ...options, signal: AbortSignal.any([options.signal, AbortSignal.timeout(2_500)].filter(Boolean)) } : options;
   for (let start = 0; start < goals.length; start += postersPerBatch) {
     const batch = await Promise.allSettled(goals.slice(start, start + postersPerBatch).map(async lane => {
       const { items } = await readGalleryPage(context, lane.request, { ...readOptions, limit, cursor: lane.cursor });
-      const ranking = matchQuery && plan.ranking;
       return { ...lane, items: items.filter(item => (!lane.query.postId || item.postId === lane.query.postId) &&
-        (!ranking || (!ranking.subject || item.rankEvidence?.subject) && item.rankEvidence?.terms >= Math.min(2, ranking.terms.length))) };
+        (!ranking || (!ranking.subject || item.rankEvidence?.subject) && item.rankEvidence?.terms >= minimumTerms)) };
     }));
     options.signal?.throwIfAborted();
     for (const reply of batch) {
@@ -367,7 +404,7 @@ async function readCompositionLeads(context, references, plan, options, { matchQ
     if (prior) prior.visualSources.push(...labels);
     else unique.set(item.id, { ...item, visualSources: [...labels] });
   }
-  return { items: [...unique.values()], checked: checked.flatMap(lane => lane.labels), unavailable };
+  return { items: [...unique.values()], checked: checked.flatMap(lane => lane.labels), unavailable, recordedUnavailable };
 }
 
 function mergeCompositionResults(textMatches, referenceMatches) {
@@ -403,13 +440,25 @@ export async function discoverVisualComposition(context, target, filters, brief,
   const gallery = { ...(base?.gallery ?? await prepareGallery(context, target, filters, options)), scope,
     nextCursor: null, preferenceEligible: false };
   if (!references.length) gallery.status = 'visual-reference-unavailable';
-  const searchableBrief = gallery.plan.ranking || (gallery.plan.tags.length && !gallery.partial) || (!gallery.query && gallery.plan.username);
-  const combine = hasQuery && ['text', 'tag'].includes(target.kind) && anchors.length && gallery.status === 'ready' && !gallery.modelSource &&
-    !gallery.throttled && searchableBrief;
-  if (combine) onPhase('Checking your references for additional matches to this search…');
+  const { plan } = gallery;
   const textMatches = base?.related?.[scope] ?? [];
-  const leads = gallery.status === 'ready' && (!fromBrief || combine) ? await readCompositionLeads(context, anchors, gallery.plan, options, { matchQuery: Boolean(combine),
-    textCursor: textMatches.length < maximumCandidates ? base?.gallery.nextCursor : null }) : null;
+  const fixedSource = Object.keys(gallerySourceFilters).some(field => plan[field]);
+  const canExpand = ['text', 'tag'].includes(target.kind) && !gallery.modelSource && !gallery.throttled;
+  const metadataBrief = canExpand && target.kind === 'text' && ['ready', 'no-tag'].includes(gallery.status) &&
+    !textMatches.length && !plan.ranking && !fixedSource && !filters.selectedMediaTag && !gallery.incomplete &&
+    !gallery.correctedTag && !gallery.suggestions?.length ? describeMediaQuery(gallery.query, { allowShort: true }) : null;
+  const searchableBrief = metadataBrief || plan.ranking || (plan.tags.length && !gallery.partial) || (!gallery.query && plan.username);
+  const expandable = canExpand && (gallery.status === 'ready' || metadataBrief);
+  const recorded = expandable && (!hasQuery || searchableBrief) && !fixedSource
+    ? recordedVersionClaims(references) : new Map();
+  const combine = expandable && (hasQuery ? searchableBrief && (anchors.length > 0 || recorded.size > 0) : fromBrief && recorded.size > 0);
+  if (recorded.size) onPhase('Checking model versions recorded in your picture…');
+  else if (combine) onPhase('Checking your references for additional matches to this search…');
+  // Required tags stay in the request. When inferred tags yielded nothing, check the written terms against related media instead.
+  const leadPlan = metadataBrief ? { ...plan, tags: [], ranking: { routes: [[]], terms: metadataBrief.terms, excluded: metadataBrief.excluded } } : plan;
+  const leads = combine || gallery.status === 'ready' && !fromBrief ? await readCompositionLeads(context, anchors, recorded, leadPlan, options,
+    { matchQuery: Boolean(combine && hasQuery), requireAllTerms: Boolean(metadataBrief),
+      textCursor: textMatches.length < maximumCandidates ? base?.gallery.nextCursor : null }) : null;
   if (leads?.unavailable) gallery.incomplete = true;
   const referenceIds = new Set(ids);
   function removeReferences(items) {
@@ -425,6 +474,7 @@ export async function discoverVisualComposition(context, target, filters, brief,
   const { items: pool, added } = combine ? mergeCompositionResults(fromText, fromReferences) : {
     items: leads ? sampleMediaByPost(fromReferences, maximumCandidates) : fromText.slice(0, maximumCandidates), added: 0,
   };
+  if (metadataBrief && added && gallery.status === 'no-tag') gallery.status = 'ready';
   const cues = references.map(ref => {
     const item = checkedRefs.get(ref.mediaId);
     return { role: ref.role, polarity: ref.polarity, label: ref.label, region: ref.region, public: item && {
@@ -436,7 +486,9 @@ export async function discoverVisualComposition(context, target, filters, brief,
     return { ...(base ?? { candidates: [], shortlisted: [], guides: [], flows: [], alternateQueries: [], baseline: [], combined: [] }),
       target, gallery, related: { [scope]: items }, reference: null, primaryCount: items.length, candidates: [], shortlisted: [],
       visualComposition: { cues, checked: leads?.checked ?? [], unavailableReferences: selected.length - references.length,
-        compared, sampled, candidates: items.length, order, ...(added && { referenceMatchesAdded: added }) } };
+        compared, sampled, candidates: items.length, order, ...(added && { referenceMatchesAdded: added }),
+        ...(metadataBrief && leads?.checked.length && { referenceTextChecked: true }),
+        ...(leads?.recordedUnavailable && { recordedVersionsUnavailable: leads.recordedUnavailable }) } };
   }
   const score = visualScorer(references);
   if (!score) return withMatches({ items: pool, compared: 0, sampled: 0 });

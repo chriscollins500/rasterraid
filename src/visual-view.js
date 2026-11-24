@@ -1,4 +1,4 @@
-import { mediaUrl } from './catalog.mjs';
+import { mediaUrl, numericId } from './catalog.mjs';
 import { civiScribeSidecar, inspectReferenceDocument, inspectReferenceImage, localReferenceBytes, localReferenceLimit, matchReferenceEdits,
   pairReferencePictures, pairReferenceSidecars, pictureIntegrityText } from './reference-provenance.mjs';
 import { loadPublicPreview, rankVisualMatches, samplePublicClip, visualPreview, visualRegionLabel, visualRoles, visualScorer } from './visual-analysis.mjs';
@@ -21,6 +21,8 @@ function clipTime(seconds) {
 const cueLabel = cue => (cue.polarity === 'avoid' ? 'Avoid ' : 'Match ') + visualRoles[cue.role].toLowerCase() +
   (cue.region ? ' · ' + visualRegionLabel(cue.region) : cue.regionUnavailable ? ' · whole-preview fallback' : '');
 const cuePoints = cue => Math.round(cue.score * 100);
+const recordedVersions = reference => reference.metadata?.references.flatMap(({ versionId, modelId }) =>
+  numericId(versionId) && versionId <= 2_147_483_647 ? [{ id: versionId, modelId }] : []) ?? [];
 
 export function configureLocalReferences(document, onResearchSelection = () => {}, onAnalysisChange = () => {}, onFilesChanged = () => {}, cropEditor,
   onBriefChange = () => {}) {
@@ -216,6 +218,27 @@ export function configureLocalReferences(document, onResearchSelection = () => {
         avoid.setAttribute('aria-label', 'Avoid trait from ' + reference.name);
         avoid.addEventListener('change', () => { reference.polarity = avoid.checked ? 'avoid' : 'prefer'; cancelComparison(); update(); onBriefChange(); });
         row.append(role, label);
+        if ((activeScope === 'gallery' || activeScope === 'videos') && !reference.mediaId && recordedVersions(reference).length) {
+          const examples = element('div', null, 'visual-recorded-examples');
+          const consent = element('input');
+          consent.type = 'checkbox';
+          consent.setAttribute('aria-label', 'Include examples from recorded model versions in ' + reference.name);
+          const help = element('small', 'Civitai receives only the version IDs from your file. The picture and its other metadata stay on this device.');
+          help.id = 'visual-recorded-help-' + references.children.length;
+          consent.setAttribute('aria-describedby', help.id);
+          const choice = element('label');
+          choice.append(consent, element('span', 'Include examples from recorded model versions'));
+          const sync = () => {
+            if (avoid.checked) reference.includeRecordedVersions = false;
+            consent.disabled = avoid.checked;
+            consent.checked = Boolean(reference.includeRecordedVersions);
+          };
+          sync();
+          avoid.addEventListener('change', sync);
+          consent.addEventListener('change', () => { reference.includeRecordedVersions = consent.checked; onBriefChange(); });
+          examples.append(choice, help);
+          row.append(examples);
+        }
         if (reference.cropSource && cropEditor) {
           const crop = element('button', reference.region ? 'Edit selected area' : 'Focus on a detail', 'chip');
           crop.type = 'button';
@@ -564,8 +587,13 @@ export function configureLocalReferences(document, onResearchSelection = () => {
     },
     addPublic, addFiles,
     brief() {
-      return selected.flatMap(({ name, role, polarity, features, focus, region, mediaId, publicPreview }) => features
-        ? [{ label: name, role, polarity, features, focus, region, mediaId, publicPreview }] : []);
+      return selected.flatMap(reference => {
+        const { name, role, polarity, features, focus, region, mediaId, publicPreview, includeRecordedVersions } = reference;
+        if (!features) return [];
+        const versions = !mediaId && polarity !== 'avoid' && includeRecordedVersions ? recordedVersions(reference) : [];
+        return [{ label: name, role, polarity, features, focus, region, mediaId, publicPreview,
+          ...(versions.length && { recordedVersions: versions }) }];
+      });
     },
     recorded() { return selected.flatMap(reference => reference.metadata?.references.length ? [reference.metadata] : []); },
     pairedEdits() { return edits.pairs.filter(pairHasModels); },

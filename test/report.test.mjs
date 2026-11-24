@@ -581,8 +581,9 @@ test('a report joins six public searches, preserves model constraints, and recor
   assert.deepEqual(report.report.constraints, [['baseModel', 'SDXL 1.0']]);
   assert.ok(reportMarkdown(report.report).includes('https://civitai.red/models/4?modelVersionId=8'));
   const plans = reportResearchPlans(report.report);
-  assert.deepEqual(plans.map(plan => [plan.id, plan.body.steps.length]), [['reportbrief', 1], ['reportcheck', 3], ['reportmedia', 5]]);
-  assert.deepEqual(plans.at(-1).body.steps.map(step => step.$type), ['chatCompletion', 'chatCompletion', 'mediaCaptioning', 'transcription', 'audioCaptioning']);
+  assert.deepEqual(plans.map(plan => [plan.id, plan.body.steps.length]), [['reportbrief', 1], ['reportcheck', 3], ['reportmedia', 6]]);
+  assert.deepEqual(plans.at(-1).body.steps.map(step => step.$type),
+    ['chatCompletion', 'chatCompletion', 'mediaCaptioning', 'transcription', 'composeMedia', 'audioCaptioning']);
   assert.deepEqual(plans.at(-1).inputs.map(({ link, purpose }) => [link, purpose]), [
     [gallery.link, 'Visual evidence'], [audio.link, 'Full transcript and music description'],
   ]);

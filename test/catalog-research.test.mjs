@@ -25,18 +25,25 @@ test('catalog research prices a specific public selection, with a combined music
   ]);
   assert.deepEqual(vision.inputs.map(({ link, kind }) => [link, kind]), audio.picks.map(({ link }) => [link, 'Video poster']));
   assert.equal(vision.stepEvidence.catalog_picture_2.sourceLink, groups.audioExamples[3].link);
-  const [caption, transcript] = appEstimateBody(audio.plans.at(-1)).steps;
+  const [extract, caption, transcript] = appEstimateBody(audio.plans.at(-1)).steps;
   assert.equal(audio.plans.at(-1).inputs[0].link, groups.audioExamples[1].link);
   assert.equal(audio.plans.at(-1).stepEvidence.transcript.sourceLink, groups.audioExamples[1].link);
-  assert.equal(caption.input.mediaUrl, groups.audioExamples[1].stream);
-  assert.equal(transcript.input.mediaUrl, caption.input.mediaUrl);
+  assert.equal(extract.$type, 'composeMedia');
+  assert.equal(extract.input.elements[0].url, groups.audioExamples[1].stream);
+  assert.deepEqual(extract.input.output, { type: 'audio', container: 'mp3' });
+  assert.deepEqual(caption.input.mediaUrl, { $ref: extract.name, path: 'output.audioBlob.url' });
+  assert.equal(transcript.input.mediaUrl, groups.audioExamples[1].stream);
   assert.equal(transcript.input.returnTimeStamps, true);
+  assert.equal(audio.plans.at(-1).dependentInputs, true);
+  assert.equal(audio.plans[2].similarity.previewBasis, 'posters');
+  assert.deepEqual(audio.plans[2].inputs.map(({ link }) => link), audio.picks.map(({ link }) => link));
   const textPlan = catalogResearch(publicResult('articles'), groups, 'articles', origin);
   assert.deepEqual(textPlan.plans.map(plan => plan.id), ['catalog']);
   assert.match(textPlan.plans[0].body.steps[0].input.messages[1].content, /Source excerpt/u);
   const video = catalogResearch(publicResult('videos'), { videos: [clip(11)] }, 'videos', origin);
   assert.equal(video.plans.at(-1).id, 'catalogmotion');
   assert.equal(video.plans.at(-1).body.steps[1].input.videoUrl, groups.audioExamples[0].stream);
+  assert.equal(video.plans.at(-1).inputs[0].kind, 'Video clip');
 });
 
 test('quotes exclude viewer-owned data, foreign listings and signed or unapproved media URLs', () => {

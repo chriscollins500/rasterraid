@@ -879,7 +879,7 @@ export function quoteCard(plan, context) {
   fee.setAttribute('aria-hidden', 'true');
   fee.hidden = true;
   card.append(heading, price, element('p', plan.work), fee);
-  if (plan.dependentInputs) card.append(element('p', 'Civitai can update this estimate after extracting the frames.', 'quote-note'));
+  if (plan.dependentInputs) card.append(element('p', 'Civitai can update this estimate after preparing the selected media.', 'quote-note'));
   if (plan.inputs?.length && context) {
     const details = element('details', null, 'gallery-match-details quote-inputs');
     const list = element('ol', null, 'pick-list');

@@ -182,6 +182,8 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .visual-reference-row > span { min-width: 0; flex: 1 1 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .83rem; }
 .visual-reference-row select { padding: 5px; border: 1px solid var(--border); background: var(--field); color: var(--fg); border-radius: 6px; }
 .visual-reference-records { flex: 1 0 100%; color: var(--text); }
+.visual-recorded-examples { flex: 1 0 100%; min-width: 0; }
+.visual-recorded-examples small { display: block; color: var(--text); margin-block-start: 3px; }
 .visual-trace-controls { margin-block-start: 8px; }
 .visual-trace-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .visual-match { min-width: 0; align-self: start; display: grid; gap: 7px; padding: 7px; border: 1px solid var(--border); border-radius: 8px; }

@@ -19,7 +19,8 @@ const quoteRefusals = new Map([
 ]);
 const boundedToken = /^[a-z\d_-]{1,64}$/iu;
 const bodyHash = /^[a-f\d]{64}$/u;
-const supportedSteps = ['chatCompletion', 'transcription', 'audioCaptioning', 'multimodalEmbedding', 'videoFrameExtraction', 'mediaCaptioning'];
+const supportedSteps = ['chatCompletion', 'transcription', 'audioCaptioning', 'audioClassification', 'composeMedia',
+  'multimodalEmbedding', 'videoFrameExtraction', 'mediaCaptioning'];
 const snapshotOutputs = value => (Array.isArray(value) ? value.flatMap(item => typeof item === 'string' ? [text(item, 8000)] : []) : [])
   .filter(Boolean).slice(0, 8);
 
@@ -169,6 +170,19 @@ function soundDescriptionLines(output) {
   });
 }
 
+function soundClassificationLines(output) {
+  if (output?.hasAudio === false) return ['Civitai reported that the clip has no audio track.'];
+  const keys = ['musicScore', 'singingScore', 'speechScore'];
+  const segments = (Array.isArray(output?.segments) ? output.segments : []).slice(0, 100).filter(segment =>
+    Number.isFinite(segment?.durationSeconds) && segment.durationSeconds > 0 && segment.durationSeconds <= 300 &&
+    keys.every(key => Number.isFinite(segment[key]) && segment[key] >= 0 && segment[key] <= 1));
+  const duration = segments.reduce((sum, row) => sum + row.durationSeconds, 0);
+  if (!duration) return [];
+  const estimate = key => Math.round(100 * segments.reduce((sum, row) => sum + row.durationSeconds * row[key], 0) / duration) + '/100';
+  return ['Estimated music ' + estimate('musicScore') + ' · Singing ' + estimate('singingScore') + ' · Speech ' + estimate('speechScore'),
+    'Analyzed ' + Math.round(duration) + ' seconds across ' + segments.length + (segments.length === 1 ? ' segment.' : ' segments.')];
+}
+
 function linesFor(step) {
   const output = step.output;
   if (step.$type === 'chatCompletion') return snapshotOutputs(step.textOutputs);
@@ -177,6 +191,7 @@ function linesFor(step) {
     return caption ? [caption] : snapshotOutputs(step.textOutputs);
   }
   if (step.$type === 'audioCaptioning') return soundDescriptionLines(output);
+  if (step.$type === 'audioClassification') return soundClassificationLines(output);
   return [];
 }
 
@@ -187,7 +202,7 @@ function acceptStep(reported, previous, registered, defaultStatus) {
   if (previous && runFinished(previous.status) && !runFinished(reported.status)) return previous;
   if (registered.$type === 'transcription') {
     const available = reported.output ? transcriptEvidence(reported.output) : null;
-    const scope = available?.scope ?? previous?.transcriptScope ?? (reported.status === 'succeeded' ? 'empty' : null);
+    const scope = available?.scope ?? previous?.transcriptScope;
     return { ...registered, status: reported.status, lines: available?.lines ?? previous?.lines ?? [],
       ...(scope && { transcriptScope: scope }) };
   }
@@ -213,6 +228,16 @@ export function researchOutput(snapshot, run, previous = { steps: [], cost: null
     ...(similarity && { similarity }) };
 }
 
+export function workflowOutputPending(run, snapshot) {
+  if (run?.status !== 'succeeded' || !run.steps?.length || snapshot?.restricted || snapshot?.withheld) return false;
+  if (!snapshot) return true;
+  const missingChats = snapshot.steps.filter(step => step.$type === 'chatCompletion' && !step.lines.length).length;
+  return missingChats > (snapshot.text?.length ?? 0) ||
+    snapshot.steps.some(step => ['mediaCaptioning', 'audioCaptioning', 'audioClassification'].includes(step.$type) && !step.lines.length ||
+      step.$type === 'transcription' && !step.transcriptScope) ||
+    Boolean(run.similarity && snapshot.similarity?.ranked.length !== run.similarity.targets.length);
+}
+
 export function historyResearchOutput(snapshot, run) {
   const output = researchOutput(snapshot, run);
   if (run.steps.length) return output;
@@ -220,7 +245,7 @@ export function historyResearchOutput(snapshot, run) {
   const names = new Set();
   const steps = [];
   for (const row of rows) {
-    if (!['mediaCaptioning', 'transcription', 'audioCaptioning'].includes(row?.$type) ||
+    if (!['mediaCaptioning', 'transcription', 'audioCaptioning', 'audioClassification'].includes(row?.$type) ||
         typeof row.name !== 'string' || !boundedToken.test(row.name) || names.has(row.name)) continue;
     names.add(row.name);
     const step = acceptStep(row, undefined, { name: row.name, $type: row.$type }, 'unknown');

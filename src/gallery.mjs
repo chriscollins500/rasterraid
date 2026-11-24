@@ -351,14 +351,35 @@ export async function readExampleMedia(context, ids, options = {}) {
     partial: responses.some(row => row.status === 'rejected') };
 }
 
+export async function readGalleryVersionParents(context, ids, options = {}) {
+  const { origin, hosted, token } = context;
+  const parents = new Map();
+  if (!ids.length) return parents;
+  if (hosted) {
+    if (!token) throw new CatalogError('Waiting for Civitai to connect model access.');
+    const { data } = await catalogRead(origin, CATALOG.blockModels, { modelVersionIds: ids.join(','), limit: ids.length }, { ...options, token });
+    for (const model of listItems(data)) {
+      if (!numericId(model?.id) || !Array.isArray(model.modelVersions)) continue;
+      for (const version of model.modelVersions) {
+        if (ids.includes(version?.id) && !parents.has(version.id)) parents.set(version.id, model.id);
+      }
+    }
+  } else {
+    const replies = await Promise.allSettled(ids.map(id => catalogRead(origin, '/api/v1/model-versions/' + id, {}, options)));
+    options.signal?.throwIfAborted();
+    if (replies.every(row => row.status === 'rejected')) throw replies[0].reason;
+    for (const [index, reply] of replies.entries()) {
+      if (reply.status !== 'fulfilled') continue;
+      const { data } = reply.value;
+      if (data?.id === ids[index] && numericId(data.modelId)) parents.set(data.id, data.modelId);
+    }
+  }
+  return parents;
+}
+
 async function checkGalleryRelease(context, modelId, versionId, options) {
   if (context.hosted && !context.token) return 'source-unavailable';
-  const path = context.hosted ? CATALOG.blockModels : '/api/v1/model-versions/' + versionId;
-  const params = context.hosted ? { modelVersionIds: versionId, limit: 1 } : {};
-  const { data } = await catalogRead(context.origin, path, params, { ...options, token: context.token });
-  const parentId = context.hosted
-    ? listItems(data).find(model => Array.isArray(model.modelVersions) && model.modelVersions.some(version => version.id === versionId))?.id
-    : data.id === versionId ? data.modelId : null;
+  const parentId = (await readGalleryVersionParents(context, [versionId], options)).get(versionId);
   return !numericId(parentId) ? 'source-unavailable' : parentId === modelId ? 'ready' : 'source-conflict';
 }
 

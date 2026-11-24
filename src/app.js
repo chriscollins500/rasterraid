@@ -35,7 +35,7 @@ import { configureLocalReferences, isReferencePictureFile } from './visual-view.
 import { createVisualCropEditor } from './visual-crop.js';
 import { loadPublicPreview, visualRegionLabel, visualRoles } from './visual-analysis.mjs';
 import { clipMatchTarget, refineVisualNeighbors } from './visual-discovery.mjs';
-import { galleryCompositionResearch, gallerySimilarityResearch, visualPickLimit, visualResearch } from './visual-research.mjs';
+import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualPickLimit, visualResearch } from './visual-research.mjs';
 import { configureSoundMatch } from './sound-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
@@ -185,6 +185,9 @@ function showResearchPrices(prices) {
 researchToggle.addEventListener('click', () => setResearchOpen(true));
 byId('close-research').addEventListener('click', () => setResearchOpen(false));
 researchArea.addEventListener('close', () => researchToggle.setAttribute('aria-expanded', String(researchArea.open)));
+for (const button of document.querySelectorAll('button[data-close-dialog]')) {
+  button.addEventListener('click', () => button.closest('dialog')?.close());
+}
 byId('review-picks').addEventListener('click', () => {
   if (!search || activeSearch) return;
   const picked = search.result.candidates.filter(candidate => search.chosen.has(candidate.id));
@@ -773,21 +776,26 @@ function renderSearch(result, filters, current, phase = 'complete') {
   } else if (result.gallery?.plan?.ranking) {
     parts.push(result.visualComposition ? 'Found through Civitai tags and published descriptions.' : 'Ranked by Civitai tags and published descriptions.');
     if (result.gallery.plan.ranking.excluded.length) parts.push('Exclusions apply to those tags and descriptions.');
-  } else if (result.gallery?.tags.length) {
+  } else if (result.gallery?.tags.length && !result.visualComposition?.referenceTextChecked) {
     if (result.gallery.correctedTag) parts.push('Showing results for the Civitai tag “' + result.gallery.correctedTag + '”.');
     else parts.push('Matching ' + result.gallery.tags.map(tag => '“' + tag.name + '”').join(' and ') + '.');
     if (result.gallery.plan.exclusions?.length) parts.push('Exclusions apply to published tags and descriptions.');
     if (result.gallery.partial && result.gallery.nativeLink && resultScope !== 'posts') parts.push('Use Civitai search for the full description.');
   }
   if (result.visualComposition) {
-    const { checked, compared, sampled, unavailableReferences, candidates, referenceMatchesAdded } = result.visualComposition;
+    const { checked, compared, sampled, unavailableReferences, candidates, referenceMatchesAdded, referenceTextChecked,
+      recordedVersionsUnavailable } = result.visualComposition;
     if (compared) parts.push('Compared ' + compared + ' of ' + candidates + ' eligible previews in this browser.');
     else if (candidates) parts.push('Showing catalog results. Visual comparison was unavailable.');
-    else parts.push('No previews matched these catalog filters.');
+    else if (!referenceTextChecked) parts.push('No previews matched these catalog filters.');
     if (sampled) parts.push('Checked frames in ' + sampled + (sampled === 1 ? ' clip.' : ' clips.'));
-    if (referenceMatchesAdded) parts.push('Added ' + referenceMatchesAdded + (referenceMatchesAdded === 1 ? ' match' : ' matches') + ' from your Civitai references.');
-    else if (checked.length) parts.push('Checked Civitai links from the selected references.');
+    if (referenceMatchesAdded) parts.push('Added ' + referenceMatchesAdded + (referenceMatchesAdded === 1 ? ' match' : ' matches') + ' from related Civitai listings.');
+    else if (referenceTextChecked) parts.push('No related listing matched all your search terms.');
+    else if (checked.length) parts.push('Searched Civitai listings linked to the selected references.');
+    if (referenceTextChecked && referenceMatchesAdded) parts.push('Each added match covers your search terms in its tags or published description.');
     if (unavailableReferences) parts.push(unavailableReferences + (unavailableReferences === 1 ? ' reference was unavailable.' : ' references were unavailable.'));
+    if (recordedVersionsUnavailable) parts.push(recordedVersionsUnavailable + (recordedVersionsUnavailable === 1
+      ? ' recorded model version could not be verified.' : ' recorded model versions could not be verified.'));
   }
   const selectedFilters = [filters.category, filters.modelAuthor && 'By @' + filters.modelAuthor, modelFilterValues(filters.baseModel).join(' or '),
     modelFilterValues(filters.resourceType).map(modelTypeLabel).join(' or '), filters.fileFormat,
@@ -1030,7 +1038,7 @@ function renderResearch() {
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin) ??
-    gallerySimilarityResearch(search.result, search.context.origin);
+    gallerySimilarityResearch(search.result, search.context.origin) ?? galleryCandidateResearch(search.result, search.context.origin);
   const visualMode = Boolean(neighbors && search.compareVisual !== false);
   const legacyMock = report || local || neighbors ? null : configureMock;
   const modelMode = Boolean(legacyMock || !report && !local && search.result.candidates.length && ['all', 'models'].includes(search.filter));
@@ -1062,8 +1070,10 @@ function renderResearch() {
       : visual ? 'Price a closer look at your selected public media and video times. Local reference files stay in your browser.'
       : sound ? 'Price a closer look at the selected public recordings. Local sound references stay in your browser.'
       : report ? mockPreview ? 'Try the combined workflow in the local simulation.' : 'Price a closer analysis of the evidence in this report.'
-      : visualMode ? neighbors.references ? 'Price an AI review of your Civitai reference traits and a sample of these results.'
-        : 'Price a comparison of the whole Civitai reference and a sample of the related previews.'
+      : visualMode ? neighbors.publicMatches
+        ? 'Price a closer look at the listed public previews. Your local references stay in your browser.'
+        : neighbors.references ? 'Price an AI review of your Civitai reference traits and a sample of these results.'
+          : 'Price a comparison of the whole Civitai reference and a sample of the related previews.'
       : 'Choose up to three public results and check what a closer look would cost in Buzz.';
   if (configureMock) {
     byId('mock-heading').parentElement.hidden = !legacyMock;
@@ -1095,6 +1105,8 @@ function renderResearch() {
   } else if (report) {
     const sources = report.rails.filter(rail => rail.count).map(rail => rail.label);
     if (sources.length) picks.append(element('p', sources.join(' · ')));
+  } else if (visualMode && neighbors.publicMatches) {
+    if (neighbors.writtenSearch) picks.append(element('p', 'Search words used · ' + neighbors.writtenSearch));
   } else if (visualMode) {
     const sources = neighbors.references ?? [neighbors.reference];
     for (const source of sources) {
@@ -1152,7 +1164,7 @@ function renderResearch() {
     picks.append(list);
   }
   if (neighbors) {
-    const mode = element('button', visualMode ? 'Compare selected results' : 'Compare visual matches', 'chip');
+    const mode = element('button', visualMode ? 'Compare selected results' : neighbors.publicMatches ? 'Compare public previews' : 'Compare visual matches', 'chip');
     mode.type = 'button';
     mode.id = 'change-visual-research-mode';
     mode.addEventListener('click', () => {

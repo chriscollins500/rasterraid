@@ -1,5 +1,5 @@
 import { clipAnalysisUrl } from './catalog.mjs';
-import { audioCaptionStep } from './catalog-research.mjs';
+import { audioClassificationStep, audioDescriptionSteps } from './catalog-research.mjs';
 import { makeChat, RESEARCH_MODEL } from './research.mjs';
 import { soundMaximumSeconds, soundWindowSeconds } from './sound-analysis.mjs';
 import { connectedEvidence, sampledFrameSteps, visualResearchPicks } from './visual-research.mjs';
@@ -62,11 +62,14 @@ export function sceneResearch(report, origin, selections) {
     return steps;
   });
   const audio = picks.map(({ stream, link }, index) => {
-    const step = audioCaptionStep('scene_audio_' + (index + 1), stream);
-    detail[step.name] = { sourceLink: link };
+    const step = audioClassificationStep('scene_audio_' + (index + 1), stream);
+    detail[step.name] = { sourceLink: link, purpose: 'Full-clip music, singing and speech estimates' };
     return step;
   });
   const first = picks[0];
+  const soundtrack = picks.length === 1 && first.music ? audioDescriptionSteps('scene_music', first.stream) : [];
+  for (const step of soundtrack) detail[step.name] = { sourceLink: first.link,
+    purpose: step.$type === 'composeMedia' ? 'Prepare the soundtrack' : 'Full-clip sound description' };
   const transcript = { $type: 'transcription', name: 'scene_transcript', input: { mediaUrl: first.stream, returnTimeStamps: true } };
   detail[transcript.name] = { sourceLink: first.link };
   const audit = makeChat('scene_catalog_check', RESEARCH_MODEL,
@@ -79,7 +82,8 @@ export function sceneResearch(report, origin, selections) {
   return { picks, sources, plans: [
     plan('sceneframes', 'Describe the matched frames', 'Describes one public video frame from each selected excerpt.', frames),
     plan('scenestudy', 'Investigate scenes and sources',
-      'Adds full-clip sound descriptions, a timestamped transcript for the first clip, and a check of linked Civitai records.',
-      [...frames, ...audio, transcript, audit]),
+      'Adds music, singing and speech estimates for each clip, ' + (soundtrack.length ? 'a soundtrack description, ' : '') +
+      'a transcript for the first clip when words are recognized, and a check of linked Civitai records.',
+      [...frames, ...audio, ...soundtrack, transcript, audit]),
   ] };
 }
