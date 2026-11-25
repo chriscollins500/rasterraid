@@ -881,10 +881,13 @@ export function quoteCard(plan, context) {
   const heading = element('h3', plan.title);
   const price = element('span', '', 'quote-price');
   const fee = element('p', '', 'quote-fee');
+  const expansion = element('p', '', 'quote-expansion');
+  const advisory = element('p', '', 'quote-advisory');
   price.setAttribute('aria-hidden', 'true');
   fee.setAttribute('aria-hidden', 'true');
   fee.hidden = true;
-  card.append(heading, price, element('p', plan.work), fee);
+  expansion.hidden = advisory.hidden = true;
+  card.append(heading, price, element('p', plan.work), fee, advisory, expansion);
   if (plan.dependentInputs) card.append(element('p', 'Civitai can update this estimate after preparing the selected media.', 'quote-note'));
   if (plan.inputs?.length && context) {
     const details = element('details', null, 'gallery-match-details quote-inputs');
@@ -915,15 +918,24 @@ export function quoteCard(plan, context) {
     details.append(summary, list);
     card.append(details);
   }
-  return { card, heading, price, fee };
+  return { card, heading, price, fee, expansion, advisory };
 }
 
-export function showQuote(view, quote) {
+export function showQuote(view, quote, broader) {
   const total = quote ? quote.total + ' Buzz' : quote === null ? 'Unavailable' : '';
   const fee = !quote ? '' : quote.authorFee === null ? 'App fee included if applicable' : 'Includes ' + quote.authorFee + ' Buzz app author fee';
   view.price.textContent = total;
   view.fee.textContent = fee;
   view.fee.hidden = !fee;
+  if (broader) {
+    const coverage = broader.previews
+      ? ' checks ' + broader.previews + (broader.previews === 1 ? ' more preview' : ' more previews') + ' and their catalog connections'
+      : ' includes this work';
+    const difference = Math.abs(broader.difference) + ' Buzz ' + (broader.difference > 0 ? 'more' : 'less');
+    view.expansion.textContent = broader.title + coverage +
+      (broader.difference === 0 ? ' at the same estimated price.' : ' for an estimated ' + difference + '.');
+  } else view.expansion.textContent = '';
+  view.expansion.hidden = !broader;
   if (total) {
     const estimate = quote ? 'Estimate ' + total : 'Estimate unavailable';
     view.heading.setAttribute('aria-label', [view.heading.textContent, estimate, fee].filter(Boolean).join('. ') + '.');

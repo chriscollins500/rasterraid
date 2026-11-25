@@ -1,11 +1,10 @@
 import { SITE_ORIGINS, text, visibleRating } from './catalog.mjs';
-import { appEstimateBody, quotePrice } from './quotes.mjs';
+import { appEstimateBody, LIVE_QUOTE_MAX_AGE_MS, quotePrice } from './quotes.mjs';
 import { isWorkflowId } from './workflow-client.mjs';
 import { researchMatches } from './research-matches.mjs';
 import { aiServiceLink, aiServiceReference } from './ai-services.mjs';
 import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryStep } from './workflow-recovery.mjs';
 
-const quoteLifetime = 2 * 60_000;
 // The App bridge retains an idempotency claim for ten minutes. Leave time
 // for the status check and in-flight request before that claim can expire.
 const retryLifetime = 8 * 60_000;
@@ -407,7 +406,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
         steps, checkedSources) : null;
       if (plan.similarity && !similarity) throw new Error('Choose public sources for the similarity comparison.');
       const price = await estimate(body, signal);
-      draft = { body, hash, price, title: text(plan.title, 180), expiresAt: now() + quoteLifetime,
+      draft = { body, hash, price, title: text(plan.title, 180), expiresAt: now() + LIVE_QUOTE_MAX_AGE_MS,
         sources: checkedSources, similarity, operationId: id, recoveryStep,
         steps: steps.map(({ name, $type }) => stepRecord({ ...plan.stepEvidence?.[name], name, $type }, checkedSources)),
         previous: continueRun ? normalizeRun(run, origin) : undefined };
@@ -446,7 +445,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       if (checkedAt >= approved.expiresAt) throw new Error('The estimate expired during the price check. Get a new quote.');
       if (price.total !== approved.price.total || price.authorFee !== approved.price.authorFee) {
         draft = { ...approved, price, revised: true,
-          expiresAt: Math.min(checkedAt + quoteLifetime, approved.retry ? retryDeadline() : Infinity) };
+          expiresAt: Math.min(checkedAt + LIVE_QUOTE_MAX_AGE_MS, approved.retry ? retryDeadline() : Infinity) };
         return;
       }
       busy = 'submitting';
@@ -499,7 +498,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       const price = await estimate(body, signal);
       if (!retryAvailable()) throw new Error('The original retry window closed while Civitai priced the workflow.');
       draft = { body, hash, price, title: run.title, retry: run.operationId,
-        expiresAt: Math.min(now() + quoteLifetime, retryDeadline()) };
+        expiresAt: Math.min(now() + LIVE_QUOTE_MAX_AGE_MS, retryDeadline()) };
     }),
     recoverOriginal: () => exclusive('reconciling', async signal => {
       requireSavedReceipt();

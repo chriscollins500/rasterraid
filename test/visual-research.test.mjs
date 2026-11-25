@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
+import { expandedQuoteOptions } from '../src/quotes.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
 import { galleryCandidateResearch, galleryCompositionResearch, galleryCompositionSubjectSample, gallerySimilarityResearch, visualResearch } from '../src/visual-research.mjs';
 import { createWorkflowSession, workflowRecord } from '../src/workflow-session.mjs';
@@ -54,6 +55,9 @@ test('gallery similarity keeps a stable, varied sample of safe public previews a
   assert.deepEqual(ids(shortlist), [10, 13, 14, 17, 16]);
   assert.equal(shortlist.body.steps.filter(step => step.$type === 'multimodalEmbedding').length, 5);
   assert.equal(shortlist.body.steps.at(-1).$type, 'chatCompletion');
+  assert.deepEqual(expandedQuoteOptions([shortlist, learnedAudit], [{ total: 9 }, { total: 11 }]), [
+    { title: 'Rank more and check sources', previews: 2, difference: 2 }, null,
+  ]);
   assert.doesNotMatch(JSON.stringify(shortlist.body), /subjectRank|previewRank|canary/u);
   assert.deepEqual(learnedAudit.similarity.targets.map(row => row.subjectRank), [6, 1, 2, 5, 3, 4]);
   assert.equal(gallerySimilarityResearch(samePreviews, origin, subjectOrder.slice(1)).plans.length, 2);

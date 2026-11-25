@@ -14,13 +14,16 @@ export function installWorkflowRun(container, { client, journal, context, simula
   const heading = element('h2', simulated ? 'Simulated Deep Search' : 'Deep Search run');
   const quote = element('p', '', 'workflow-quote');
   quote.id = container.id + '-estimate';
+  const advisory = element('p', '', 'quote-advisory');
+  advisory.id = container.id + '-service-advisory';
+  advisory.hidden = true;
   const status = element('p', '', 'quote-status');
   status.id = container.id + '-status';
   status.setAttribute('role', 'status');
   status.tabIndex = -1;
   const actions = element('div', null, 'workflow-actions');
   const output = element('div', null, 'workflow-results');
-  container.replaceChildren(heading, quote, status, actions, output);
+  container.replaceChildren(heading, quote, advisory, status, actions, output);
   let disposed = false;
   let receiptAccess = 'checking';
   let selected;
@@ -68,6 +71,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
     const fee = ticket ? ticket.price.authorFee : run?.quote.authorFee ?? null;
     if (fee !== null) quote.textContent += ' · Includes ' + fee + units + ' author fee';
     else if (ticket) quote.textContent += ' · Author fee unavailable';
+    advisory.textContent = ticket && ticket.title === selected?.plan.title ? selected.advisory ?? '' : '';
+    advisory.hidden = !advisory.textContent;
     const unknown = run?.status === 'unknown';
     const done = runFinished(run?.status);
     const availableResults = run?.workflowId && outputsAccessible && !snapshot?.restricted && Boolean(
@@ -98,7 +103,7 @@ export function installWorkflowRun(container, { client, journal, context, simula
     if (!busy && ticket) {
       const label = ticket.retry ? (simulated ? 'Confirm simulation retry' : 'Confirm paid retry') :
         simulated ? 'Confirm simulation' : 'Confirm paid run';
-      button(label, session.confirm, quote.id + ' ' + status.id);
+      button(label, session.confirm, [quote.id, !advisory.hidden && advisory.id, status.id].filter(Boolean).join(' '));
       button('Dismiss estimate', session.discardQuote);
     }
     if (!busy && !ticket && unknown) {
@@ -214,13 +219,13 @@ export function installWorkflowRun(container, { client, journal, context, simula
       paint();
       nextCheck();
     },
-    offer(plan, sources) {
+    offer(plan, sources, advisory) {
       if (disposed || receiptAccess !== 'ready') return;
       if (session.state().busy) {
         status.focus({ preventScroll: true });
         return;
       }
-      selected = { plan, sources };
+      selected = { plan, sources, advisory };
       if (session.state().run?.status === 'unknown') {
         paint();
         container.scrollIntoView({ block: 'nearest' });

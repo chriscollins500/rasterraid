@@ -92,14 +92,17 @@ export function gallerySimilarityResearch(result, origin, subjectOrder = []) {
   }
   const quick = sample.slice(0, 3);
   const plans = [comparison('neighborsimilarity', 'Rank visual matches', quick)];
+  const audit = comparison('neighboraudit', sample.length > quick.length ? 'Rank more and check sources' : 'Rank and check sources', sample, true);
   const subjects = [...orderedPreviewRanks(subjectOrder, sample).keys()];
   const appearances = [...orderedPreviewRanks(appearanceOrder, sample).keys()];
   if (sample.length > 4 && subjects.length && appearances.length) {
     const ids = new Set([...subjects.slice(0, 2), ...appearances.slice(0, 2), ...subjects]);
     const shortlist = [...ids].slice(0, 4).map(id => sample.find(item => item.id === id));
-    plans.push(comparison('neighborshortlist', 'Rank the four shortlisted previews', shortlist, true, true));
+    const shortlisted = comparison('neighborshortlist', 'Rank the four shortlisted previews', shortlist, true, true);
+    plans.push(shortlisted);
+    audit.additionalPreviews = { baseId: shortlisted.id, count: sample.length - shortlist.length };
   }
-  plans.push(comparison('neighboraudit', sample.length > quick.length ? 'Rank more and check sources' : 'Rank and check sources', sample, true));
+  plans.push(audit);
   return { reference, plans };
 }
 
