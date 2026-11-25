@@ -591,6 +591,10 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .workspace-backup-choice small { display: block; }
 .workspace-entries .history-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 0; }
 .history-row p, .history-detail p { overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  #history-transcript-results .history-row { grid-template-columns: minmax(0, 1fr); gap: 5px; }
+  #history-transcript-results .history-row button { justify-self: start; }
+}
 .history-detail { margin-top: 10px; padding: 8px 0 0; border-top: 1px solid var(--border); }
 .history-detail .workflow-step { margin-top: 8px; }
 .workspace-profile ul { max-height: 10rem; overflow: auto; margin: 8px 0 8px 20px; font-size: .82rem; overflow-wrap: anywhere; }

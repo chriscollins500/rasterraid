@@ -136,6 +136,7 @@ ${sectionHeading('estimate', 'Read a live estimate')}
 ${sectionHeading('recover', 'Recover a result or receipt')}
 <p>Open <strong>Workspace → Deep Search history</strong> to find a RasterRaid run by status or workflow ID. <strong>Copy receipt</strong> keeps the available estimate, fee and reported cost. If a reply was interrupted, use <strong>Find original run</strong> first. That lookup uses 0 Buzz. A separately confirmed retry uses the original operation ID.</p>
 <p>If another tab is confirming a run, RasterRaid loads its saved receipt when it detects the change. Use <strong>Check saved run</strong> to refresh the receipt if storage was temporarily unavailable. Checking the saved run uses 0 Buzz.</p>
+<p>In the next developer build, <strong>Find spoken words</strong> searches the completed transcripts available in the open workspace. Load eligible transcripts or view a completed run, then enter a phrase. Each match shows the excerpt, any returned time, and its recorded source when available. Search words stay in the browser.</p>
 <p><a href="{{root}}privacy/">See what the app stores</a> · <a href="https://developer.civitai.com/apps/guide/workflows.md">Civitai workflow reference</a></p>` },
   { slug: 'workspace', name: 'Workspace', title: 'Keep the work you want to reuse', description: 'Save searches, exact model picks, report comparisons and local setup checks in RasterRaid’s Workspace.', body: `
 ${sectionHeading('save', 'Save a search or shortlist')}

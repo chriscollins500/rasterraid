@@ -6,7 +6,8 @@ import { findOriginalWorkflow } from './workflow-recovery.mjs';
 import { readWorkflowReportFile, workflowReportMaximumBytes } from './workflow-report-file.mjs';
 import { historyResearchOutput, reportedReceipt, researchOutput, runFinished, workflowRecord } from './workflow-session.mjs';
 import { copyWorkflowReport, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
-import { element } from './view.js';
+import { element, sourceLink } from './view.js';
+import { canLoadTranscript, findTranscriptMatches, preparedTranscripts, transcriptBatchSize, transcriptSessionLimit } from './workflow-transcripts.mjs';
 
 const dateLabel = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const storageGranted = context => context?.storageMode !== 'local-preview' && context?.scopes.includes('apps:storage');
@@ -44,6 +45,13 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
   const results = byId('history-results');
   const detail = byId('history-detail');
   const intro = byId('history-intro');
+  const transcriptPanel = byId('history-transcripts');
+  const transcriptLoad = byId('history-transcript-load');
+  const transcriptStop = byId('history-transcript-stop');
+  const transcriptQuery = byId('history-transcript-query');
+  const transcriptStatus = byId('history-transcript-status');
+  const transcriptResults = byId('history-transcript-results');
+  const transcripts = new Map();
   const entries = new Map();
   const savedKeys = new Map();
   const cursors = new Map();
@@ -52,6 +60,10 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
   let simulation;
   let busy;
   let copied;
+  let transcriptBatch;
+  let transcriptProgress = '';
+  let transcriptRetryAt = 0;
+  let transcriptRetryTimer;
 
   function makeBinding(context) {
     if (simulation) return { key: 'simulation', context, saved: true, granted: false, ...simulation };
@@ -68,6 +80,11 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     status.textContent = '';
     detail.replaceChildren();
     detail.hidden = true;
+    transcripts.clear();
+    transcriptBatch = undefined;
+    transcriptProgress = '';
+    transcriptQuery.value = '';
+    transcriptPanel.open = false;
   }
 
   function reset() {
@@ -84,7 +101,11 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
 
   function bind(context) {
     const next = makeBinding(context);
-    if (next?.key !== binding?.key || binding?.saved && !next?.saved || binding?.granted && !next?.granted) reset();
+    if (next?.key !== binding?.key || binding?.saved && !next?.saved || binding?.granted && !next?.granted) {
+      clearTimeout(transcriptRetryTimer);
+      transcriptRetryAt = 0;
+      reset();
+    }
     binding = next;
     section.hidden = !next;
     intro.textContent = simulation ? 'Browse the saved runs in this simulation.' :
@@ -134,6 +155,64 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     if (workflowId) void viewRun(entries.get(workflowId) ?? { civitai: { workflowId } });
   }
 
+  function transcriptCandidates() {
+    if (!binding || transcripts.size >= transcriptSessionLimit) return [];
+    return [...entries.values()].flatMap(entry => {
+      const { run, restricted } = displayed(entry);
+      return !restricted && !transcripts.has(run.workflowId) &&
+        canLoadTranscript(entry.saved, run, binding.context, Boolean(simulation)) ? [run] : [];
+    }).sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, Math.min(transcriptBatchSize, transcriptSessionLimit - transcripts.size));
+  }
+
+  function rememberTranscript(run, snapshot) {
+    if (!transcripts.has(run.workflowId) && transcripts.size >= transcriptSessionLimit) return;
+    transcripts.set(run.workflowId, preparedTranscripts(run, snapshot));
+  }
+
+  function paintTranscripts() {
+    transcriptPanel.hidden = !binding || !entries.size && !transcripts.size;
+    if (transcriptPanel.hidden) {
+      transcriptStatus.textContent = '';
+      transcriptResults.replaceChildren();
+      return;
+    }
+    const pending = transcriptCandidates().length;
+    transcriptLoad.disabled = Boolean(busy) || !pending || Date.now() < transcriptRetryAt;
+    transcriptStop.hidden = !transcriptBatch || transcriptBatch.signal.aborted;
+    transcriptLoad.textContent = transcripts.size && pending ? 'Load more completed transcripts' : 'Load completed transcripts';
+    const records = [...transcripts.values()].filter(Boolean);
+    const queryText = transcriptQuery.value.trim();
+    const { matches, count, valid } = findTranscriptMatches(records, queryText);
+    const coverage = transcripts.size ? records.length + (records.length === 1 ? ' searchable transcript.' : ' searchable transcripts.') :
+      !transcriptProgress && (pending ? 'Load transcripts to search their spoken words.' : 'Open a completed transcript run to include its words.');
+    const summary = queryText && (valid ? count ? (matches.length < count ? 'Showing ' + matches.length + ' of ' : '') +
+      count + (count === 1 ? ' match.' : ' matches.') : 'No matches in the loaded transcripts.' : 'Enter up to 12 words.');
+    const nextStatus = [transcriptProgress, coverage, summary].filter(Boolean).join(' ');
+    if (transcriptStatus.textContent !== nextStatus) transcriptStatus.textContent = nextStatus;
+    transcriptResults.replaceChildren();
+    if (!matches.length) return;
+    const list = element('ul');
+    for (const { record, source, clock, before, phrase, after } of matches) {
+      const row = element('li', null, 'history-row');
+      const summary = element('div');
+      summary.append(element('strong', record.run.title));
+      const excerpt = element('p', clock ? 'Near ' + clock + ' · ' : '');
+      excerpt.append(before, element('mark', phrase), after);
+      summary.append(excerpt);
+      if (source) summary.append(sourceLink(source.link, source.title, binding.context));
+      const view = action('View transcript', () => {
+        if (!binding || busy || transcripts.get(record.run.workflowId) !== record) return;
+        paintDetail(record.run, false, record.snapshot).focus();
+      });
+      view.disabled = Boolean(busy);
+      view.setAttribute('aria-label', 'View transcript in ' + record.run.title + (clock ? ' near ' + clock : ''));
+      row.append(summary, view);
+      list.append(row);
+    }
+    transcriptResults.append(list);
+  }
+
   function paint() {
     const ready = Boolean(binding);
     load.disabled = !ready || Boolean(busy);
@@ -146,6 +225,7 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     openId.hidden = !pastedWorkflowId();
     openId.disabled = Boolean(busy);
     results.setAttribute('aria-busy', String(Boolean(busy)));
+    paintTranscripts();
     if (!entries.size) { results.replaceChildren(); return; }
     const filter = query.value.trim().toLowerCase();
     const rows = [...entries.values()].map(entry => ({ entry, ...displayed(entry) })).filter(({ run }) =>
@@ -232,6 +312,71 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     }
     if (!ownedContext(context) || !historyGranted(context)) throw new Error('Grant AI access on Civitai to load this app’s run history.');
     return appHistoryTransport(context, getContext);
+  }
+
+  function pauseTranscriptReads(retryAfter) {
+    const seconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 15;
+    const wait = 1000 * seconds;
+    transcriptRetryAt = Date.now() + wait;
+    clearTimeout(transcriptRetryTimer);
+    transcriptRetryTimer = setTimeout(paint, Math.min(wait, 2_147_483_647));
+  }
+
+  async function loadTranscripts() {
+    if (busy || Date.now() < transcriptRetryAt) return;
+    const selected = transcriptCandidates();
+    if (!selected.length) return;
+    const controller = started();
+    if (!controller) return;
+    transcriptBatch = controller;
+    let unavailable = 0;
+    let notice = '';
+    try {
+      transcriptProgress = 'Loading completed transcripts…';
+      paintTranscripts();
+      const client = await civitaiClient(controller, true);
+      for (const run of selected) {
+        assertCurrent(controller);
+        try {
+          const reply = await client.poll(run.workflowId, AbortSignal.any([controller.signal, AbortSignal.timeout(8_000)]));
+          assertCurrent(controller);
+          if (reply?.throttled) {
+            pauseTranscriptReads(reply.retryAfter);
+            notice = 'Civitai is limiting transcript reads. Try again shortly.';
+            break;
+          }
+          if (reply?.workflowId !== run.workflowId || reply.status !== 'succeeded') {
+            unavailable++;
+            continue;
+          }
+          const current = { ...run, receipt: reportedReceipt(reply, run.receipt) };
+          rememberTranscript(current, historyResearchOutput(reply, current));
+          paintTranscripts();
+        } catch (error) {
+          assertCurrent(controller);
+          if (error.status === 429) {
+            pauseTranscriptReads(error.retryAfter);
+            notice = 'Civitai is limiting transcript reads. Try again shortly.';
+            break;
+          }
+          unavailable++;
+          if (error.status === 401 || error.status === 403) {
+            notice = 'Civitai could not confirm access to more transcripts.';
+            break;
+          }
+          if (error.status === 404 || error.status === 410) rememberTranscript(run, undefined);
+        }
+      }
+    } catch {
+      notice = controller.signal.aborted ? 'Transcript loading stopped.' : 'Civitai could not load the transcripts.';
+    } finally {
+      if (busy === controller) {
+        transcriptBatch = undefined;
+        transcriptProgress = [unavailable ? unavailable + (unavailable === 1 ? ' run unavailable.' : ' runs unavailable.') : '',
+          notice].filter(Boolean).join(' ');
+      }
+      finished(controller);
+    }
   }
 
   function trackCursor(source, cursor) {
@@ -395,6 +540,7 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
       if (!runFinished(run.status) || runFinished(reply.status)) run.status = reply.status;
       run.receipt = reportedReceipt(reply, run.receipt);
       const snapshot = historyResearchOutput(reply, run);
+      if (runFinished(run.status) && snapshot.steps.some(step => step.$type === 'transcription')) rememberTranscript(run, snapshot);
       heading = paintDetail(run, false, snapshot, hasResearchNotes(snapshot) || snapshot.withheld ? '' : 'Civitai returned run details and no research notes.');
       status.textContent = 'Run checked.';
     } catch (error) {
@@ -424,6 +570,13 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     if (file) void readSavedReport(file);
   });
   statusFilter.addEventListener('change', paint);
+  transcriptLoad.addEventListener('click', () => { void loadTranscripts(); });
+  transcriptStop.addEventListener('click', () => {
+    transcriptBatch?.abort();
+    transcriptQuery.focus();
+  });
+  transcriptQuery.addEventListener('input', event => { if (!event.isComposing) paintTranscripts(); });
+  transcriptQuery.addEventListener('compositionend', paintTranscripts);
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
     reset();
