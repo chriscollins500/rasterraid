@@ -246,7 +246,7 @@ export function readNativeGallerySearch(value) {
 const imageTags = row => (Array.isArray(row?.tags) ? row.tags : []).map(tagRecord).filter(Boolean);
 const publishedPrompt = row => row.meta?.meta?.prompt ?? row.meta?.prompt;
 
-async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit = 24, describe = false }) {
+async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit = 24, describe = false, withSetup = false }) {
   const { origin, hosted, token } = context;
   const appCatalog = hosted && Boolean(token);
   const ceiling = hosted ? context.browsingLevel ?? 1 : 31;
@@ -256,7 +256,7 @@ async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit 
   const creator = params.username?.toLowerCase();
   const { data } = await catalogRead(origin, appCatalog ? CATALOG.blockImages : CATALOG.images, {
     ...params, type, cursor, tags: selectedTags.join(','), limit, withTags: true,
-    ...(hasPublishedPrompt && { withMeta: true }),
+    ...((hasPublishedPrompt || withSetup) && { withMeta: true }),
     ...(appCatalog ? {} : { browsingLevel: ceiling }),
   }, { token, signal, fetcher, privateRead: Boolean(params.userId) });
   const next = data.metadata?.nextCursor;
@@ -275,6 +275,7 @@ async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit 
       }
       if (exampleSource || describe || hasPublishedPrompt) Object.assign(item, extractReferenceVersions(row));
       if (exampleSource) item.exampleSource = exampleSource;
+      if (withSetup && type === 'image') item.publishedSetup = readPublishedSetup(row.meta);
       if (describe || hasPublishedPrompt) item.modelReferencesChecked = true;
       const metadataKnown = (params.withMeta || hasPublishedPrompt) &&
         (row.meta === null || row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta));
@@ -290,18 +291,19 @@ async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit 
   };
 }
 
-export async function readGalleryPage(context, plan, { cursor, signal, fetcher, limit = 24 } = {}) {
+export async function readGalleryPage(context, plan, { cursor, signal, fetcher, limit = 24, withSetup = false } = {}) {
   const { ranking, exclusions, ...params } = plan;
+  const options = { cursor, signal, fetcher, limit, withSetup };
   if (!ranking) {
-    if (!exclusions?.length) return readGalleryBatch(context, params, { cursor, signal, fetcher, limit });
-    const page = await readGalleryBatch(context, { ...params, withMeta: true }, { cursor, signal, fetcher, limit, describe: true });
+    if (!exclusions?.length) return readGalleryBatch(context, params, options);
+    const page = await readGalleryBatch(context, { ...params, withMeta: true }, { ...options, describe: true });
     return { ...page, items: filterMediaExclusions(page.items, exclusions) };
   }
   const positions = [...(cursor?.positions ?? ranking.routes.map(() => null))];
   const lanes = ranking.routes.map((tags, index) => ({ tags, index, cursor: positions[index] })).filter(lane => lane.cursor !== false);
   const size = Math.max(1, Math.ceil(limit / Math.max(1, lanes.length)));
   const responses = await Promise.allSettled(lanes.map(lane => readGalleryBatch(context,
-    { ...params, withMeta: true, tags: lane.tags }, { cursor: lane.cursor, signal, fetcher, limit: size, describe: true })));
+    { ...params, withMeta: true, tags: lane.tags }, { ...options, cursor: lane.cursor, limit: size, describe: true })));
   signal?.throwIfAborted();
   const errors = responses.filter(response => response.status === 'rejected');
   const throttled = errors.find(error => error.reason?.status === 429);

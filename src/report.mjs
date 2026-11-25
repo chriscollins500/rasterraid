@@ -11,7 +11,7 @@ import { describeReferenceEdits, editVerificationPriorities, pictureIntegrityTex
 import { readUpgradeEvidence, upgradeFacts, upgradeForSearch, upgradeGuideLabel, upgradeGuides, upgradeMemoryComparison, upgradeStorageChange } from './upgrade-evidence.mjs';
 import { GROUPS, resultGroups } from './view.js';
 import { foldSearchText } from './query-language.mjs';
-import { releaseSampleCoverage, traceReleaseMedia } from './release-trail.mjs';
+import { releasePictureComparisonText, releaseSampleCoverage, traceReleaseMedia } from './release-trail.mjs';
 import { readReportMediaReferences, recordedAcrossPosts, traceReportMediaModels } from './report-media-models.mjs';
 import { exampleModelFacts, exampleVersionLimit, unlinkedUseLabel, verifiedExampleSetup } from './gallery-setup.mjs';
 import { creatorBrief, creatorEdges, creatorReportSources, publicWorkSources, readCreatorTrail, readPublicWork } from './creator-trail.mjs';
@@ -386,8 +386,10 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
   const proofLinks = new Set(collectionTrail?.edges.flatMap(edge => [edge.first, edge.second]));
   const proof = proofLinks.size ? evidenceFor({ candidates: [], related: collectionTrail.related }, origin).filter(item => proofLinks.has(item.link)) : [];
   const linkedModels = (mediaModels?.candidates ?? []).map(candidate => modelEvidence(candidate, origin)).filter(Boolean);
+  const releasePictures = releaseSample?.comparison
+    ? evidenceFor({ candidates: [], related: { gallery: releaseSample.comparison.pictures } }, origin) : [];
   const evidence = fuseEvidence([...all.flatMap(row => row.items.slice(0, ['models', 'reference'].includes(row.scope) ? modelLimit : cardLimit)),
-    ...proof, ...linkedModels]);
+    ...proof, ...linkedModels, ...releasePictures]);
   const models = new Map();
   const groups = {};
   for (const { result, items } of matches) {
@@ -1092,8 +1094,11 @@ export function reportMarkdown(report, graphicsMemory) {
     lines.push('', '## Collection trail', collectionTraceCoverage(report.collectionTrace), '- ' + markdownLink(report.collectionTrace));
   }
   if (report.releaseSample) {
-    lines.push('', '## Release gallery sample', releaseSampleCoverage(report.releaseSample),
-      '- ' + markdownLink({ title: [report.releaseSample.title, report.releaseSample.version].filter(Boolean).join(' · '), link: report.releaseSample.link }));
+    const release = report.releaseSample;
+    lines.push('', '## Release gallery sample', releaseSampleCoverage(release),
+      '- ' + markdownLink({ title: [release.title, release.version].filter(Boolean).join(' · '), link: release.link }));
+    if (release.comparison) lines.push('', '### Pictures to compare', releasePictureComparisonText(release.comparison),
+      ...release.comparison.pictures.map(item => '- ' + markdownLink({ ...item, title: 'Picture #' + item.id })));
   }
   if (report.releaseLookup) {
     lines.push('', '## Choose a release', ...report.releaseLookup.choices.map(choice =>

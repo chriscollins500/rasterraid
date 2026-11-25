@@ -71,6 +71,13 @@ export function readPublishedSetup(raw) {
     unlinked.length > exampleVersionLimit || resources.some(rows => rows.length > resourceLimit) };
 }
 
+export function comparePublishedSettings(first = [], second = []) {
+  const left = new Map(first.map(({ label, value }) => [label, value]));
+  const right = new Map(second.map(({ label, value }) => [label, value]));
+  return [...new Set([...left.keys(), ...right.keys()])].map(label =>
+    ({ label, values: [left.get(label) ?? null, right.get(label) ?? null] }));
+}
+
 export function verifiedExampleSetup(reference, candidates, origin) {
   if (!reference?.publishedSetup) return null;
   const variants = new Map(candidates.filter(candidate => numericId(candidate.id) && numericId(candidate.modelId) &&

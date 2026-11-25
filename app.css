@@ -454,6 +454,11 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .report-anchor { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
 .collection-trail { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
 .collection-trail a, .collection-trail p { font-size: .83rem; overflow-wrap: anywhere; }
+.release-picture-comparison { display: grid; gap: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+.release-picture-comparison h5 { margin: 0; font-size: .95rem; }
+.release-picture-comparison .example-setup-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.release-picture-comparison .example-setup-preview { display: block; aspect-ratio: 4 / 3; }
+.release-picture-comparison .chip { justify-self: start; }
 .collection-stages { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0; margin: 0; }
 .collection-stages li { display: grid; gap: 3px; align-content: start; min-width: 0; padding: 8px; border-radius: 6px; background: var(--field); }
 .collection-stages strong { color: var(--accent-soft); font-size: 1.2rem; }
