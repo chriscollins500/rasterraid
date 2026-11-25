@@ -12,7 +12,7 @@ node site/build.mjs --check
 
 The loopback simulation exercises a Deep Search workflow without spending Buzz. GitHub Actions verifies the source and generated documentation. CodeQL and Dependabot results are available under repository security.
 
-The 0.0.9 developer prerelease includes the reproducible Civitai source ZIP, its checksum, and the runtime software inventory. The release notes give the signature verification commands for the exact tag and commit. [RasterRaid 0.0.9 developer prerelease](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.9)
+The 0.0.10 developer prerelease includes the reproducible Civitai source ZIP, its checksum, and the runtime software inventory. The release notes give the signature verification commands for the exact tag and commit. [RasterRaid 0.0.10 developer prerelease](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.10)
 
 The optional appearance model pack is pinned to the 0.0.8 release. [Model pack and license](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.8)
 
