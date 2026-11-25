@@ -210,12 +210,12 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         onProgress({ phase, loaded, total, provider, done }) {
           if (active !== attempt) return;
           const downloading = phase === 'loading' || phase === 'model-download';
-          progress.hidden = !downloading;
           if (downloading) {
             downloads.set(phase, { loaded, total });
             progress.max = [...downloads.values()].reduce((sum, part) => sum + part.total, 0);
             progress.value = [...downloads.values()].reduce((sum, part) => sum + part.loaded, 0);
           }
+          progress.hidden = !downloading && !(phase === 'sampling' && [...downloads.values()].some(part => part.loaded < part.total));
           const message = downloading ? 'Downloading the on-device model…' : phase === 'sampling'
             ? 'Sampling clips · ' + done + ' of ' + total : phase === 'model-check' ? 'Checking the model pack…'
             : phase === 'starting' ? 'Preparing the on-device model…' : provider === 'wasm' && phase === 'matching'

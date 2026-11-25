@@ -168,6 +168,7 @@ const runtime = loadRuntime().catch(() => {
   return null;
 });
 let textRuntime;
+let textPreparation;
 
 async function loadTextRuntime(pack) {
   const { readVisualTextModel, createVisualTextSession, visualTextVector } = await import('./visual-text-model.mjs');
@@ -190,6 +191,20 @@ self.addEventListener('message', async event => {
   // The browser's dedicated-worker port sends trusted messages without a window origin or source.
   if (!event.isTrusted || event.origin !== '' || event.source !== null || event.ports.length !== 0) return;
   const { data } = event;
+  if (data?.type === 'prepare-text') {
+    const pack = data.modelPack;
+    if (pack != null && !(pack instanceof ReadableStream)) {
+      self.postMessage({ phase: 'failed' });
+      return;
+    }
+    if (!matching && !textRuntime && !textPreparation) {
+      textPreparation = loadTextRuntime(pack).catch(() => {
+        self.postMessage({ phase: 'failed' });
+        return null;
+      });
+    } else if (pack && !pack.locked) void pack.cancel().catch(() => {});
+    return;
+  }
   if (matching) {
     self.postMessage({ phase: 'failed' });
     return;
@@ -199,7 +214,8 @@ self.addEventListener('message', async event => {
   try {
     validateComparison(data);
     if (data.description && !textRuntime) {
-      textRuntime = await loadTextRuntime(data.modelPack);
+      textRuntime = await (textPreparation ?? loadTextRuntime(data.modelPack));
+      textPreparation = undefined;
       if (!textRuntime) return;
     }
     const loaded = await runtime;
