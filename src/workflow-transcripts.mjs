@@ -59,10 +59,19 @@ export function sceneTranscriptEvidence(output, name) {
       endTime >= startTime ? [{ startTime, endTime, value }] : [];
   });
   if (!timed.length && (rows.length || typeof output.text !== 'string' || text(output.text, 1))) return unavailable;
-  const words = timed.filter(({ startTime, endTime }) => startTime >= range.start && startTime < range.end &&
+  const excerpts = timed.filter(({ startTime, endTime }) => startTime >= range.start && startTime < range.end &&
     endTime <= range.end).sort((a, b) => a.startTime - b.startTime);
-  if (!words.length) return { scope: 'empty-window', lines: [] };
-  return { scope: 'timed', lines: [sceneWordClock(words[0].startTime) + ' · ' + words.map(row => row.value).join(' ').slice(0, 8000)] };
+  if (!excerpts.length) return { scope: 'empty-window', lines: [] };
+  const cues = [];
+  for (const { startTime, endTime, value } of excerpts) {
+    const prior = cues.at(-1);
+    if (prior && startTime - prior.end <= .75) {
+      prior.parts.push(value);
+      prior.end = Math.max(prior.end, endTime);
+    } else cues.push({ start: startTime, end: endTime, parts: [value] });
+  }
+  return { scope: 'timed', lines: cues.slice(0, 32).map(({ start, parts }) =>
+    sceneWordClock(start) + ' · ' + parts.join(' ').slice(0, 8000)) };
 }
 
 function tokens(value) {
@@ -97,7 +106,8 @@ export function preparedTranscripts(run, snapshot) {
         words.push({ ...part, cue });
       }
     }
-    if (words.length) tracks.push({ lines, words, postings, source: run.sources.find(item => item.link === step.sourceLink) });
+    if (words.length) tracks.push({ lines, words, postings, scoped: isSceneTranscript(step),
+      source: run.sources.find(item => item.link === step.sourceLink) });
   }
   return tracks.length ? { run, snapshot, tracks } : null;
 }
@@ -110,7 +120,7 @@ function excerpt(track, first, last) {
     const next = track.lines[last.cue];
     const gap = next.time - line.time;
     // Allow a phrase to cross one nearby cue. Separate sentences and gaps do not establish continuity.
-    if (last.cue !== first.cue + 1 || line.time === null || next.time === null || gap < 0 || gap > 6 ||
+    if (track.scoped || last.cue !== first.cue + 1 || line.time === null || next.time === null || gap < 0 || gap > 6 ||
         /[.!?。！？]$/u.test(value)) return null;
     end += value.length + 1;
     value += ' ' + next.value;

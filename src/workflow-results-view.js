@@ -23,8 +23,8 @@ const transcriptNotes = {
   repetitive: 'Repeated transcript · Check the source recording',
   silent: 'Civitai reported that the clip has no audio track.',
   empty: 'Civitai returned no recognizable words.',
-  'empty-window': 'Civitai returned no timestamped words inside this sample.',
-  'untimed-window': 'Civitai returned no usable word times for this sample.',
+  'empty-window': 'Civitai returned no transcript excerpts timed entirely inside this sample.',
+  'untimed-window': 'Civitai returned no usable transcript timestamps for this sample.',
 };
 
 const messages = {

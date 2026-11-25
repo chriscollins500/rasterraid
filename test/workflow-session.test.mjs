@@ -52,14 +52,16 @@ test('matched speech retains the exact window through live delivery, export, and
   textOutputs: ['Outside words'] };
   const current = researchOutput(reply, run);
   assert.deepEqual(current.text, []);
-  assert.deepEqual(current.steps.map(step => step.lines), [['0:05.125 · Useful match here'], ['A verified frame.']]);
+  assert.deepEqual(current.steps.map(step => step.lines), [['0:05.125 · Useful match', '0:09.8 · here'], ['A verified frame.']]);
   assert.equal(workflowDelivery(run, current).resolved, 2);
   const track = preparedTranscripts(run, current);
   assert.equal(findTranscriptMatches([track], 'Useful match').matches[0].clock, '0:05.125');
+  assert.equal(findTranscriptMatches([track], 'match here').count, 0);
   assert.equal(findTranscriptMatches([track], 'Outside words').count, 0);
   const markdown = workflowReportMarkdown([{ run, snapshot: current }]);
   assert.match(markdown, /Speech at 0:05–0:10/u);
-  assert.match(markdown, /Useful match here/u);
+  assert.match(markdown, /0:05\.125 · Useful match/u);
+  assert.match(markdown, /0:09\.8 · here/u);
   assert.doesNotMatch(markdown, /Outside words|Crosses|Missing end/u);
 
   const history = historyResearchOutput({ ...reply, steps: [...reply.steps, { $type: 'transcription', name: 6 }] },

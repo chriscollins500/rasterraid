@@ -122,7 +122,7 @@ export function writtenSceneReview(frame, origin) {
   if (words) {
     const transcript = { $type: 'transcription', name: words, input: { mediaUrl: stream, returnTimeStamps: true } };
     plans.push({ ...plan, id: 'writtenscenewords', title: 'Describe the frame and check for speech',
-      work: 'Describes the frame and shows words timestamped inside this sound sample. Civitai transcribes the full public clip.',
+      work: 'Describes the frame and shows transcript excerpts timed entirely inside this sound sample. Civitai transcribes the full public clip.',
       body: { tier: 'paid', steps: [transcript, ...steps] },
       stepEvidence: { ...stepEvidence, [words]: { sourceLink: clip.link } } });
   }
