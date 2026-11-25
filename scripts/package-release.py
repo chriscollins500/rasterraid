@@ -157,6 +157,30 @@ def subject_dependencies(sbom, node, rebuilt):
     sbom["dependencies"].extend([{"ref": runtime, "dependsOn": [wasm, cpu]}, {"ref": wasm, "dependsOn": []},
                                  {"ref": cpu, "dependsOn": []}, {"ref": model, "dependsOn": []}])
 
+    visual = json.loads(run([node, "--input-type=module", "--eval",
+        "import {visualPackUrl,visualPackName,visualPackBytes,visualPackSha256,visualPackRevision} "
+        "from './src/visual-text-pack.mjs'; console.log(JSON.stringify({visualPackUrl,visualPackName,"
+        "visualPackBytes,visualPackSha256,visualPackRevision}));"], rebuilt))
+    text_model = f"siglip2-visual-text@{visual['visualPackRevision']}"
+    tokenizer = "pkg:npm/%40huggingface/tokenizers@0.2.0"
+    sbom["components"].extend([
+        {
+            "bom-ref": text_model, "type": "machine-learning-model", "name": visual["visualPackName"],
+            "scope": "optional", "version": visual["visualPackRevision"],
+            "description": f"Opt-in SigLIP 2 compact text model and tokenizer data. Exact size {visual['visualPackBytes']} bytes.",
+            "hashes": [{"alg": "SHA-256", "content": visual["visualPackSha256"]}],
+            "externalReferences": [{"type": "distribution", "url": visual["visualPackUrl"]}],
+            "licenses": [{"license": {"id": "Apache-2.0"}}],
+        },
+        {
+            "bom-ref": tokenizer, "type": "library", "name": "@huggingface/tokenizers", "version": "0.2.0",
+            "purl": tokenizer, "scope": "optional", "licenses": [{"license": {"id": "Apache-2.0"}}],
+            "externalReferences": [{"type": "website", "url": "https://github.com/huggingface/tokenizers.js"}],
+        },
+    ])
+    app_edges["dependsOn"].append(text_model)
+    sbom["dependencies"].extend([{"ref": text_model, "dependsOn": [tokenizer]}, {"ref": tokenizer, "dependsOn": []}])
+
 
 def package(cli, node, npm, assets, expected):
     start = datetime.now(UTC).isoformat()

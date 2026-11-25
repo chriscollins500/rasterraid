@@ -571,6 +571,26 @@
           <p id="quick-coverage-areas"></p>
         </details>
         <section id="gallery-visual-brief" class="gallery-visual-brief" aria-label="References used in this search" hidden></section>
+        <section id="gallery-appearance" class="report-overview subject-comparison" aria-labelledby="gallery-appearance-title" hidden>
+          <div class="report-heading">
+            <h3 id="gallery-appearance-title">Match by appearance</h3>
+            <button class="chip" id="gallery-appearance-start" type="button" aria-describedby="gallery-appearance-help">Compare pictures</button>
+            <button class="text-button" id="gallery-appearance-stop" type="button" hidden>Stop picture comparison</button>
+          </div>
+          <p id="gallery-appearance-help"></p>
+          <p id="gallery-appearance-status" role="status"></p>
+          <progress id="gallery-appearance-progress" aria-label="On-device model download" value="0" hidden></progress>
+          <ol id="gallery-appearance-matches" role="list" aria-label="Appearance match order"></ol>
+          <details id="gallery-appearance-pack" class="appearance-pack">
+            <summary>Use a saved model pack</summary>
+            <div class="appearance-pack-fields">
+              <label for="gallery-appearance-file">RasterRaid model pack</label>
+              <input type="file" id="gallery-appearance-file" accept=".rrvision" />
+              <button id="gallery-appearance-copy" class="text-button" type="button">Copy model pack link</button>
+              <input id="gallery-appearance-link" type="url" aria-label="Model pack download link" readonly hidden />
+            </div>
+          </details>
+        </section>
         <section id="subject-comparison" class="report-overview subject-comparison" aria-labelledby="subject-title" tabindex="-1" hidden>
           <div class="report-heading">
             <h3 id="subject-title">Find the same subject</h3>

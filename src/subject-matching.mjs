@@ -1,12 +1,18 @@
 import { mediaUrl } from './catalog.mjs';
 import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
 import { subjectCandidateLimit, subjectDownloadBytes, subjectReferenceLimit, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
+import { resizePreview } from './resize-preview.mjs';
+import { validVisualDescription, visualPackBytes, visualTextCandidateLimit } from './visual-text-pack.mjs';
 
 const idleLifetime = 120_000;
 
 export function subjectMatchAvailable() {
   return Boolean(globalThis.isSecureContext && globalThis.crypto?.subtle && typeof Worker === 'function' &&
     typeof createImageBitmap === 'function' && subjectWasmAvailable());
+}
+
+export function visualTextMatchAvailable() {
+  return subjectMatchAvailable() && typeof DecompressionStream === 'function' && typeof DataView.prototype.getFloat16 === 'function';
 }
 
 async function readPreview(cover, signal) {
@@ -18,7 +24,7 @@ async function readPreview(cover, signal) {
   return response.blob();
 }
 
-async function previewPixels(document, { id, cover, file, region }, signal) {
+async function previewPixels(document, { id, cover, file, region }, signal, visual) {
   signal.throwIfAborted();
   if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
   const previewSignal = file ? signal : AbortSignal.any([signal, AbortSignal.timeout(5500)]);
@@ -26,7 +32,7 @@ async function previewPixels(document, { id, cover, file, region }, signal) {
   let previewUrl;
   let image;
   try {
-    if (!file) {
+    if (!visual && !file) {
       try {
         previewUrl = URL.createObjectURL(preview);
         image = await loadPublicPreview(document, previewUrl, previewSignal);
@@ -35,9 +41,19 @@ async function previewPixels(document, { id, cover, file, region }, signal) {
         previewSignal.throwIfAborted();
       }
     }
-    image ??= await createImageBitmap(preview);
+    image ??= await createImageBitmap(preview, visual ? { colorSpaceConversion: 'none' } : undefined);
     previewSignal.throwIfAborted();
     const canvas = document.createElement('canvas');
+    if (visual) {
+      const { width, height } = image;
+      if (!width || !height || width * height > 4_000_000) throw new Error('The preview is too large to compare.');
+      canvas.width = width;
+      canvas.height = height;
+      const drawing = canvas.getContext('2d', { alpha: false });
+      if (!drawing) throw new Error('This browser cannot compare pictures locally.');
+      drawing.drawImage(image, 0, 0);
+      return { id, rgba: resizePreview(drawing.getImageData(0, 0, width, height).data, width, height, subjectSide) };
+    }
     canvas.width = canvas.height = subjectSide;
     const drawing = canvas.getContext('2d', { alpha: false });
     if (!drawing) throw new Error('This browser cannot compare pictures locally.');
@@ -78,17 +94,20 @@ function matchInWorker(worker, prepared, signal, onProgress) {
     const canceled = () => finish(reject, signal.reason);
     const failed = () => finish(reject, new Error('Subject matching is unavailable right now.'));
     const received = ({ data }) => {
-      if (data?.phase === 'loading' && Number.isSafeInteger(data.total) && data.total > 0 && data.total <= subjectDownloadBytes &&
+      if (['loading', 'model-download'].includes(data?.phase) && Number.isSafeInteger(data.total) && data.total > 0 &&
+          data.total <= (data.phase === 'model-download' ? visualPackBytes : subjectDownloadBytes) &&
           Number.isSafeInteger(data.loaded) && data.loaded >= 0 && data.loaded <= data.total) {
         onProgress(data);
         return;
       }
-      if (data?.phase === 'starting' || data?.phase === 'matching') {
+      if (['starting', 'matching', 'model-check'].includes(data?.phase)) {
         onProgress(data);
         return;
       }
       if (data?.phase === 'unavailable') {
         finish(reject, new Error('This browser cannot run the on-device model.'));
+      } else if (data?.phase === 'model-pack-unavailable') {
+        finish(reject, new DOMException('The visual model pack could not be verified or loaded.', 'NotReadableError'));
       } else if (data?.phase === 'complete' && ids && Array.isArray(data.matches) && data.matches.length === ids.size &&
           data.matches.every(row => Number.isFinite(row?.score) && ids.delete(row.id))) {
         finish(resolve, data.matches);
@@ -104,10 +123,18 @@ function matchInWorker(worker, prepared, signal, onProgress) {
         for (const row of rows) row.rgba.fill(0);
         return;
       }
+      let source;
       try {
         ids = new Set(pictures.sample.map(row => row.id));
-        worker.postMessage(pictures, rows.map(row => row.rgba.buffer));
+        const transfers = rows.map(row => row.rgba.buffer);
+        if (pictures.modelPack) {
+          // Open the file in the frame that owns it. WebKit cannot read a Blob cloned into this worker.
+          source = pictures.modelPack.stream();
+          transfers.push(source);
+        }
+        worker.postMessage({ ...pictures, modelPack: source }, transfers);
       } catch {
+        if (source && !source.locked) void source.cancel().catch(() => {});
         for (const row of rows) if (row.rgba.byteLength) row.rgba.fill(0);
         failed();
       }
@@ -118,15 +145,17 @@ function matchInWorker(worker, prepared, signal, onProgress) {
   });
 }
 
-async function preparePictures(document, references, sample, signal) {
-  const pictures = await Promise.allSettled([...references, ...sample].map(item => previewPixels(document, item, signal)));
+async function preparePictures(document, references, sample, signal, description, modelPack) {
+  const visual = description !== undefined;
+  const pictures = await Promise.allSettled([...references, ...sample].map(item => previewPixels(document, item, signal, visual)));
   const anchors = pictures.slice(0, references.length);
   const candidates = pictures.slice(references.length).flatMap(row => row.status === 'fulfilled' ? [row.value] : []);
   try {
     signal.throwIfAborted();
     if (anchors.some(row => row.status === 'rejected')) throw new Error('A selected reference preview could not be read.');
-    if (!candidates.length) throw new Error('The related previews could not be read.');
-    return { references: anchors.map(({ value }, index) => ({ rgba: value.rgba, polarity: references[index].polarity })), sample: candidates };
+    if (candidates.length < (visual ? 2 : 1)) throw new Error('The related previews could not be read.');
+    return { references: anchors.map(({ value }, index) => ({ rgba: value.rgba, polarity: references[index].polarity })),
+      sample: candidates, ...(visual && { description, modelPack }) };
   } catch (error) {
     for (const row of pictures) row.value?.rgba.fill(0);
     throw error;
@@ -151,20 +180,27 @@ export function createSubjectMatcher(document) {
     if (document.hidden && !active) release();
   });
 
-  async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample }, { signal, onProgress }) {
-    if (active || !subjectMatchAvailable()) throw new Error('Subject matching is unavailable right now.');
-    if (!Array.isArray(references) || references.length > subjectReferenceLimit ||
-        !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) || !references.some(row => row.polarity === 'prefer') ||
-        !Array.isArray(sample) || sample.length < 1 || sample.length > subjectCandidateLimit) {
-      throw new Error('Choose at least one subject to match and a bounded sample.');
+  async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample, description, modelPack }, { signal, onProgress }) {
+    const visual = description !== undefined;
+    if (active || !(visual ? visualTextMatchAvailable() : subjectMatchAvailable())) throw new Error('Subject matching is unavailable right now.');
+    if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual ? 2 : 1) ||
+        sample.length > (visual ? visualTextCandidateLimit : subjectCandidateLimit) ||
+        (visual ? !validVisualDescription(description) || references.length > 0
+          : references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
+            !references.some(row => row.polarity === 'prefer'))) {
+      throw new Error('Choose a subject and a bounded sample.');
+    }
+    if (visual && modelPack != null && (!(modelPack instanceof Blob) || modelPack.size !== visualPackBytes)) {
+      throw new DOMException('The visual model pack could not be verified or loaded.', 'NotReadableError');
     }
     const attempt = active = new AbortController();
-    const deadline = AbortSignal.any([signal, attempt.signal, AbortSignal.timeout(85_000)]);
+    const deadline = AbortSignal.any([signal, attempt.signal, AbortSignal.timeout(visual ? 120_000 : 85_000)]);
     clearTimeout(idleTimer);
     try {
       deadline.throwIfAborted();
       worker ??= startWorker();
-      const matches = await matchInWorker(worker, preparePictures(document, references, sample, deadline), deadline, onProgress);
+      const prepared = preparePictures(document, references, sample, deadline, description, modelPack);
+      const matches = await matchInWorker(worker, prepared, deadline, onProgress);
       deadline.throwIfAborted();
       active = undefined;
       if (document.hidden) release();

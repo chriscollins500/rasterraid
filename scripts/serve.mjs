@@ -10,6 +10,7 @@ import { PUBLIC_FILTER_FEED } from '../src/runtime-config.mjs';
 import { PREVIEW_QUOTE_MAX_AGE_MS, quotePrice } from '../src/quotes.mjs';
 import { SITE_ORIGINS } from '../src/catalog.mjs';
 import { subjectAssetOrigins } from '../src/subject-artifacts.mjs';
+import { visualPackUrl } from '../src/visual-text-pack.mjs';
 import { orchestrationOrigin } from '../src/ai-services.mjs';
 import { MOCK_API, MOCK_PAGE } from '../mock/client.mjs';
 import { createMockBackend } from '../mock/backend.mjs';
@@ -194,7 +195,7 @@ const server = createServer({ maxHeaderSize: 16_384 }, async (request, response)
     ...(privateMock ? {} : { 'Access-Control-Allow-Origin': '*' }),
     'Content-Security-Policy': "default-src 'none'; script-src 'self' " + bundleOrigin + " 'wasm-unsafe-eval'; worker-src data: " + bundleOrigin +
       "; style-src 'self'; connect-src 'self' https://civitai.com https://civitai.red https://image.civitai.com https://blobs-b2.civitai.com " +
-      [orchestrationOrigin, publicFeedOrigin, ...subjectAssetOrigins].join(' ') + "; img-src blob: https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " +
+      [orchestrationOrigin, publicFeedOrigin, new URL(visualPackUrl).origin, ...subjectAssetOrigins].join(' ') + "; img-src blob: https://image.civitai.com https://blobs-b2.civitai.com; media-src https://image.civitai.com https://blobs-b2.civitai.com; frame-ancestors " +
       (privateMock ? "'none'" : SITE_ORIGINS.join(' ')) + "; object-src 'none'; base-uri 'none'; form-action 'none'",
   });
   response.end(request.method === 'GET' ? asset.body : undefined);
