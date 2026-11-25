@@ -664,6 +664,20 @@
           </div>
           <div id="visual-comparison-results" class="report-source-grid"></div>
         </section>
+        <details id="spoken-search" class="report-overview sound-dashboard" hidden>
+          <summary>Find spoken words</summary>
+          <p>Search English speech in the first 30 seconds of up to four loaded public clips for 0 Buzz. The model download is about 59 MB. Audio and search words stay on this device.</p>
+          <div class="sound-inputs">
+            <label for="spoken-query">Words you remember
+              <input id="spoken-query" type="search" maxlength="180" spellcheck="true" autocomplete="off" />
+            </label>
+            <button id="spoken-start" class="chip" type="button" disabled>Read these clips</button>
+            <button id="spoken-stop" class="text-button" type="button" hidden>Stop reading audio</button>
+          </div>
+          <p id="spoken-status" role="status"></p>
+          <div id="spoken-results"></div>
+          <div id="spoken-player"></div>
+        </details>
         <details id="sound-comparison" class="report-overview sound-dashboard" hidden>
           <summary>Match by sound</summary>
           <p>Compare rhythm, sound texture, and energy in the current results. Reference files stay in your browser.</p>

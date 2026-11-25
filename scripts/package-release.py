@@ -181,6 +181,22 @@ def subject_dependencies(sbom, node, rebuilt):
     app_edges["dependsOn"].append(text_model)
     sbom["dependencies"].extend([{"ref": text_model, "dependsOn": [tokenizer]}, {"ref": tokenizer, "dependsOn": []}])
 
+    speech = json.loads(run([node, "--input-type=module", "--eval",
+        "import {speechRevision,speechArtifacts} from './src/spoken-artifacts.mjs'; "
+        "const {wasm,...files}=speechArtifacts; console.log(JSON.stringify({speechRevision,files}));"], rebuilt))
+    for key, artifact in speech["files"].items():
+        ref = f"moonshine-v2-en-{key}@{speech['speechRevision']}"
+        sbom["components"].append({
+            "bom-ref": ref, "scope": "optional", "name": f"Moonshine v2 Tiny English {key}",
+            "type": "file" if key == "tokens" else "machine-learning-model", "version": speech["speechRevision"],
+            "description": f"On-device speech recognition after opt-in. Exact size {artifact['bytes']} bytes.",
+            "licenses": [{"license": {"id": "MIT"}}],
+            "hashes": [{"alg": "SHA-256", "content": artifact["sha256"]}],
+            "externalReferences": [{"type": "distribution", "url": artifact["url"]}],
+        })
+        app_edges["dependsOn"].append(ref)
+        sbom["dependencies"].append({"ref": ref, "dependsOn": []})
+
 
 def package(cli, node, npm, assets, expected):
     start = datetime.now(UTC).isoformat()

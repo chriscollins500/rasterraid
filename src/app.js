@@ -43,6 +43,7 @@ import { configureSubjectComparison } from './subject-view.js';
 import { createSubjectMatcher } from './subject-matching.mjs';
 import { configureGalleryAppearance } from './gallery-appearance.js';
 import { configureSoundMatch } from './sound-view.js';
+import { configureSpokenSearch } from './spoken-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
 import { scenePickLimit, sceneResearch, sceneTime } from './scene-research.mjs';
@@ -286,6 +287,7 @@ function clearSearchResults(current) {
   search = undefined;
   subjectComparison.show(null, current);
   galleryAppearance.clear();
+  spokenSearch.show(null, {}, current);
   retryButton.hidden = true;
   filterReview.show(null);
   searchTrail.length = 0;
@@ -396,6 +398,7 @@ const soundMatch = configureSoundMatch(document, result => {
   }
   renderResearch();
 }, refreshScenes);
+const spokenSearch = configureSpokenSearch(document);
 const sceneMatch = configureSceneMatch(document, visualReferences, soundMatch, result => {
   if (search?.result !== result || !result) return;
   if (sceneMatch.selected(result).length) {
@@ -489,6 +492,7 @@ watchHost(window, update => {
       context.origin !== update.origin || update.connectionLost && !context.connectionLost)) {
     subjectComparison.release();
     galleryAppearance.clear();
+    spokenSearch.show(null, {}, update);
   }
   context = update;
   if (search?.context !== update) {
@@ -952,6 +956,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
     workspace.refreshSearch(result.savedSearch, checkpoint, current), startExample);
   visualReferences.show(phase === 'loading' ? null : result.report, current);
   soundMatch.show(phase === 'complete' ? result : null, groups, current);
+  spokenSearch.show(phase === 'complete' ? result : null, groups, current);
 
   const populated = renderResultFilters();
   renderGroup();
@@ -1786,6 +1791,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
   const current = context;
   const { signal } = activeSearch;
   soundMatch.show(null, {}, current);
+  spokenSearch.show(null, {}, current);
   preferences.paintResults();
   setSearchBusy(true);
   visualReferences.enableLookup(false);
@@ -1876,6 +1882,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       renderSearch(search.result, filters, current, 'interrupted');
     } else if (search?.phase === 'complete' && search.context === context) {
       soundMatch.show(search.result, search.groups, search.context);
+      spokenSearch.show(search.result, search.groups, search.context);
     }
     searchStatus.textContent = signal.reason === accessChange && context.connectionLost ? connectionNotice
       : signal.reason === accessChange || signal.reason === referenceChange || signal.reason === visualBriefChange
@@ -2009,7 +2016,10 @@ galleryMore.addEventListener('click', async () => {
       mediaFeedback: ratedMedia(current),
       onVisualReference: !current.result.library ? addGalleryReference : undefined,
     })) renderGroup();
-    if (unique.length) soundMatch.show(current.result, current.groups, current.context);
+    if (unique.length) {
+      soundMatch.show(current.result, current.groups, current.context);
+      spokenSearch.show(current.result, current.groups, current.context);
+    }
     if (unique.length && !current.result.library && (['all', pager.scope].includes(current.filter) || models && current.filter === 'pictures')) {
       const picker = byId('catalog-picks');
       if (picker) {
