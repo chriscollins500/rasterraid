@@ -508,6 +508,8 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .report-source-card p, .report-overview > p, .report-anchor p, .report-connection p { font-size: .81rem; }
 .report-filtered { border-color: color-mix(in srgb, var(--accent-soft) 48%, var(--border)); }
 .report-connections { display: grid; gap: 7px; }
+.report-example-link { display: inline-flex; align-items: center; gap: 8px; }
+.report-example-link img { width: 40px; height: 32px; flex: none; object-fit: cover; border-radius: 4px; }
 .report-connection { display: flex; gap: 4px 12px; flex-wrap: wrap; padding: 7px 10px; border-left: 2px solid var(--accent-soft); background: var(--field); }
 .report-connection p { width: 100%; }
 .model-edit-picture { min-width: 0; display: grid; gap: 7px; }

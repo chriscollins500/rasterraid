@@ -10,6 +10,7 @@ import { earlierSourceStatus, reportComparisonMarkdown } from './report-checkpoi
 import { exampleModelFacts, unlinkedUseLabel } from './gallery-setup.mjs';
 import { exampleSide, exampleVersionUse } from './example-comparison.mjs';
 import { maximumStorySources } from './story-research.mjs';
+import { recordedAcrossPosts } from './report-media-models.mjs';
 
 export function configureReportControls(form) {
   const setup = form.querySelector('#report-setup');
@@ -618,8 +619,22 @@ export function renderReport(container, report, context, onLookup, { onCompareSe
     linked.append(element('h4', 'Verified connections'));
     const relations = report.connections.map(connection => {
       const row = element('div', null, 'report-connection');
+      row.dataset.connection = connection.kind;
       row.append(element('p', connection.label));
-      for (const item of connection.items) row.append(evidenceSource(item, context, onLookup));
+      for (const item of connection.items) {
+        const source = evidenceSource(item, context, onLookup);
+        if (connection.kind === recordedAcrossPosts && item.cover) {
+          source.classList.add('report-example-link');
+          const thumbnail = element('img');
+          thumbnail.alt = '';
+          thumbnail.loading = 'lazy';
+          thumbnail.referrerPolicy = 'no-referrer';
+          thumbnail.src = item.cover;
+          thumbnail.addEventListener('error', () => thumbnail.remove(), { once: true });
+          source.prepend(thumbnail);
+        }
+        row.append(source);
+      }
       return row;
     });
     if ((report.collectionTrace || report.releaseSample) && relations.length > 3) {

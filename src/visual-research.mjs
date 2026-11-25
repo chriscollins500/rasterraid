@@ -5,6 +5,7 @@ import { describeMediaQuery } from './gallery-relevance.mjs';
 import { captionStep, embeddingStep, makeChat, pictureAnalysis, RESEARCH_MODEL } from './research.mjs';
 import { subjectCandidateLimit } from './subject-artifacts.mjs';
 import { visualRoles } from './visual-analysis.mjs';
+import { recordedAcrossPosts, recordedPostLabel } from './report-media-models.mjs';
 
 export const visualPickLimit = 3;
 const imagePage = /^\/images\/[1-9]\d{0,14}$/u;
@@ -251,6 +252,14 @@ export function connectedEvidence(report, picks, origin) {
   const sources = new Map(picks.map(({ title, link }) => [link, { title, link }]));
   const connections = [];
   for (const edge of report.connections ?? []) {
+    if (edge.kind === recordedAcrossPosts && edge.items.length >= 3) {
+      const [model, ...examples] = edge.items;
+      const items = [model, ...examples.filter(item => chosen.has(item.link))].map(item => source(item, origin));
+      if (items.length < 2 || !items.every(Boolean)) continue;
+      connections.push({ kind: edge.kind, items, meaning: items.length === 2
+        ? 'This selected example records the exact model version' : recordedPostLabel(items.length - 1) });
+      continue;
+    }
     if (edge.items?.length !== 2) continue;
     const items = edge.items.map(item => source(item, origin));
     if (items.every(Boolean)) connections.push({ kind: edge.kind, meaning: text(edge.label, 130), items });

@@ -5,6 +5,7 @@ import { reportResearchPlans, reportSynthesisPlan } from '../src/report-research
 import { articleCitations } from '../src/article-sources.mjs';
 import { CATALOG } from '../src/catalog.mjs';
 import { discover } from '../src/search.mjs';
+import { connectedEvidence } from '../src/visual-research.mjs';
 import { createWorkflowSession } from '../src/workflow-session.mjs';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
@@ -443,6 +444,62 @@ test('preview model tracing respects the chosen sources and preserves first resu
   assert.deepEqual(throttled.candidates, [candidate]);
   assert.deepEqual(throttled.related.gallery, [gallery]);
   assert.equal(throttled.report.rails.find(rail => rail.scope === 'models').status, 'partial');
+});
+
+test('reports prioritize exact versions recorded in distinct posts and preserve their evidence in both research paths', async () => {
+  const hosted = { ...context, hosted: true, token: 'read-only-fixture', browsingLevel: 3 };
+  const makeExample = (id, postId, ids, video = false, associated = []) => ({
+    ...(video ? audio : gallery), id, postId, link: origin + '/images/' + id, title: video ? 'Clip by Uploader' : 'Picture by Uploader',
+    modelReferencesChecked: true, recorded: ids, associated,
+  });
+  const pictures = [makeExample(101, 48, [90]), makeExample(102, 48, [90, 91]), makeExample(103, 48, [90])];
+  const clips = [makeExample(201, 49, [91, 99], true), makeExample(202, 50, [99], true, [90]), makeExample(203, null, [90], true)];
+  const direct = [{ ...candidate, examples: [] }];
+  const reads = [];
+  const result = await discoverReport(hosted, { query: 'carved engraving', reportSources: ['models', 'gallery', 'videos'], baseModel: 'SDXL 1.0' }, {
+    discoverSource(_, { scope }) {
+      return { ...empty(scope), candidates: scope === 'models' ? direct : [], related: scope === 'gallery' ? { gallery: pictures }
+        : scope === 'videos' ? { videos: clips } : {} };
+    },
+    fetcher(url, request) {
+      assert.equal(url.origin, origin);
+      assert.equal(request.credentials, 'omit');
+      reads.push([url.pathname, url.searchParams.get('modelVersionIds')]);
+      return Response.json({ items: [{ id: 77, name: 'Cross-post model', type: 'LORA', modelVersions: [
+        { id: 90, name: 'Same post version', baseModel: 'SDXL 1.0', files: [] },
+        { id: 91, name: 'Different posts version', baseModel: 'SDXL 1.0', files: [] },
+        { id: 99, name: 'Withheld family version', baseModel: 'SD 1.5', files: [] },
+      ] }] });
+    },
+  });
+  assert.deepEqual(reads, [[CATALOG.blockModels, '91,99,90']]);
+  assert.deepEqual(result.candidates.map(row => row.id), [8, 91, 90]);
+  assert.deepEqual(result.related.gallery, pictures);
+  assert.deepEqual(result.related.videos, clips);
+  const model = origin + '/models/77?modelVersionId=91';
+  const group = result.report.connections.filter(connection => connection.kind === 'recorded-across-posts');
+  assert.equal(group.length, 1);
+  const [repeated] = group;
+  assert.match(repeated.label, /2 different posts/u);
+  const linkSet = new Set([model, pictures[1].link, clips[0].link]);
+  assert.deepEqual(new Set(repeated.items.map(item => item.link)), linkSet);
+  assert.equal(repeated.items[0].versionId, 91);
+  assert.ok(repeated.items[1].title.endsWith('#201'));
+  assert.ok(repeated.items[2].title.endsWith('#102'));
+  assert.ok(result.report.connections.every(edge => edge === repeated || !edge.items.some(item => item.link === model)));
+  const markdown = reportMarkdown(result.report);
+  for (const link of linkSet) assert.ok(markdown.includes(link));
+  assert.doesNotMatch(markdown, /Withheld family version/u);
+  const plans = reportResearchPlans(result.report);
+  const proof = JSON.parse(plans[0].body.steps[0].input.messages[1].content);
+  assert.match(proof.repeatedRecordingBasis, /controlled comparison/u);
+  assert.ok(proof.recordedConnections.some(edge => edge.label === repeated.label && edge.links.every(link => linkSet.has(link))));
+  assert.ok([...linkSet].every(link => plans[0].sources.some(source => source.link === link)));
+  const pickedPicture = connectedEvidence(result.report, [{ title: 'Selected picture', link: pictures[1].link }], origin);
+  assert.ok(pickedPicture.edges.some(edge => edge.sources.length === 2 && edge.sources.includes(model)));
+  assert.ok(pickedPicture.sources.every(source => source.link !== clips[0].link));
+  const pickedBoth = connectedEvidence(result.report, [pictures[1], clips[0]], origin);
+  assert.ok(pickedBoth.edges.some(edge => edge.meaning === repeated.label && edge.sources.length === 3));
 });
 
 test('guest topic reports independently verify the public preview and model version', async () => {
