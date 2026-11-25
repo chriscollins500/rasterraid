@@ -664,6 +664,34 @@
           </div>
           <div id="visual-comparison-results" class="report-source-grid"></div>
         </section>
+        <details id="written-sound-search" class="report-overview sound-dashboard" hidden>
+          <summary>Find a sound by description</summary>
+          <div id="written-sound-controls">
+            <p id="written-sound-help">Check the first 30 seconds of up to four loaded public clips for 0 Buzz. The first check downloads about 42 MB. Your description stays on this device.</p>
+            <div class="sound-inputs">
+              <label for="written-sound-query">What do you want to hear?
+                <input id="written-sound-query" type="search" maxlength="160" placeholder="Rain falling on a roof" spellcheck="true" autocomplete="off" aria-describedby="written-sound-help">
+              </label>
+              <button id="written-sound-start" class="chip" type="button" disabled>Find sounds</button>
+              <button id="written-sound-stop" class="text-button" type="button" hidden>Stop checking sounds</button>
+            </div>
+            <details id="written-sound-extra">
+              <summary>Match another sound or avoid one</summary>
+              <div class="sound-inputs">
+                <label for="written-sound-together">Also hear in the same moment
+                  <input id="written-sound-together" type="search" maxlength="160" placeholder="A low rumble of thunder" spellcheck="true" autocomplete="off">
+                </label>
+                <label for="written-sound-avoid">Prefer to avoid
+                  <input id="written-sound-avoid" type="search" maxlength="160" placeholder="A dog barking" spellcheck="true" autocomplete="off">
+                </label>
+              </div>
+            </details>
+          </div>
+          <p id="written-sound-unavailable" hidden>Local sound search needs an audio decoder. Open or play the Civitai results below.</p>
+          <p id="written-sound-status" role="status"></p>
+          <div id="written-sound-results"></div>
+          <div id="written-sound-player"></div>
+        </details>
         <details id="spoken-search" class="report-overview sound-dashboard" hidden>
           <summary>Find spoken words</summary>
           <p>Search English speech in the first 30 seconds of up to four loaded public clips for 0 Buzz. The model download is about 59 MB. The free check and your search words stay on this device.</p>

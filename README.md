@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.10 developer prerelease finds spoken words in loaded clips on your device and opens recorded settings and Deep Search prices for the same clip. Civitai is reviewing the earlier 0.0.4 build for both domains. [Download and verify 0.0.10](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.10) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.11 developer prerelease finds sounds by description in loaded public clips on your device. Play the closest sampled moment or check live Deep Search prices for the same clip. Civitai is reviewing the earlier 0.0.4 build for both domains. [Download and verify 0.0.11](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.11) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 
@@ -50,17 +50,6 @@ GitHub Actions checks supported Node versions, the built app and the generated s
 ```sh
 node site/build.mjs
 node site/build.mjs --check
-```
-
-### Visual model pack
-
-**Match by appearance** in Gallery images loads the signed release’s compact text weights on demand. The browser verifies each part of the pack before running the comparison. A viewer can also select the pack from the GitHub release. The model is adapted from Google’s SigLIP 2 Base Patch16-224 and the pinned ONNX Community Q4 export. RasterRaid separates the token table, quantizes its ordinary rows to 4 bits, and preserves 64 special rows at full precision. [Model and Apache 2.0 license](https://huggingface.co/google/siglip2-base-patch16-224) · [Pinned ONNX source](https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/tree/ba1f3b0843f24bc5417d38e19c37b287d719b2f4)
-
-Use Node 26.13.0. Place the verified parts named in `src/visual-text-pack.mjs` in `.tmp/visual-model-parts/`. The packaging command writes `.tmp/rasterraid-visual-model-v1.rrvision`. To stage Pages, place the pack in `.tmp/rasterraid-model-release/` and leave `.tmp/rasterraid-pages/` available for a fresh staging run. Both commands verify the expected SHA-256. GitHub Pages deploys the generated docs with the pinned pack from the 0.0.8 GitHub release.
-
-```sh
-node scripts/package-visual-model.mjs
-node scripts/stage-pages.mjs
 ```
 
 [Contributing](CONTRIBUTING.md) · [Report a vulnerability](SECURITY.md) · [Get help](https://chriscollins500.github.io/rasterraid/support/)

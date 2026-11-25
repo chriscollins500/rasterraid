@@ -8,6 +8,7 @@ on:
       - 'docs/**'
       - 'scripts/stage-pages.mjs'
       - 'src/visual-text-pack.mjs'
+      - 'src/written-sound-artifacts.mjs'
       - '.github/workflows/publish-pages.yml'
 
 permissions:
@@ -32,7 +33,7 @@ jobs:
         with:
           node-version: 26.13.0
           package-manager-cache: false
-      - name: Stage checked site and pinned release pack
+      - name: Stage checked site and pinned release packs
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,8 +43,13 @@ jobs:
             echo 'The visual model release is unavailable.'
             exit 0
           fi
+          if ! gh release view v0.0.11 --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft == false' | grep -qx true; then
+            echo 'Publish v0.0.11 and run Publish RasterRaid Pages to stage the audio model.'
+            exit 0
+          fi
           mkdir -p .tmp/rasterraid-model-release
           gh release download v0.0.8 --repo "$GITHUB_REPOSITORY" --pattern rasterraid-visual-model-v1.rrvision --dir .tmp/rasterraid-model-release
+          gh release download v0.0.11 --repo "$GITHUB_REPOSITORY" --pattern rasterraid-audio-text-v1.rraudio --dir .tmp/rasterraid-model-release
           node scripts/stage-pages.mjs
           echo 'ready=true' >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

@@ -181,6 +181,22 @@ def subject_dependencies(sbom, node, rebuilt):
     app_edges["dependsOn"].append(text_model)
     sbom["dependencies"].extend([{"ref": text_model, "dependsOn": [tokenizer]}, {"ref": tokenizer, "dependsOn": []}])
 
+    audio = json.loads(run([node, "--input-type=module", "--eval",
+        "import {audioPackUrl,audioPackName,audioPackBytes,audioPackSha256,audioPackRevision} "
+        "from './src/written-sound-artifacts.mjs'; console.log(JSON.stringify({audioPackUrl,audioPackName,"
+        "audioPackBytes,audioPackSha256,audioPackRevision}));"], rebuilt))
+    audio_model = f"clap2-xxs-audio-text@{audio['audioPackRevision']}"
+    sbom["components"].append({
+        "bom-ref": audio_model, "type": "machine-learning-model", "name": audio["audioPackName"],
+        "scope": "optional", "version": audio["audioPackRevision"],
+        "description": f"Opt-in CLAP2 XXS with compressed weights. Exact size {audio['audioPackBytes']} bytes.",
+        "hashes": [{"alg": "SHA-256", "content": audio["audioPackSha256"]}],
+        "externalReferences": [{"type": "distribution", "url": audio["audioPackUrl"]}],
+        "licenses": [{"license": {"id": "Apache-2.0"}}],
+    })
+    app_edges["dependsOn"].append(audio_model)
+    sbom["dependencies"].append({"ref": audio_model, "dependsOn": [runtime, tokenizer]})
+
     speech = json.loads(run([node, "--input-type=module", "--eval",
         "import {speechRevision,speechArtifacts} from './src/spoken-artifacts.mjs'; "
         "const {wasm,...files}=speechArtifacts; console.log(JSON.stringify({speechRevision,files}));"], rebuilt))

@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.10 developer prerelease finds spoken words in loaded clips on your device and opens recorded settings and Deep Search prices for the same clip. Civitai is reviewing the earlier 0.0.4 build for both domains. [Download and verify 0.0.10](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.10) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.11 developer prerelease finds sounds by description in loaded public clips on your device. Play the closest sampled moment or check live Deep Search prices for the same clip. Civitai is reviewing the earlier 0.0.4 build for both domains. [Download and verify 0.0.11](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.11) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 

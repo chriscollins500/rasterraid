@@ -1,5 +1,6 @@
 import { clipAnalysisUrl } from './catalog.mjs';
 import { publicMedia } from './catalog-research.mjs';
+import { fftOrder as reversed, fftSize as size, transformSpectrum } from './audio-fft.mjs';
 
 export const soundRoles = { rhythm: 'Rhythm', texture: 'Sound texture', dynamics: 'Energy changes' };
 export const soundTypes = /\.(?:mp3|m4a|aac|wav|ogg|oga|opus|flac|mp4|webm)$/iu;
@@ -8,19 +9,11 @@ export const soundFileBytes = 16 * 1024 * 1024;
 export const soundCandidateLimit = 8;
 export const soundMaximumSeconds = 240;
 const rate = 16000;
-const size = 1024;
 const hop = 512;
 const bands = 26;
 const waveformPoints = 48;
 const pulseRates = Array.from({ length: 25 }, (_, index) => Math.round(52 * 2 ** (index / 12)));
-const [cosine, sine] = [Math.cos, Math.sin].map(project => Float64Array.from({ length: size / 2 }, (_, index) =>
-  project(-2 * Math.PI * index / size)));
 const hann = Float64Array.from({ length: size }, (_, index) => .5 - .5 * Math.cos(2 * Math.PI * index / (size - 1)));
-const reversed = Uint16Array.from({ length: size }, (_, index) => {
-  let output = 0;
-  for (let bit = 1; bit < size; bit <<= 1) output = (output << 1) | ((index & bit) ? 1 : 0);
-  return output;
-});
 const spectrumBand = Int8Array.from({ length: size / 2 }, (_, index) => {
   const hz = index * rate / size;
   return hz < 38 ? -1 : Math.min(bands - 1, Math.floor(4 * Math.log2(hz / 38)));
@@ -39,23 +32,7 @@ function spectrum(samples, offset, real, imaginary, powers) {
     real[reversed[index]] = value * hann[index];
   }
   imaginary.fill(0);
-  for (let span = 2; span <= size; span *= 2) {
-    const half = span / 2;
-    const stride = size / span;
-    for (let first = 0; first < size; first += span) {
-      for (let i = 0; i < half; i++) {
-        const low = first + i;
-        const high = low + half;
-        const angle = i * stride;
-        const re = real[high] * cosine[angle] - imaginary[high] * sine[angle];
-        const im = real[high] * sine[angle] + imaginary[high] * cosine[angle];
-        real[high] = real[low] - re;
-        imaginary[high] = imaginary[low] - im;
-        real[low] += re;
-        imaginary[low] += im;
-      }
-    }
-  }
+  transformSpectrum(real, imaginary);
   for (let i = 3; i < spectrumBand.length; i++) powers[spectrumBand[i]] += real[i] ** 2 + imaginary[i] ** 2;
   return energy / size;
 }
@@ -184,10 +161,10 @@ export function rankSoundMatches(references, rows) {
   }).sort((a, b) => b.score - a.score);
 }
 
-export function createSoundDecoder(window) {
+export function createSoundDecoder(window, sampleRate = rate) {
   const Audio = window.OfflineAudioContext ?? window.webkitOfflineAudioContext;
   if (!Audio) throw new TypeError('Audio decoding is unavailable.');
-  const decoder = new Audio(1, 1, rate);
+  const decoder = new Audio(1, 1, sampleRate);
   return async (bytes, signal) => {
     signal?.throwIfAborted();
     if (!bytes.byteLength || bytes.byteLength > soundFileBytes) throw new RangeError('Audio file is too large.');
