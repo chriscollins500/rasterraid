@@ -190,7 +190,12 @@ async function prepareClipPictures(document, clips, signal, description, modelPa
     }
     onProgress({ phase: 'sampling', done: Math.min(index + parallelClips, total), total });
   }
-  if (!sample.length) throw new Error('The loaded clips could not be sampled.');
+  if (!sample.length) {
+    const posterClips = clips.filter(clip => clip.cover).map(clip => ({ ...clip, kind: 'Video poster' }));
+    if (posterClips.length < 2) throw new Error('The loaded clips could not be sampled.');
+    const comparison = await preparePictures(document, [], posterClips, signal, description, modelPack);
+    return { comparison, posterClips };
+  }
   return { frames, comparison: { references: [], sample, description, modelPack, clipFrames: true } };
 }
 
@@ -238,12 +243,12 @@ export function createSubjectMatcher(document) {
         ? prepareClipPictures(document, sample, deadline, description, modelPack, onProgress)
         : preparePictures(document, references, sample, deadline, description, modelPack).then(comparison => ({ comparison }));
       const matches = await matchInWorker(worker, prepared.then(({ comparison }) => comparison), deadline, onProgress);
-      const { frames } = await prepared;
+      const { frames, posterClips } = await prepared;
       deadline.throwIfAborted();
       active = undefined;
       if (document.hidden) release();
       else idleTimer = setTimeout(release, idleLifetime);
-      return clipFrames ? { matches, frames } : matches;
+      return clipFrames ? { matches, frames, posterClips } : matches;
     } catch (error) {
       if (active === attempt) release();
       throw error;

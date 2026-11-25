@@ -195,6 +195,10 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     const description = clipFrames ? sceneQuery.value.trim() : selected.description;
     if (!validVisualDescription(description)) return;
     clear();
+    if (clipFrames) {
+      results.classList.add('written-scene-matches');
+      results.setAttribute('aria-label', 'Closest sampled scenes');
+    }
     const attempt = active = new AbortController();
     const downloads = new Map();
     controls();
@@ -220,7 +224,12 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         },
       });
       if (active !== attempt || selected !== current) return;
-      if (clipFrames) showWrittenScenes(matches, selected);
+      if (clipFrames && matches.posterClips) {
+        results.classList.remove('written-scene-matches');
+        results.setAttribute('aria-label', 'Closest video posters');
+        renderSubjectMatches(results, matches.posterClips, matches.matches, context);
+        status.textContent = 'Compared ' + matches.matches.length + ' video posters. This browser couldn’t read frames from these clips.';
+      } else if (clipFrames) showWrittenScenes(matches, selected);
       else {
         renderSubjectMatches(results, selected.sample, matches, context);
         status.textContent = 'Compared ' + matches.length + ' of ' + selected.sample.length + ' loaded pictures · 0 Buzz';

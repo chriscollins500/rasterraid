@@ -6,7 +6,7 @@
 
 When the developer preview says **Exact title ready**, you can open that model version while RasterRaid checks for more results.
 
-After a **Videos** search, use **Find a scene** to compare visible frames with a description. Play near a matched time or get a free quote for a Deep Search frame review. The description stays in your browser.
+After a **Videos** search, use **Find a scene** to compare visible frames with a description. Play near a matched time or get a free quote for a Deep Search frame review. If the browser can only read the posters, RasterRaid ranks those and links to the clips. The description stays in your browser.
 
 Use **Add a picture** for visual comparisons. A public Civitai link opens its exact item. **Check recorded settings** shows the published references for a picture or clip. Paste two public media links to compare their settings.
 
