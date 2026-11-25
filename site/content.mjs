@@ -103,6 +103,7 @@ export const pages = [
 <aside class="callout"><strong>Opening the preview</strong><p>RasterRaid runs inside Civitai. Developer previews are available to the app author. Sign in on the same domain as the preview you open.</p>${previewLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
 ${sectionHeading('search-a-brief', 'Search from a few words')}
 <ol><li>Type a model name, describe what you’re looking for, or select an example.</li><li>Use <strong>Search areas</strong> to focus on models, pictures, clips, guides or another part of Civitai.</li><li>Open <strong>Filter &amp; sort</strong> for choices appropriate to that area. Search again when you’re ready.</li></ol>
+<p>In current source builds, <strong>Check model filters</strong> appears when a filtered model search returns few results. It samples one filter change at a time. Choose a change to search again, or return to the original filters.</p>
 <div class="examples"><p>Try <code>DreamShaper 8</code>, <code>pictures of ginger cats in a rainy window</code>, or <code>guides for ComfyUI workflows</code>.</p></div>
 ${sectionHeading('search-a-picture', 'Search from a picture or clip')}
 <p>Choose <strong>Add a picture</strong> or paste a public Civitai media link. In the visual comparison, focus on the whole picture or a selected detail. Choose the palette, lighting, layout or texture you want to match or avoid. Eligible clip results open close to the matched moment.</p>

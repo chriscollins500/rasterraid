@@ -5,6 +5,7 @@ import { catalogPause } from './catalog.mjs';
 import { runHostProbe, HOST_PROBES } from './probe.mjs';
 import { discover, hashLookupNote, readModelPage, readRecordedVersions } from './search.mjs';
 import { showModelHandoff } from './model-handoff.js';
+import { configureModelFilterReview } from './model-filter-review.js';
 import { catalogSearchText, civitaiDownloadReference, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelFilterValues } from './model-access.mjs';
 import { readNativeModelSearch } from './native-model-search.mjs';
 import { suggestedCatalogSearch } from './search-intent.mjs';
@@ -64,6 +65,7 @@ const retryButton = byId('retry-catalog-search');
 const searchStatus = byId('search-status');
 const resultArea = byId('results');
 const resultFilters = byId('result-filters');
+const modelFilterPanel = byId('model-filter-review');
 const workbench = byId('workbench');
 const resultsTitle = byId('results-title');
 const resultsJump = byId('results-jump');
@@ -150,7 +152,8 @@ function paintSearchPath() {
   if (!returnToSearch.hidden) {
     const label = previous.state.result.target.kind === 'text' && previous.state.filters.query;
     const title = label || previous.title;
-    returnToSearch.textContent = title ? 'Back to “' + (title.length > 72 ? title.slice(0, 71) + '…' : title) + '”' : 'Back to previous results';
+    returnToSearch.textContent = previous.filtersChanged ? 'Back to original filters'
+      : title ? 'Back to “' + (title.length > 72 ? title.slice(0, 71) + '…' : title) + '”' : 'Back to previous results';
     returnToSearch.setAttribute('aria-label', returnToSearch.textContent);
   }
 }
@@ -278,6 +281,7 @@ function clearSearchResults(current) {
   search = undefined;
   subjectComparison.show(null, current);
   retryButton.hidden = true;
+  modelFilterReview.show(null);
   searchTrail.length = 0;
   paintSearchPath();
   compareDialog.close();
@@ -299,6 +303,7 @@ function clearSearchResults(current) {
 }
 
 function setSearchBusy(busy, restore = searchButton) {
+  modelFilterReview.setBusy(busy);
   subjectComparison.setSearchBusy(busy);
   form.toggleAttribute('data-searching', busy);
   byId('open-search-areas').disabled = busy;
@@ -319,6 +324,20 @@ function setSearchBusy(busy, restore = searchButton) {
 }
 
 const filterControls = createFilterControls(form, () => context);
+const modelFilterReview = configureModelFilterReview(document, {
+  getContext: () => context,
+  async onApply(prior, filters, control) {
+    if (control.hasAttribute('aria-disabled') || activeSearch || addingSearchPicture) return;
+    const stillCurrent = () => control.isConnected && search === prior && context === prior.context && !activeSearch && !addingSearchPicture;
+    const checked = await checkReplayFilters(control, filters, stillCurrent);
+    if (!checked) return;
+    if (checked.retired) {
+      searchStatus.textContent = 'Civitai removed the filter “' + checked.retired + '”. Choose a current filter to continue.';
+      return;
+    }
+    rerunSearch(filters, control);
+  },
+});
 const updateButtonLayout = configureSearchButtons(window, selectSearchArea);
 const cropEditor = createVisualCropEditor(document);
 const subjectComparison = configureSubjectComparison(document, renderResearch);
@@ -374,7 +393,9 @@ function refreshScenes() {
 }
 function rerunSearch(filters, trigger = searchButton, savedSearch) {
   if (!context || activeSearch) return false;
-  const branch = [reportThisSearch, exploreGalleryRelease].includes(trigger) ? resultBranch(filters.scope) : undefined;
+  const filtersChanged = modelFilterPanel.contains(trigger);
+  const branch = filtersChanged || [reportThisSearch, exploreGalleryRelease].includes(trigger) ? resultBranch(filters.scope) : undefined;
+  if (branch && filtersChanged) branch.filtersChanged = true;
   selectedMediaTag = isGalleryScope(filters.scope) ? tagRecord(filters.selectedMediaTag) ?? undefined : undefined;
   upgradeDraft = upgradeForSearch(filters);
   scope.value = filters.scope;
@@ -445,7 +466,10 @@ watchHost(window, update => {
   if (context && (identityChanged || visibilityReduced || collectionAccessLost ||
       context.origin !== update.origin || update.connectionLost && !context.connectionLost)) subjectComparison.release();
   context = update;
-  if (search?.context !== update) retryButton.hidden = true;
+  if (search?.context !== update) {
+    retryButton.hidden = true;
+    modelFilterReview.show(null);
+  }
   if (searchTrail.length && searchTrail.at(-1).state.context !== update) {
     searchTrail.length = 0;
     paintSearchPath();
@@ -875,6 +899,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
   if (result.nativeModelExclusions) parts.push('Word exclusions apply in RasterRaid.');
   if (catalogFailure && !pause) parts.push('Some Civitai sources could not be checked.');
   byId('result-note').textContent = parts.join(' ');
+  modelFilterReview.show(search);
   const coverage = byId('quick-coverage');
   const quick = result.quickCatalog;
   coverage.hidden = !quick;
@@ -1788,7 +1813,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       }
       searchStatus.textContent = summary;
     }
-    if (compose || trigger === reportThisSearch || retryFocused && retryButton.hidden ||
+    if (compose || trigger === reportThisSearch || branch?.filtersChanged || retryFocused && retryButton.hidden ||
         filters.reportType === 'publicWork' && trigger === byId('open-workspace') ||
         fromResults && (!trigger.isConnected || trigger.hidden) && document.activeElement === document.body) resultsTitle.focus();
     workspace.remember(current, result, filters);
