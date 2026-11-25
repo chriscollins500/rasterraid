@@ -11,6 +11,7 @@ export const previewFiles = Object.freeze({
   '/src/probe.mjs': 'text/javascript; charset=utf-8',
   '/src/search.mjs': 'text/javascript; charset=utf-8',
   '/src/search-intent.mjs': 'text/javascript; charset=utf-8',
+  '/src/model-brief.mjs': 'text/javascript; charset=utf-8',
   '/src/model-access.mjs': 'text/javascript; charset=utf-8',
   '/src/model-usage.mjs': 'text/javascript; charset=utf-8',
   '/src/native-model-search.mjs': 'text/javascript; charset=utf-8',

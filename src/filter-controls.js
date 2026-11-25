@@ -7,6 +7,7 @@ import { appCategoryLabel } from './app-store.mjs';
 import { aiServiceLabel } from './ai-services.mjs';
 import { filterOptions } from './filter-options.mjs';
 import { quickSearchIntent, suggestedCatalogSearch } from './search-intent.mjs';
+import { compileModelBrief, looksLikeModelBrief, mergeModelBriefFilters } from './model-brief.mjs';
 import { FILTER_REFRESH_MS, applyFilterChoices, fetchFilterMetadata, toolFilterChoices } from './filter-sources.mjs';
 import { galleryBaseModels, galleryCreator, galleryCreatorPattern, gallerySourceFilters, galleryTagIds, isGalleryScope, isVisualGalleryScope } from './gallery.mjs';
 import { leaderboardMatches, leaderboardNames } from './leaderboards.mjs';
@@ -45,6 +46,8 @@ const aiServiceChoices = [
   ['serviceState', 'Any status'], ['serviceTag', 'Any tag'],
 ];
 const galleryPeriodLabels = { Day: 'Past day', Week: 'Past week', Month: 'Past month', Year: 'Past year' };
+const modelBriefLabels = { baseModel: 'base model', resourceType: 'model type', modelAuthor: 'creator', fileFormat: 'file format',
+  downloadAccess: 'download access', supportsGeneration: 'generation support', exclude: 'excluded words' };
 
 function option(value, label = value) {
   const node = element('option', label);
@@ -231,24 +234,51 @@ export function createFilterControls(form, getContext) {
     return null;
   }
 
+  function catalogSuggestion(action = searchAction()) {
+    if (action) return null;
+    const modelSearch = ['all', 'models'].includes(scope.value);
+    const brief = modelSearch && compileModelBrief(query.value, {
+      bases: available.baseModels, types: available.modelTypes.map(value => ({ value, label: modelTypeLabel(value) })),
+      formats: selectValues(form.elements.fileFormat),
+    });
+    if (brief) {
+      const selected = Object.fromEntries(new FormData(form));
+      for (const facet of [baseFacet, typeFacet]) {
+        const draft = facet.input.value.trim();
+        const value = modelChoice(facet, draft);
+        if (draft && !value) return { conflict: facet.input.name };
+        selected[facet.input.name] = modelFilterParam([...facet.selected, value]);
+      }
+      const combined = mergeModelBriefFilters(brief.filters, selected);
+      if (combined.conflict) return combined;
+      const filters = combined.filters;
+      const details = [modelFilterValues(filters.baseModel).join(' or '), modelFilterValues(filters.resourceType).map(modelTypeLabel).join(' or '),
+        filters.modelAuthor && 'By @' + filters.modelAuthor, filters.fileFormat, modelDownloadFilter(filters.downloadAccess)?.label,
+        filters.supportsGeneration === 'true' && 'Supports Civitai generation', filters.exclude && 'Exclude ' + filters.exclude].filter(Boolean);
+      return { scope: 'models', label: 'Search models with these filters', query: brief.query, filters, details };
+    }
+    return scope.value === 'all' ? suggestedCatalogSearch(query.value) : null;
+  }
+
   function paintSearchAction() {
     const action = searchAction();
-    const suggestion = !action && scope.value === 'all' ? suggestedCatalogSearch(query.value) : null;
+    const suggestion = catalogSuggestion(action);
     const label = byId('search-label');
     const alternate = byId('search-as-typed');
     const announcement = byId('search-action-announcement');
     const suggestionButton = byId('search-suggestion');
     const submitLabel = action?.label ?? (query.disabled ? 'Show options' : scope.value === 'report' ? 'Build free report' : 'Search free');
-    const hint = action?.picture ? 'Using your picture as a reference' : action?.reportType ? 'Free research report' : '';
+    const hint = action?.picture ? 'Using your picture as a reference' : action?.reportType ? 'Free research report' :
+      suggestion?.conflict ? 'Review ' + modelBriefLabels[suggestion.conflict] + ' in Filter & sort to use these search words.' : '';
     if (label.textContent !== submitLabel) label.textContent = submitLabel;
     if (announcement.textContent !== hint) announcement.textContent = hint;
     alternate.hidden = !action?.literal;
     form.toggleAttribute('data-with-picture', Boolean(action?.picture));
     const alternateLabel = action?.picture ? query.value.trim() ? 'Use words only' : 'Browse without reference' : 'Search as typed';
     if (alternate.textContent !== alternateLabel) alternate.textContent = alternateLabel;
-    suggestionButton.hidden = !suggestion;
-    if (suggestion) {
-      const subject = 'for “' + suggestion.query + '”';
+    suggestionButton.hidden = !suggestion?.label;
+    if (suggestion?.label) {
+      const subject = ['for “' + suggestion.query + '”', ...(suggestion.details ?? [])].join(' · ');
       const title = byId('search-suggestion-label');
       const preview = byId('search-suggestion-query');
       if (title.textContent !== suggestion.label) title.textContent = suggestion.label;
@@ -614,6 +644,7 @@ export function createFilterControls(form, getContext) {
   form.addEventListener('input', event => {
     if ([baseModel, resourceType, usageFacet.input, mediaBaseInput, mediaCreator].includes(event.target)) event.target.setCustomValidity('');
     sync();
+    if (event.target === query && !event.isComposing && ['all', 'models'].includes(scope.value) && looksLikeModelBrief(query.value)) void refresh();
   });
   form.addEventListener('change', sync);
   panel.addEventListener('toggle', () => { paintChips(); if (panel.open) refresh(); });
@@ -631,7 +662,7 @@ export function createFilterControls(form, getContext) {
   });
   sync();
   return {
-    sync, readFilters, searchAction,
+    sync, readFilters, searchAction, catalogSuggestion,
     async retiredSearchFilter(filters) {
       const models = [...modelFilterValues(filters.baseModel), ...galleryBaseModels(filters.mediaBaseModels)];
       const types = modelFilterValues(filters.resourceType);
