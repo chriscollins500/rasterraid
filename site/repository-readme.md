@@ -38,8 +38,7 @@ From the expected release source, build the app and save its bundle receipt. Run
 
 ```sh
 npm run build
-npm run --silent verify:bundle > bundle.json
-npm run verify:hosted -- bundle.json /path/to/civitai
+npm run --silent verify:bundle | npm run --silent verify:hosted -- /path/to/civitai
 ```
 
 For earlier releases, pass their bundle receipt to the command from the current checkout. The check reads both Civitai submission records and public listings, compares the expected files with the serving app, and confirms the serving records again. A successful check verifies deployment identity and bundle contents. Use browser qualification for viewer access and app behavior.

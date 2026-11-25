@@ -102,7 +102,7 @@ test('a foreign launch address or inconsistent listing is recorded without follo
   assert.equal(remote.assets.matched, true);
   assert.equal(remote.verified, false);
   assert.equal(remote.hosts[1].listing.state, 'unexpected-listing');
-  assert.ok(transport.calls.every(url => !url.includes('example.org')));
+  assert.ok(transport.calls.every(url => new URL(url).hostname !== 'example.org'));
   const inconsistent = await verifyHostedBuild(receipt, fixture({ listings: origin => Response.json(origin === origins[0] ? listed :
     { ...listed, id: 'apl_0123456788' }) }));
   assert.equal(inconsistent.sameListing, false);

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 import { SITE_ORIGINS } from '../src/catalog.mjs';
 import { runCivitai } from './civitai-cli.mjs';
@@ -61,8 +61,8 @@ function retrieve(url, fetcher) {
     referrerPolicy: 'no-referrer', headers: { 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(readTimeout) });
 }
 
-async function bytesWithin(response, limit) {
-  const reader = response.body?.getReader();
+async function bytesWithin(body, limit) {
+  const reader = body?.getReader();
   if (!reader) return Buffer.alloc(0);
   const chunks = [];
   let bytes = 0;
@@ -89,7 +89,7 @@ async function publicListing(origin, app, fetcher) {
       await response.body?.cancel();
       return { http: response.status, state: response.status === 404 ? 'unlisted' : 'unavailable' };
     }
-    const data = JSON.parse(await bytesWithin(response, 262_144));
+    const data = JSON.parse(await bytesWithin(response.body, 262_144));
     const id = matches(data?.id, /^apl_[a-z\d]{8,64}$/iu) ? data.id : null;
     const runtime = canonicalRuntime(app, data?.kindData?.liveUrl);
     if (id && data.slug === app && data.kind === 'onsite' && data.kindData?.hasPage === true && runtime) {
@@ -109,7 +109,7 @@ async function readAsset(asset, runtime, fetcher) {
       await response.body?.cancel();
       return { path: asset.path, issue: 'http', http: response.status };
     }
-    const bytes = await bytesWithin(response, asset.bytes);
+    const bytes = await bytesWithin(response.body, asset.bytes);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     if (bytes.length !== asset.bytes || sha256 !== asset.sha256) {
       return { path: asset.path, issue: 'asset-mismatch', bytes: bytes.length, sha256 };
@@ -160,9 +160,9 @@ export async function verifyHostedBuild(receipt, { cli, fetcher = fetch, readSta
 }
 
 async function main() {
-  const [receiptPath, cli, extra] = process.argv.slice(2);
-  if (!receiptPath || extra) throw new TypeError('Pass a verified bundle JSON path and, optionally, the installed Civitai CLI path.');
-  const input = await readFile(receiptPath, 'utf8');
+  const [cli, extra] = process.argv.slice(2);
+  if (process.stdin.isTTY || extra) throw new TypeError('Pipe in the verified bundle JSON. The installed Civitai CLI path is optional.');
+  const input = await bytesWithin(Readable.toWeb(process.stdin), 262_144);
   let receipt;
   try {
     receipt = JSON.parse(input);
