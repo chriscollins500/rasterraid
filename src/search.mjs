@@ -19,7 +19,7 @@ import { discoverLibrary, libraryReference, libraryScopes } from './library.mjs'
 import { catalogWords, foldSearchText, searchTerms as terms, searchWords as words, translateCatalogTerms, translateOnDevice } from './query-language.mjs';
 import { correctSpelling, editDistance, protectedReference, searchStarts } from './text-assist.mjs';
 import { personalModelOrder } from './preferences.mjs';
-import { orderModelRelevance } from './model-reranker.mjs';
+import { orderModelRelevance, rankDistinctModelFiles } from './model-reranker.mjs';
 import { civitaiDownloadReference, matchesModelDownload, modelChoiceKey, modelCreatorName, modelDownloadFilter, modelFilterParam, modelFilterValues,
   modelVersionDownload } from './model-access.mjs';
 import { nativeModelSearchLink } from './native-model-search.mjs';
@@ -180,6 +180,7 @@ function modelVersions(model) {
   const usage = modelUsage(model);
   return model.modelVersions.flatMap(version => {
     if (!numericId(version?.id)) return [];
+    const files = Array.isArray(version.files) ? version.files.map(publicFile).filter(Boolean).slice(0, 24) : [];
     return [{
       id: version.id,
       modelId: model.id,
@@ -192,7 +193,9 @@ function modelVersions(model) {
       formats: version.selectedFile ? [version.selectedFile.format].filter(Boolean)
         : version.matchingFiles ? version.matchingFiles.map(file => file.format).filter(Boolean)
         : Array.isArray(version.files) ? version.files.map(file => text(file?.metadata?.format, 40)).filter(Boolean) : [],
-      files: Array.isArray(version.files) ? version.files.map(publicFile).filter(Boolean).slice(0, 24) : [],
+      files,
+      ...(files.length > 0 && files.length === version.files.length && files.every(file => file.fileType && file.sha256) &&
+        { completeFileHashes: true }),
       publishedAt: typeof version.publishedAt === 'string' && Number.isFinite(Date.parse(version.publishedAt)) ? version.publishedAt : null,
       availability: text(version.availability, 40),
       publiclyListed: isPublished(model) && isPublished(version) && model.mode !== 'TakenDown',
@@ -1321,7 +1324,8 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   const catalogOrder = rankVersions(rankingLists, rankQuery, filters, canPage ? Number.POSITIVE_INFINITY : resultLimit,
     ['model', 'image', 'hash'].includes(target.kind));
   const standardOrder = preferenceEligible && rankModelEvidence
-    ? orderModelRelevance(catalogOrder, rankQuery, { alternateQueries: [...alternateQueries] }) : catalogOrder;
+    ? rankDistinctModelFiles(orderModelRelevance(catalogOrder, rankQuery, { alternateQueries: [...alternateQueries] }), modelPageSize)
+    : catalogOrder;
   const ranked = (preferenceMode ? personalModelOrder(standardOrder.slice(0, modelPageSize + 1), preferences, ceiling) : standardOrder)
     .slice(0, catalogOnly && canPage ? 12 : resultLimit);
   const candidates = modelCards(ranked, origin, ceiling);

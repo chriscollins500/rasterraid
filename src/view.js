@@ -247,6 +247,12 @@ function modelCard(candidate, context, chosen, toggle, eager, loadingDetails, fe
   if (candidate.downloadAccess === 'free') facts.append(element('p', download));
   if (candidate.desc) facts.append(element('p', candidate.desc));
   if (candidate.matchedCatalogTerms?.length) facts.append(element('p', 'Matches your search · ' + candidate.matchedCatalogTerms.join(', ')));
+  if (candidate.sameDownloadAs) {
+    const { modelId, id } = candidate.sameDownloadAs;
+    const fileMatch = element('p', 'Civitai lists the same download file checksums for ');
+    fileMatch.append(sourceLink(new URL('/models/' + modelId + '?modelVersionId=' + id, context.origin).href, 'version #' + id, context));
+    facts.append(fileMatch);
+  }
   if (candidate.triggers?.length) facts.append(element('p', 'Prompt words to try · ' + candidate.triggers.join(', ')));
   if (candidate.formats.length) facts.append(element('p', 'File formats · ' + [...new Set(candidate.formats)].join(', ')));
   const usage = listedCreatorTerms(candidate.usage);

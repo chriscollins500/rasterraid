@@ -86,3 +86,46 @@ export function orderModelRelevance(candidates, query, { alternateQueries = [], 
   }),
     ...candidates.slice(featured.length)];
 }
+
+const maximumPromotion = 3;
+
+function modelFileSignature(candidate) {
+  const { model, creator, base, type, version, usage } = candidate;
+  if (!candidate.publiclyListed || candidate.downloadAccess !== 'free' || !candidate.completeFileHashes ||
+      !model || !creator || !base || !type || !version) return null;
+  const normalize = value => value.normalize('NFKC').toLowerCase();
+  const files = candidate.files.map(file => JSON.stringify([file.fileType, file.sha256.toLowerCase()])).sort();
+  return JSON.stringify([normalize(model), normalize(creator), normalize(base), normalize(type), normalize(version),
+    candidate.checkpointRole, candidate.generationListed, usage?.creditOptional, usage?.derivatives, usage?.differentLicense,
+    usage?.commercial?.toSorted(), files]);
+}
+
+export function rankDistinctModelFiles(candidates, pageSize) {
+  const prefix = candidates.slice(0, pageSize + maximumPromotion).map((candidate, originalIndex) =>
+    ({ candidate, originalIndex, signature: modelFileSignature(candidate) }));
+  const shown = new Map();
+  let changed = false;
+  for (let index = 0; index < Math.min(pageSize, prefix.length); index++) {
+    const entry = prefix[index];
+    if (!entry.signature) continue;
+    const prior = shown.get(entry.signature);
+    if (!prior) {
+      shown.set(entry.signature, entry.candidate);
+      continue;
+    }
+    if (entry.candidate.nameMatch) continue;
+    for (let next = index + 1; next < prefix.length; next++) {
+      const alternative = prefix[next];
+      if (alternative.originalIndex > index + maximumPromotion || alternative.candidate.nameMatch) break;
+      if (!alternative.signature || shown.has(alternative.signature) || alternative.candidate.match !== 1 ||
+          catalogStrength(alternative.candidate) < .8 * catalogStrength(entry.candidate)) continue;
+      entry.candidate = { ...entry.candidate, sameDownloadAs: { modelId: prior.modelId, id: prior.id } };
+      prefix.splice(next, 1);
+      prefix.splice(index, 0, alternative);
+      shown.set(alternative.signature, alternative.candidate);
+      changed = true;
+      break;
+    }
+  }
+  return changed ? [...prefix.map(({ candidate }) => candidate), ...candidates.slice(prefix.length)] : candidates;
+}
