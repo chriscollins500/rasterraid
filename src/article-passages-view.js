@@ -31,9 +31,13 @@ function passageCard(row, context, onFollow) {
   quote.append(row.excerpt.slice(position));
   if (byline) copy.append(element('p', byline, 'article-passage-byline'));
   const actions = element('div', null, 'article-passage-actions');
-  const source = sourceLink(anchor, row.sectionLink ? 'Jump to section ↗' : 'Open article ↗', context);
-  source.setAttribute('aria-label', row.sectionLink ? 'Jump to ' + row.heading + ' in ' + row.title + ' on Civitai'
-    : 'Open ' + row.title + ' on Civitai');
+  const label = row.sectionLink ? 'Jump to section' : 'Open article';
+  const source = sourceLink(anchor, label, context);
+  const arrow = element('span', ' ↗');
+  arrow.setAttribute('aria-hidden', 'true');
+  source.append(arrow);
+  const destination = row.sectionLink ? row.heading + ' in ' + row.title : row.title;
+  source.setAttribute('aria-label', label + ' · ' + destination + ' on Civitai');
   const follow = element('button', 'Follow guide links', 'chip');
   follow.type = 'button';
   follow.addEventListener('click', () => onFollow(row.articleLink));
