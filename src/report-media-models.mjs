@@ -8,6 +8,9 @@ const linkLimit = 4;
 const validVersion = value => numericId(value) && value <= 2_147_483_647;
 const knownReferences = ({ item }) => item.modelReferencesChecked || item.recorded?.length;
 
+export const recordedAcrossPosts = 'recorded-across-posts';
+export const recordedPostLabel = count => 'Published metadata names this version in examples from ' + count + ' different posts';
+
 export async function readReportMediaReferences(context, rows, cardLimit, { signal, fetcher, onRead }) {
   const models = rows.find(row => row.scope === 'models');
   if (!context.hosted || !models || models.result?.flows?.some(flow => flow.status === 429)) return null;
@@ -16,9 +19,10 @@ export async function readReportMediaReferences(context, rows, cardLimit, { sign
   for (const row of rows) {
     const { scope, result } = row;
     if (!['gallery', 'videos'].includes(scope)) continue;
+    const visible = new Set(row.items.slice(0, cardLimit).map(item => item.link));
     const previews = (result?.related[scope] ?? []).slice(0, cardLimit).filter(item =>
       numericId(item.id) && !item.audio && Boolean(item.video) === (scope === 'videos') &&
-      item.link === new URL('/images/' + item.id, context.origin).href && (item.preview || item.stream));
+      item.link === new URL('/images/' + item.id, context.origin).href && visible.has(item.link) && (item.preview || item.stream));
     for (const [rank, item] of sampleMediaByPost(previews, previewLimit).entries()) samples.set(item.id, { item, rank });
   }
   if (!samples.size) return null;
@@ -54,23 +58,24 @@ export async function traceReportMediaModels(context, checked, posts, modelFilte
   }
   const byPost = new Map((posts?.result?.related.posts ?? []).slice(0, cardLimit).map(post => [post.id, post]));
   for (const { item, rank } of checked.samples) {
+    const postId = numericId(item.postId);
     for (const id of (item.recorded ?? []).slice(0, 12)) record(id, {
-      kind: 'recorded', label: 'This example records the exact model version', first: item.link, video: item.video, score: 12 - rank,
+      kind: 'recorded', label: 'This example records the exact model version', first: item.link, postId, video: item.video, score: 12 - rank,
     });
     for (const id of (item.associated ?? []).slice(0, 12)) record(id, {
-      kind: 'catalog', label: 'Civitai links this example to the model version', first: item.link, video: item.video, score: 6 - rank,
+      kind: 'catalog', label: 'Civitai links this example to the model version', first: item.link, postId, video: item.video, score: 6 - rank,
     });
     const release = item.exampleSource;
     if (validVersion(release?.versionId) && numericId(release.modelId) && release.link ===
         new URL('/models/' + release.modelId + '?modelVersionId=' + release.versionId, context.origin).href) {
       record(release.versionId, { kind: 'catalog', label: 'Civitai lists this example for the exact release', first: item.link,
-        video: item.video, score: 6 - rank });
+        postId, video: item.video, score: 6 - rank });
     }
     const post = byPost.get(item.postId);
     if (post?.link === new URL('/posts/' + item.postId, context.origin).href &&
         (post.verifiedMediaIds?.includes(item.id) || post.previews?.some(preview => preview.id === item.id && preview.postId === post.id))) {
       record(post.modelVersionId, { kind: 'post-model', label: 'The post lists this exact model version', first: post.link,
-        mediaLink: item.link, score: 3 - rank });
+        postId, mediaLink: item.link, score: 3 - rank });
     }
   }
 
@@ -79,8 +84,15 @@ export async function traceReportMediaModels(context, checked, posts, modelFilte
   const known = new Map(direct.map(item => [item.id, item]));
   const ranked = [...leads.entries()].map(([id, matches]) => {
     const edges = [...matches.values()].sort((a, b) => b.score - a.score);
-    return { id, edges, recorded: edges.some(edge => edge.kind === 'recorded'), score: edges.reduce((total, edge) => total + edge.score, 0) };
-  }).sort((a, b) => Number(b.recorded) - Number(a.recorded) || b.score - a.score);
+    const scoreByPost = new Map();
+    const exampleByPost = new Map();
+    for (const edge of edges) {
+      if (!scoreByPost.has(edge.postId)) scoreByPost.set(edge.postId, edge.score);
+      if (edge.kind === 'recorded' && edge.postId && !exampleByPost.has(edge.postId)) exampleByPost.set(edge.postId, edge.first);
+    }
+    return { id, edges, recorded: edges.some(edge => edge.kind === 'recorded'), examples: [...exampleByPost.values()],
+      score: [...scoreByPost.values()].reduce((total, score) => total + score, 0) };
+  }).sort((a, b) => Number(b.recorded) - Number(a.recorded) || b.examples.length - a.examples.length || b.score - a.score);
   const linked = ranked.filter(lead => !inResults.has(lead.id));
   const ids = linked.filter(lead => !known.has(lead.id)).slice(0, versionLookupLimit).map(lead => lead.id);
   let partial = checked.partial;
@@ -104,13 +116,21 @@ export async function traceReportMediaModels(context, checked, posts, modelFilte
   }
   const extras = linked.filter(lead => known.has(lead.id)).slice(0, additionalModels);
   const ordered = [...extras, ...ranked.filter(lead => inResults.has(lead.id))];
+  const repeated = ordered.filter(lead => lead.examples.length > 1).slice(0, 2).map(lead => ({
+    kind: recordedAcrossPosts,
+    label: recordedPostLabel(lead.examples.length),
+    links: [known.get(lead.id).link, ...lead.examples],
+  }));
+  const linksInRepeated = new Map(repeated.map(edge => [edge.links[0], new Set(edge.links.slice(1))]));
   const edges = ordered.flatMap(lead => {
     const version = known.get(lead.id);
-    const post = lead.edges.find(edge => edge.kind === 'post-model');
-    const first = post ? lead.edges.find(edge => edge.first === post.mediaLink) ?? lead.edges.find(edge => edge !== post) : lead.edges[0];
-    const second = post ?? lead.edges.find(edge => edge.video !== first.video) ?? lead.edges[1];
-    return [first, second].filter(Boolean).map(({ score, mediaLink, video, ...edge }) => ({ ...edge, second: version.link }));
+    const found = linksInRepeated.get(version.link);
+    const edges = found ? lead.edges.filter(edge => !found.has(edge.first)) : lead.edges;
+    const post = edges.find(edge => edge.kind === 'post-model');
+    const first = post ? edges.find(edge => edge.first === post.mediaLink) ?? edges.find(edge => edge !== post) : edges[0];
+    const second = post ?? edges.find(edge => edge.video !== first?.video) ?? edges[1];
+    return [first, second].filter(Boolean).map(({ kind, label, first }) => ({ kind, label, first, second: version.link }));
   }).slice(0, linkLimit);
   return { candidates: extras.map(lead => ({ ...known.get(lead.id), linkedFromReportPreview: true })),
-    edges, checkedPreviews: checked.samples.length, partial };
+    edges: [...repeated, ...edges], checkedPreviews: checked.samples.length, partial };
 }

@@ -11,7 +11,7 @@ import { readUpgradeEvidence, upgradeFacts, upgradeForSearch, upgradeGuideLabel,
 import { GROUPS, resultGroups } from './view.js';
 import { foldSearchText } from './query-language.mjs';
 import { releaseSampleCoverage, traceReleaseMedia } from './release-trail.mjs';
-import { readReportMediaReferences, traceReportMediaModels } from './report-media-models.mjs';
+import { readReportMediaReferences, recordedAcrossPosts, traceReportMediaModels } from './report-media-models.mjs';
 import { exampleModelFacts, exampleVersionLimit, unlinkedUseLabel, verifiedExampleSetup } from './gallery-setup.mjs';
 import { creatorBrief, creatorEdges, creatorReportSources, publicWorkSources, readCreatorTrail, readPublicWork } from './creator-trail.mjs';
 import { exampleComparisonSources, examplePairIds, exampleSide, exampleVersionUse, readExampleComparison } from './example-comparison.mjs';
@@ -134,16 +134,28 @@ export function referenceFileFacts(item) {
 
 function connectionsFor(candidates, related, evidence, origin, verifiedEdges, limit = 8) {
   const connections = new Map();
+  const groupedPairs = new Set();
   const byLink = new Map(evidence.map(item => [item.link, item]));
   const media = new Map(['gallery', 'videos', 'audio', 'audioExamples', 'postMedia', 'topicImages']
     .flatMap(group => related[group] ?? []).map(item => [item.id, item]));
   const versions = new Map(candidates.map(candidate => [candidate.id, candidate]));
-  function add(kind, label, first, second) {
-    if (first === second || connections.size >= limit || !byLink.has(first) || !byLink.has(second)) return;
-    const pair = [first, second].sort().join('|');
-    if (!connections.has(pair)) connections.set(pair, { kind, label, items: [byLink.get(first), byLink.get(second)] });
+  function add(kind, label, ...links) {
+    if (links.length < 2 || new Set(links).size !== links.length || connections.size >= limit ||
+        !links.every(link => byLink.has(link))) return;
+    const key = links.toSorted().join('|');
+    if (connections.has(key) || groupedPairs.has(key)) return;
+    const items = links.map(link => byLink.get(link));
+    if (kind === recordedAcrossPosts) {
+      for (const [index, link] of links.entries()) {
+        if (!index) continue;
+        groupedPairs.add([links[0], link].sort().join('|'));
+        const mediaId = new URL(link).pathname.split('/').at(-1);
+        items[index] = { ...items[index], title: items[index].title + ' · #' + mediaId };
+      }
+    }
+    connections.set(key, { kind, label, items });
   }
-  for (const { kind, label, first, second } of verifiedEdges) add(kind, label, first, second);
+  for (const { kind, label, first, second, links } of verifiedEdges) add(kind, label, ...(links ?? [first, second]));
   for (const candidate of candidates) {
     for (const image of candidate.examples ?? []) {
       const match = media.get(image.id);
