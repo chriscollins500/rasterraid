@@ -623,11 +623,125 @@ test('retry review and confirmation check again for the accepted workflow', asyn
   }
 });
 
+async function lostHistoryRun() {
+  const requests = [];
+  const reads = [];
+  const cursors = [];
+  const journal = memoryJournal();
+  const now = () => 1000;
+  let accepted;
+  const backend = simulation(now, (route, _input, reply) => {
+    requests.push(route.split('/').at(-1));
+    if (!route.endsWith('/submit')) return;
+    accepted = reply.body.snapshot;
+    throw new Error('Response lost');
+  });
+  const history = {
+    rows: cursor => ({ ids: cursor ? ['second-match'] : [accepted.workflowId, ...Array.from({ length: 8 }, (_, index) => 'other-' + index)],
+      cursor: cursor ? null : 'second-page' }),
+    status: (id, reply) => id.startsWith('other-') ? { ...reply, steps: [] } : reply,
+  };
+  const client = { ...backend,
+    async list({ cursor, limit }) {
+      assert.equal(limit, 24);
+      cursors.push(cursor);
+      const page = history.rows(cursor);
+      return { cursor: page.cursor, workflows: page.ids.map(workflowId => ({ workflowId, createdAt: now(), status: 'pending' })) };
+    },
+    async inspect(id) {
+      reads.push(id);
+      return history.status(id, { ...structuredClone(accepted), workflowId: id });
+    },
+  };
+  const session = createWorkflowSession({ client, journal, origin, now, browsingLevel: 3 });
+  await session.prepare(plan, sources);
+  await assert.rejects(session.confirm(), /Response lost/u);
+  return { session, journal, history, firstId: accepted.workflowId, requests, reads, cursors };
+}
+
+test('recovery waits for the rest of the history before accepting an early match', async () => {
+  const { session, journal, firstId, requests, reads, cursors } = await lostHistoryRun();
+  await session.prepareRetry(plan);
+  assert.equal((await journal.read()).status, 'unknown');
+  assert.equal(session.state().quote, null);
+  assert.equal(session.state().recoveryContinuing, true);
+  assert.equal(session.state().retryAvailable, false);
+  assert.deepEqual(reads, [firstId, ...Array.from({ length: 7 }, (_, index) => 'other-' + index)]);
+  const saved = await journal.read();
+  await journal.write({ ...saved, submissionUntil: saved.createdAt + 7000 });
+  await session.checkSavedRun();
+  assert.equal(session.state().recoveryContinuing, true);
+  await assert.rejects(session.recoverOriginal(), /multiple runs/u);
+  assert.deepEqual(cursors, [undefined, 'second-page']);
+  assert.deepEqual(reads.slice(8), ['other-7', 'second-match']);
+  assert.equal((await journal.read()).status, 'unknown');
+  assert.equal(session.state().recoveryConflict, true);
+  assert.equal(session.state().retryAvailable, false);
+  assert.deepEqual(requests, ['estimate', 'estimate', 'submit']);
+});
+
+test('a lost run discovered during retry confirmation still needs the full history check', async () => {
+  const { session, journal, history, firstId, requests, reads } = await lostHistoryRun();
+  const full = history.rows;
+  history.rows = () => ({ ids: [], cursor: null });
+  await session.prepareRetry(plan);
+  assert.equal(Boolean(session.state().quote?.retry), true);
+  history.rows = full;
+  await session.confirm();
+  assert.equal((await journal.read()).workflowId, null);
+  assert.equal(session.state().recoveryContinuing, true);
+  assert.equal(session.state().retryAvailable, false);
+  assert.equal(session.state().quote, null);
+  assert.equal(reads[0], firstId);
+  await assert.rejects(session.recoverOriginal(), /multiple runs/u);
+  assert.deepEqual(requests, ['estimate', 'estimate', 'submit', 'estimate']);
+});
+
+test('a transient failure resumes a tentative match and rechecks its current status before recording it', async () => {
+  const { session, journal, history, firstId, requests, reads } = await lostHistoryRun();
+  let failed = false;
+  history.rows = () => ({ ids: [firstId, 'other-0'], cursor: null });
+  history.status = (id, reply) => {
+    if (id === 'other-0' && !failed) {
+      failed = true;
+      throw Object.assign(new Error('Temporarily unavailable'), { status: 503 });
+    }
+    if (id === 'other-0') return { ...reply, steps: [] };
+    return failed ? { ...reply, status: 'succeeded', cost: { total: 8, authorFee: 1 } } : reply;
+  };
+  await assert.rejects(session.prepareRetry(plan), /Temporarily unavailable/u);
+  assert.equal(session.state().recoveryContinuing, true);
+  assert.equal(session.state().retryAvailable, false);
+  const original = await journal.read();
+  assert.equal(original.status, 'unknown');
+  await session.recoverOriginal();
+  const recovered = await journal.read();
+  assert.equal(recovered.workflowId, firstId);
+  assert.equal(recovered.operationId, original.operationId);
+  assert.equal(recovered.status, 'succeeded');
+  assert.equal(recovered.receipt.authorFee, 1);
+  assert.deepEqual(reads, [firstId, 'other-0', 'other-0', firstId]);
+  assert.deepEqual(requests, ['estimate', 'estimate', 'submit']);
+});
+
+test('a repeated history cursor cannot certify an earlier match as unique', async () => {
+  const { session, journal, history, firstId, requests } = await lostHistoryRun();
+  history.rows = cursor => ({ ids: cursor ? [] : [firstId], cursor: 'same-page' });
+  await assert.rejects(session.recoverOriginal(), /repeated a history page/u);
+  assert.equal((await journal.read()).workflowId, null);
+  assert.equal(session.state().retryAvailable, false);
+  assert.equal(session.state().recoveryContinuing, true);
+  history.rows = cursor => ({ ids: cursor ? [] : [firstId], cursor: cursor ? null : 'same-page' });
+  await session.recoverOriginal();
+  assert.equal((await journal.read()).workflowId, firstId);
+  assert.deepEqual(requests, ['estimate', 'estimate', 'submit']);
+});
+
 test('conflicting matches and temporary history failures keep a lost run unconfirmed', async () => {
   const journal = memoryJournal();
   let submits = 0;
   let estimates = 0;
-  let queryMode = 'duplicate';
+  let queryMode = 'throttled';
   let accepted;
   const backend = simulation(() => 2500, (route, input, reply) => {
     if (route.endsWith('/estimate')) estimates++;
@@ -645,11 +759,13 @@ test('conflicting matches and temporary history failures keep a lost run unconfi
   const session = createWorkflowSession({ client, journal, origin, now: () => 2500 });
   await session.prepare(plan, sources);
   await assert.rejects(session.confirm(), /Response lost/u);
-  await assert.rejects(session.recoverOriginal(), /multiple runs/u);
-  queryMode = 'throttled';
   await assert.rejects(session.prepareRetry(plan), /temporarily unavailable/u);
   queryMode = 'empty';
   await assert.rejects(session.recoverOriginal(), /remains unresolved/u);
+  queryMode = 'duplicate';
+  await assert.rejects(session.recoverOriginal(), /multiple runs/u);
+  assert.equal(session.state().recoveryConflict, true);
+  await assert.rejects(session.prepareRetry(plan), /no longer be retried safely/u);
   assert.equal((await journal.read()).status, 'unknown');
   assert.equal(session.state().quote, null);
   assert.equal(submits, 1);
