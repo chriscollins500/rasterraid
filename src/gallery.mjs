@@ -154,7 +154,7 @@ function mediaCard(row, requestedType, origin, ceiling, requiredTags, tags) {
     ...(video && { width: numericId(row.width), height: numericId(row.height) }),
     preview: audio || video ? mediaUrl(row.thumbnail?.url ?? row.thumbnail) : previewUrl(source),
     title: text(row.meta?.title, 96) || (creator ? kind + ' by ' + creator : 'Gallery ' + kind.toLowerCase()),
-    description: text(row.baseModel, 80),
+    description: text(row.baseModel, 100),
     tags: tags.slice(0, 8),
     link: new URL('/images/' + row.id, origin).href,
   };
@@ -276,8 +276,13 @@ async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit 
       if (exampleSource || describe || hasPublishedPrompt) Object.assign(item, extractReferenceVersions(row));
       if (exampleSource) item.exampleSource = exampleSource;
       if (describe || hasPublishedPrompt) item.modelReferencesChecked = true;
+      const metadataKnown = (params.withMeta || hasPublishedPrompt) &&
+        (row.meta === null || row.meta && typeof row.meta === 'object' && !Array.isArray(row.meta));
       const result = type === 'image' || type === 'video' ? { ...item, browsingLevel: row.browsingLevel ?? row.nsfwLevel,
-        preferenceTags: [...new Set(records.map(tag => tag.id))].slice(0, 24) } : item;
+        preferenceTags: [...new Set(records.map(tag => tag.id))].slice(0, 24),
+        createdAt: text(row.createdAt, 40),
+        ...(metadataKnown && { hasPublishedPrompt: Boolean(item.prompt) }),
+      } : item;
       if (!describe) return [result];
       return [{ item: result, tags: records, prompt: text(publishedPrompt(row), 2_400), title: text(row.meta?.title, 160) }];
     }),
