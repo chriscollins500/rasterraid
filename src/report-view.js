@@ -3,7 +3,7 @@ import { editComparisonText, editPictureSummary, editReferenceLabel, editReferen
 import { hashLookupNote } from './search.mjs';
 import { pictureIntegrityText } from './reference-provenance.mjs';
 import { element, evidenceSource, sourceLink } from './view.js';
-import { upgradeFacts, upgradeGuideLabel, upgradeStorageChange } from './upgrade-evidence.mjs';
+import { upgradeFacts, upgradeGuideLabel, upgradeMemoryComparison, upgradeStorageChange } from './upgrade-evidence.mjs';
 import { collectionTraceCoverage } from './collection-trace.mjs';
 import { releaseSampleCoverage } from './release-trail.mjs';
 import { earlierSourceStatus, reportComparisonMarkdown } from './report-checkpoint.mjs';
@@ -138,7 +138,27 @@ export function showReportExport(markdown, { title = 'Copy research report', lab
   return dialog;
 }
 
-function renderUpgrade(comparison, context) {
+function renderUpgradeMemory(memory, context) {
+  const details = element('details', null, 'setup-evidence');
+  details.open = Boolean(memory.setup);
+  details.append(element('summary', 'Compare graphics memory'));
+  if (memory.setup) details.append(element('p', memory.setup));
+  if (memory.empty) details.append(element('p', memory.empty));
+  for (const { title, link, claims } of memory.sources) {
+    const items = element('ul', null, 'report-connections');
+    for (const claim of claims) {
+      const item = element('li', null, 'report-connection upgrade-note');
+      item.append(element('strong', claim.label), element('p', claim.note));
+      if (claim.difference) item.append(element('p', claim.difference));
+      items.append(item);
+    }
+    details.append(sourceLink(link, title, context), items);
+  }
+  details.append(element('p', memory.note));
+  return details;
+}
+
+function renderUpgrade(comparison, context, graphicsMemory) {
   const section = element('section', null, 'upgrade-comparison');
   section.append(element('h4', 'Release comparison'), element('p', comparison.fit));
   const table = element('table', null, 'upgrade-table');
@@ -188,6 +208,8 @@ function renderUpgrade(comparison, context) {
   section.append(table);
   const storage = upgradeStorageChange(comparison);
   section.append(element('p', [storage, 'Loader behavior and memory use require a local test.'].filter(Boolean).join(' ')));
+  const memory = upgradeMemoryComparison(comparison, graphicsMemory);
+  if (memory) section.append(renderUpgradeMemory(memory, context));
   if (comparison.termsLink) {
     const terms = element('details');
     const descriptions = element('ul');
@@ -414,14 +436,14 @@ function renderStoryPlan(report, context, onLookup) {
   return plan;
 }
 
-export function renderReport(container, report, context, onLookup, onCompareSetup) {
+export function renderReport(container, report, context, onLookup, { onCompareSetup, graphicsMemory } = {}) {
   container.replaceChildren();
   container.hidden = !report;
   if (!report) return;
   const header = element('div', null, 'report-heading');
   const copy = element('button', 'Copy report', 'chip');
   copy.type = 'button';
-  copy.addEventListener('click', () => showReportExport(reportMarkdown(report)));
+  copy.addEventListener('click', () => showReportExport(reportMarkdown(report, graphicsMemory)));
   header.append(element('h3', 'Search summary'), copy);
   container.append(header);
   const hashNote = hashLookupNote(report.hashStatus);
@@ -500,7 +522,7 @@ export function renderReport(container, report, context, onLookup, onCompareSetu
   if (report.exampleSetup) container.append(renderExampleSetup(report.exampleSetup, context, onCompareSetup));
   if (report.exampleComparison) container.append(renderExampleComparison(report.exampleComparison, context));
   if (report.story) container.append(renderStoryPlan(report, context, onLookup));
-  if (report.upgrade) container.append(renderUpgrade(report.upgrade, context));
+  if (report.upgrade) container.append(renderUpgrade(report.upgrade, context, graphicsMemory));
   if (report.releaseSample) {
     const release = report.releaseSample;
     const panel = element('section', null, 'collection-trail');
