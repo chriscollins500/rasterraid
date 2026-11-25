@@ -1,7 +1,7 @@
 import { SITE_ORIGINS, text } from './catalog.mjs';
 import { galleryCreator, galleryCreatorPattern } from './gallery.mjs';
 
-export const modelChoiceFields = Object.freeze(['baseModel', 'resourceType']);
+export const modelChoiceFields = Object.freeze(['baseModel', 'resourceType', 'creatorUsage']);
 export const modelChoiceKey = value => text(value, 100).normalize('NFKC').toLowerCase();
 
 export function modelCreatorName(value) {

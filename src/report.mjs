@@ -3,7 +3,8 @@ import { catalogResearchItems } from './catalog-research.mjs';
 import { collectionTraceCoverage, collectionTrailSources, tracePublicCollection } from './collection-trace.mjs';
 import { followGuideReferences } from './guide-trace.mjs';
 import { hydratePosts } from './community.mjs';
-import { catalogSearchText, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelDownloadLabel, modelFilterParam } from './model-access.mjs';
+import { catalogSearchText, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelDownloadLabel, modelFilterParam, modelFilterValues } from './model-access.mjs';
+import { matchesModelUse, modelUseLabel } from './model-usage.mjs';
 import { discover, galleryModelSources, hashLookupNote, readRecordedVersions, searchTarget } from './search.mjs';
 import { describeReferenceEdits, editVerificationPriorities, pictureIntegrityText, recordedReferenceLimit, recordedReferencePlan, studioAuditReport,
   studioEditSession } from './reference-provenance.mjs';
@@ -49,10 +50,10 @@ const cardLimit = 5;
 const reportPostLinks = 2;
 const limitedSources = new Set(['reviews', 'comments', 'hubs', 'challenges', 'crucibles', 'storylines',
   'services', 'auctions', 'prizes', 'leaderboards', 'marketplace', 'assets3d']);
-const modelFields = ['category', 'modelAuthor', 'baseModel', 'resourceType', 'checkpointType', 'fileFormat', 'downloadAccess', 'exclude', 'sort', 'period',
+const modelFields = ['category', 'modelAuthor', 'baseModel', 'resourceType', 'checkpointType', 'fileFormat', 'downloadAccess', 'creatorUsage', 'exclude', 'sort', 'period',
   'supportsGeneration', 'fromPlatform'];
 export const releaseModelFields = new Set(['category', 'modelAuthor', 'baseModel', 'resourceType', 'checkpointType', 'fileFormat', 'downloadAccess',
-  'exclude', 'supportsGeneration']);
+  'creatorUsage', 'exclude', 'supportsGeneration']);
 
 export function reportSettings(type, sources) {
   const selected = Object.hasOwn(reportTypes, type) ? reportTypes[type] : reportTypes.style;
@@ -101,6 +102,7 @@ function modelEvidence(candidate, origin) {
     candidate.creator && 'by ' + text(candidate.creator, 80), text(candidate.desc, 180),
     candidate.linkedFromReportPreview && 'Linked from a report preview',
     candidate.downloadAccess !== 'free' && modelDownloadLabel(candidate), candidate.listingOnSale && 'Civitai lists a sale on this model'].filter(Boolean);
+  if (candidate.usageMatches?.length) facts.push('Creator usage settings · ' + candidate.usageMatches.join(' and '));
   for (const file of candidate.savedFiles ?? candidate.matchingFiles ?? [candidate.selectedFile]) {
     if (numericId(file?.id)) facts.push('File #' + file.id);
   }
@@ -429,7 +431,8 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
         : matching.length ? 'ready' : nativeLink ? 'native' : 'empty';
     return { scope, label: reportSources[scope], status, count: matching.length, picks: matching.slice(0, 2), nativeLink,
       ...(['unavailable', 'partial'].includes(status) && issue === 'retryable' && { retryable: true }),
-      ...(result?.nativeModelExclusions && { nativeModelExclusions: true }) };
+      ...(result?.nativeModelExclusions && { nativeModelExclusions: true }),
+      ...(result?.nativeModelUsage && { nativeModelUsage: true }) };
   });
   return {
     scope: 'report', target, candidates, related, reference: anchor?.reference ?? null,
@@ -552,7 +555,7 @@ async function discoverReleaseReport(context, settings, filters, brief, { signal
   let lookup = brief;
   if (parsed.kind === 'text') {
     const { releases, choices } = await galleryModelSources(context, parsed.value,
-      { mediaBaseModels: filters.baseModel, downloadAccess: modelFilters.downloadAccess }, options);
+      { mediaBaseModels: filters.baseModel, downloadAccess: modelFilters.downloadAccess, creatorUsage: modelFilters.creatorUsage }, options);
     signal?.throwIfAborted();
     if (!releases?.length) return unavailable(choices);
     lookup = releases[0].link;
@@ -566,6 +569,7 @@ async function discoverReleaseReport(context, settings, filters, brief, { signal
     (parsed.kind !== 'version' || candidate.id === parsed.id) && modelEvidence(candidate, origin) &&
     (!modelFilters.category || candidate.tags?.some(tag => foldSearchText(tag) === foldSearchText(modelFilters.category))) &&
     (!modelFilters.checkpointType || candidate.checkpointRole === modelFilters.checkpointType) &&
+    matchesModelUse(candidate.usage, modelFilterValues(modelFilters.creatorUsage)) &&
     (modelFilters.supportsGeneration !== 'true' || candidate.generationListed === true));
   if (!model) return unavailable([], verified);
   const anchor = { ...verified, candidates: [model], related: {}, traced: true };
@@ -674,7 +678,8 @@ export async function discoverReport(context, filters, {
     onPhase('Checking your Civitai reference…');
     const query = parsed.kind === 'collection' ? new URL('/collections/' + parsed.id, context.origin).href : brief;
     const exactFilters = exampleOptions.includePublishedSetup ? modelFilters
-      : modelFilters.downloadAccess ? { downloadAccess: modelFilters.downloadAccess } : {};
+      : { ...(modelFilters.downloadAccess && { downloadAccess: modelFilters.downloadAccess }),
+        ...(modelFilters.creatorUsage && { creatorUsage: modelFilters.creatorUsage }) };
     anchor = await discoverSource(context, { ...exactFilters, scope: is3D ? 'assets3d' : 'all', query }, exampleOptions);
     const unresolvedHash = parsed.kind === 'hash' && anchor.hashStatus && anchor.hashStatus !== 'unique';
     interpreted = unresolvedHash ? '' : text(anchor.candidates[0]?.model ?? evidenceFor(anchor, context.origin)[0]?.title, 150);
@@ -832,11 +837,13 @@ export async function discoverReport(context, filters, {
 
 const modelFilterLabels = {
   category: 'Tag', modelAuthor: 'Creator', baseModel: 'Base model', resourceType: 'Model type', checkpointType: 'Checkpoint type',
-  fileFormat: 'File format', downloadAccess: 'Download access', exclude: 'Exclude', sort: 'Sort', period: 'Time period',
+  fileFormat: 'File format', downloadAccess: 'Download access', creatorUsage: 'Creator usage settings', exclude: 'Exclude', sort: 'Sort', period: 'Time period',
   supportsGeneration: 'Generate on Civitai', fromPlatform: 'Trained on Civitai',
 };
 export function reportConstraint([key, value]) {
-  const label = key === 'downloadAccess' ? modelDownloadFilter(value)?.label : Array.isArray(value) ? value.join(' or ') : value;
+  const label = key === 'downloadAccess' ? modelDownloadFilter(value)?.label
+    : key === 'creatorUsage' ? modelFilterValues(value).map(modelUseLabel).join(' and ')
+      : Array.isArray(value) ? value.join(' or ') : value;
   return modelFilterLabels[key] + ' · ' + (label === 'true' ? 'Yes' : label ?? value);
 }
 

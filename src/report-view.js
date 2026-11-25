@@ -610,6 +610,7 @@ export function renderReport(container, report, context, onLookup, { onCompareSe
     if (rail.nativeLink && (rail.scope === 'models' || rail.status !== 'ready' || !rail.count)) {
       card.append(sourceLink(rail.nativeLink, 'Browse on Civitai ↗', context));
       if (rail.nativeModelExclusions) card.append(element('p', 'Word exclusions apply in RasterRaid.'));
+      if (rail.nativeModelUsage) card.append(element('p', 'Creator usage checks apply in RasterRaid.'));
     }
     grid.append(card);
   }

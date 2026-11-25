@@ -2,6 +2,8 @@ import { clipMatchLink, visualReferenceLink } from './visual-discovery.mjs';
 import { visualRegionLabel, visualRoles } from './visual-analysis.mjs';
 import { aiServiceLabel, aiServicePerformance, aiServiceReference } from './ai-services.mjs';
 import { modelChoiceKey, modelDownloadLabel } from './model-access.mjs';
+import { modelLicenseLink } from './model-usage.mjs';
+import { listedCreatorTerms } from './release-compatibility.mjs';
 import { isWorkflowModel } from './published-workflow.mjs';
 
 export const GROUPS = Object.freeze({
@@ -113,8 +115,9 @@ function pictureFrame(items, name, context, eager = false, loading = false) {
     link.href = item.link;
     link.setAttribute('aria-label', 'Open ' + (item.video ? 'video' : 'picture') + ' for ' + name + ' on Civitai');
     badge.textContent = item.badge ?? (item.video ? 'Video preview' : 'Example');
-    next.textContent = (index + 1) + '/' + pictures.length + ' ›';
-    next.setAttribute('aria-label', 'Next picture for ' + name + '. Showing ' + (index + 1) + ' of ' + pictures.length);
+    const count = (index + 1) + '/' + pictures.length;
+    next.textContent = count + ' ›';
+    next.setAttribute('aria-label', count + ' · Next picture for ' + name);
     image.hidden = false;
     fallback.hidden = true;
     image.src = item.preview;
@@ -223,6 +226,7 @@ function modelCard(candidate, context, chosen, toggle, eager, loadingDetails, fe
   const info = [candidate.base, candidate.creator ? 'by ' + candidate.creator : '', candidate.version];
   const summary = info.filter(Boolean).join(' · ');
   if (summary) copy.append(element('p', summary));
+  if (candidate.usageMatches?.length) copy.append(element('p', 'Creator lists · ' + candidate.usageMatches.join(' · '), 'model-generation'));
   if (candidate.generationListed === true) copy.append(element('p', 'Listed for Civitai generation', 'model-generation'));
   if (candidate.linkedFromReportPreview) copy.append(element('p', 'Linked from a report preview'));
   const download = modelDownloadLabel(candidate);
@@ -245,6 +249,15 @@ function modelCard(candidate, context, chosen, toggle, eager, loadingDetails, fe
   if (candidate.matchedCatalogTerms?.length) facts.append(element('p', 'Matches your search · ' + candidate.matchedCatalogTerms.join(', ')));
   if (candidate.triggers?.length) facts.append(element('p', 'Prompt words to try · ' + candidate.triggers.join(', ')));
   if (candidate.formats.length) facts.append(element('p', 'File formats · ' + [...new Set(candidate.formats)].join(', ')));
+  const usage = listedCreatorTerms(candidate.usage);
+  if (usage.length) {
+    const list = element('ul');
+    list.setAttribute('aria-label', 'Creator usage settings');
+    for (const setting of usage) list.append(element('li', setting));
+    facts.append(list);
+    const license = modelLicenseLink(context.origin, candidate.id, candidate.base);
+    if (license) facts.append(sourceLink(license, 'View version license on Civitai', context));
+  }
   if (candidate.selectedFile) {
     const file = candidate.selectedFile;
     facts.append(element('p', 'File #' + file.id + (file.name ? ' · ' + file.name : '')));

@@ -303,6 +303,15 @@
                   <small>Civitai shows current download prices.</small>
                 </label>
                 <div class="facet-field" data-model-filter>
+                  <label for="creator-usage" id="creator-usage-label">Creator usage settings</label>
+                  <div class="assist-anchor">
+                    <input id="creator-usage" name="creatorUsage" placeholder="Choose a use" maxlength="100"
+                      autocomplete="off" spellcheck="true" aria-describedby="creator-usage-help">
+                  </div>
+                  <div class="facet-picks" id="creator-usage-picks" hidden></div>
+                  <small id="creator-usage-help">Every choice must match the creator’s settings. Check the version’s license for base-model terms.</small>
+                </div>
+                <div class="facet-field" data-model-filter>
                   <label for="exclude" id="exclude-label">Words to exclude from models</label>
                   <div class="assist-anchor"><input id="exclude" name="exclude" placeholder="Example: photorealistic" maxlength="200" autocomplete="off" spellcheck="true"></div>
                 </div>

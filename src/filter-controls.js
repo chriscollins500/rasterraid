@@ -17,6 +17,7 @@ import { configureReportControls } from './report-view.js';
 import { releaseModelFields } from './report.mjs';
 import { releaseMediaSources } from './release-trail.mjs';
 import { attachInputAssist } from './input-assist.js';
+import { modelUseChoices, modelUseLabel } from './model-usage.mjs';
 import { createProofreader, draftSuggestions, filterMatches, labelKey, protectedReference, searchStarts } from './text-assist.mjs';
 import { element } from './view.js';
 
@@ -28,7 +29,7 @@ const typeLabels = {
 export const modelTypeLabel = value => Object.hasOwn(typeLabels, value) ? typeLabels[value] : value;
 
 const modelScopes = new Set(['all', 'models', 'pictures', 'ownedModels']);
-const publicOnlyFields = new Set(['checkpointType', 'period', 'fromPlatform', 'downloadAccess', 'modelAuthor']);
+const publicOnlyFields = new Set(['checkpointType', 'period', 'fromPlatform', 'downloadAccess', 'modelAuthor', 'creatorUsage']);
 const usernamePattern = /^[\p{L}\p{N}_-]{2,80}$/u;
 const scopeSuggestions = { crucibles: 'Contest searches', leaderboards: 'Leaderboard names',
   services: 'Service searches', marketplace: 'Buzz topics', auctions: 'Auction searches', prizes: 'Prize searches',
@@ -104,12 +105,14 @@ export function createFilterControls(form, getContext) {
   };
   const baseFacet = { input: baseModel, picks: byId('base-model-picks'), source: 'baseModels', label: value => value, selected: [] };
   const typeFacet = { input: resourceType, picks: byId('resource-type-picks'), source: 'modelTypes', label: modelTypeLabel, selected: [] };
-  const modelFacets = [baseFacet, typeFacet];
+  const usageFacet = { input: form.elements.creatorUsage, picks: byId('creator-usage-picks'),
+    values: Object.keys(modelUseChoices), label: modelUseLabel, selected: [] };
+  const modelFacets = [baseFacet, typeFacet, usageFacet];
   const modelDrafts = new Set(modelFacets.map(facet => facet.input));
 
   function modelChoice(facet, value) {
     if (!value) return;
-    const names = available[facet.source];
+    const names = facet.values ?? available[facet.source];
     const exact = modelChoiceKey(value);
     const match = names.find(name => modelChoiceKey(name) === exact);
     if (match) return match;
@@ -158,6 +161,13 @@ export function createFilterControls(form, getContext) {
   const tagAssist = attachInputAssist(category, {
     getRows: value => filterMatches(value, tagNames.map(name => ({ value: name, label: name, group: 'Civitai tags' }))).slice(0, 20),
   });
+  const usageAssist = attachInputAssist(usageFacet.input, {
+    emptyMessage: 'No other matching creator usage settings.',
+    getRows: value => filterMatches(value, usageFacet.values.filter(code => !usageFacet.selected.includes(code)).map(code => ({
+      value: code, label: modelUseLabel(code),
+    }))),
+    onChoose: value => addModelChoice(usageFacet, value),
+  });
   const draftAssists = [query, exclude].map(input => attachInputAssist(input, {
     getRows(value) {
       if (input === query && Object.hasOwn(scopeSuggestions, scope.value)) {
@@ -204,7 +214,7 @@ export function createFilterControls(form, getContext) {
     });
     return assist;
   });
-  const assists = [baseAssist, mediaBaseAssist, typeAssist, tagAssist, ...draftAssists, ...authorAssists];
+  const assists = [baseAssist, mediaBaseAssist, typeAssist, usageAssist, tagAssist, ...draftAssists, ...authorAssists];
   let pictureSearchReady = false;
   const ownerSearch = () => scope.value === 'ownedModels' || scope.value === 'report' && form.elements.reportType.value === 'portfolio';
   const publicWorkSearch = () => scope.value === 'report' && form.elements.reportType.value === 'publicWork';
@@ -453,6 +463,7 @@ export function createFilterControls(form, getContext) {
       });
       let retired = false;
       for (const facet of modelFacets) {
+        if (facet.values) continue;
         const selected = facet.selected.filter(name => {
           const previous = modelChoice(facet, name);
           return !previous || next[facet.source].includes(previous);
@@ -573,7 +584,7 @@ export function createFilterControls(form, getContext) {
         facet.selected = modelFilterValues(remaining);
         if (!draft || modelChoice(facet, draft)) {
           clear(facet.input);
-          filterNotice = 'Removed a base model or type unavailable in the current list';
+          filterNotice = 'Removed a choice unavailable in the current list';
           sync();
         } else {
           facet.input.setCustomValidity('Choose a Civitai option from the suggestions.');
@@ -601,7 +612,7 @@ export function createFilterControls(form, getContext) {
 
   category.addEventListener('input', lookupTags);
   form.addEventListener('input', event => {
-    if ([baseModel, resourceType, mediaBaseInput, mediaCreator].includes(event.target)) event.target.setCustomValidity('');
+    if ([baseModel, resourceType, usageFacet.input, mediaBaseInput, mediaCreator].includes(event.target)) event.target.setCustomValidity('');
     sync();
   });
   form.addEventListener('change', sync);

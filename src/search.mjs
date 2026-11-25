@@ -23,10 +23,12 @@ import { orderModelRelevance } from './model-reranker.mjs';
 import { civitaiDownloadReference, matchesModelDownload, modelChoiceKey, modelCreatorName, modelDownloadFilter, modelFilterParam, modelFilterValues,
   modelVersionDownload } from './model-access.mjs';
 import { nativeModelSearchLink } from './native-model-search.mjs';
+import { matchesModelUse, modelUsage, modelUseLabel, siteUseCondition } from './model-usage.mjs';
 import { mergeQuickCatalog, readQuickCatalog, sampleQuickCatalog } from './quick-catalog.mjs';
 import { exampleVersionLimit, readPublishedSetup } from './gallery-setup.mjs';
 
 export { mediaUrl } from './catalog.mjs';
+export { modelUsage } from './model-usage.mjs';
 
 const aliases = [
   [/\blinocut\b/i, 'relief print'],
@@ -173,19 +175,9 @@ function publicFile(entry) {
     ...(text(entry.type, 40) && { fileType: text(entry.type, 40) }) };
 }
 
-export function modelUsage(model) {
-  const commercial = Array.isArray(model.allowCommercialUse) ? model.allowCommercialUse :
-    typeof model.allowCommercialUse === 'string' ? model.allowCommercialUse.trim().replace(/^\{|\}$/gu, '').split(',') : null;
-  return {
-    creditOptional: typeof model.allowNoCredit === 'boolean' ? model.allowNoCredit : null,
-    derivatives: typeof model.allowDerivatives === 'boolean' ? model.allowDerivatives : null,
-    differentLicense: typeof model.allowDifferentLicense === 'boolean' ? model.allowDifferentLicense : null,
-    commercial: commercial ? [...new Set(commercial.slice(0, 12).map(code => text(code, 40)).filter(Boolean))] : null,
-  };
-}
-
 function modelVersions(model) {
   if (!numericId(model?.id) || !Array.isArray(model.modelVersions)) return [];
+  const usage = modelUsage(model);
   return model.modelVersions.flatMap(version => {
     if (!numericId(version?.id)) return [];
     return [{
@@ -207,7 +199,7 @@ function modelVersions(model) {
       generationListed: typeof version.supportsGeneration === 'boolean' ? version.supportsGeneration : null,
       ...modelVersionDownload(version),
       ...(model[saleListing] && { listingOnSale: true }),
-      usage: modelUsage(model),
+      usage,
       desc: text(model.description, 500).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
       tags: Array.isArray(model.tags) ? model.tags.map(tag => text(tag, 50)).filter(Boolean).slice(0, 15) : [],
       versionImages: Array.isArray(version.images) ? version.images.slice(0, 6) : [],
@@ -255,7 +247,7 @@ export async function readModelFileHistory(context, modelId, { file, versionId, 
 }
 
 export function rankVersions(lists, input, { baseModel, resourceType, fileFormat = '', exclude = '', downloadAccess = '',
-  supportsGeneration, modelAuthor } = {}, limit = 6, keepVersions = false) {
+  supportsGeneration, modelAuthor, creatorUsage } = {}, limit = 6, keepVersions = false) {
   const candidates = new Map();
   const query = terms(input);
   const inputKey = nameKey(input);
@@ -263,6 +255,8 @@ export function rankVersions(lists, input, { baseModel, resourceType, fileFormat
   const families = new Set(modelFilterValues(baseModel).map(modelChoiceKey));
   const types = new Set(modelFilterValues(resourceType).map(modelChoiceKey));
   const author = modelChoiceKey(modelCreatorName(modelAuthor));
+  const requiredUse = modelFilterValues(creatorUsage);
+  const usageMatches = requiredUse.map(modelUseLabel);
   for (const { label, models, recovery, query: variant } of lists) {
     const wordsToMatch = recovery && query.length ? terms(variant) : query;
     for (const [position, record] of models.entries()) {
@@ -273,6 +267,7 @@ export function rankVersions(lists, input, { baseModel, resourceType, fileFormat
         if (supportsGeneration === 'true' && candidate.generationListed !== true) continue;
         if (fileFormat && !candidate.formats.includes(fileFormat)) continue;
         if (!matchesModelDownload(candidate, downloadAccess)) continue;
+        if (!matchesModelUse(candidate.usage, requiredUse)) continue;
         const title = words(candidate.model);
         const metadata = [candidate.model, candidate.desc, ...candidate.tags].flatMap(words).join(' ');
         if (exclusions.some(exclusion => (' ' + metadata + ' ').includes(' ' + exclusion + ' '))) continue;
@@ -284,6 +279,7 @@ export function rankVersions(lists, input, { baseModel, resourceType, fileFormat
         const fit = weight / (20 + position);
         candidates.set(candidate.id, {
           ...candidate,
+          ...(usageMatches.length && { usageMatches }),
           nameMatch: nameMatch(candidate.model, inputKey),
           literalPosition: label === literalLabel ? position : existing?.literalPosition ?? Number.MAX_SAFE_INTEGER,
           match: Math.max(existing?.match ?? 0, wordsToMatch.length ? match / wordsToMatch.length : 0),
@@ -595,12 +591,14 @@ function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAud
 
   async function verifySiteVersions(data) {
     const models = data.map(normalizeVersion).filter(Boolean);
-    if (!publicFallback && !filters.modelAuthor) return models;
-    const missing = [...new Set(models.filter(model => publicFallback || !modelCreatorName(model.creator?.username)).map(model => model.id))];
+    const verifyUsage = modelFilterValues(filters.creatorUsage).length > 0;
+    if (!publicFallback && !filters.modelAuthor && !verifyUsage) return models;
+    const missing = [...new Set(models.filter(model => publicFallback || verifyUsage || !modelCreatorName(model.creator?.username)).map(model => model.id))];
     const verified = new Map();
     for (let index = 0; index < missing.length && !rateLimits.has('site'); index += 2) {
       await Promise.all(missing.slice(index, index + 2).map(async id => {
-        const model = await read(publicFallback ? 'Verify public model and version' : 'Exact model creator', '/api/v1/models/' + id, {}, true);
+        const label = publicFallback ? 'Verify public model and version' : verifyUsage ? 'Exact model usage settings' : 'Exact model creator';
+        const model = await read(label, '/api/v1/models/' + id, {}, true);
         if (model?.id === id) verified.set(id, model);
       }));
     }
@@ -611,7 +609,11 @@ function modelCatalogReads(context, filters, { signal, fetcher, collectPublicAud
         ? [{ ...parent, modelVersions: [version] }] : [];
     });
     return models.map(model => {
-      const creator = verified.get(model.id)?.creator;
+      const parent = verified.get(model.id);
+      if (verifyUsage && parent && isPublished(parent) && parent.mode !== 'TakenDown') {
+        return { ...parent, modelVersions: model.modelVersions };
+      }
+      const creator = parent?.creator;
       return modelCreatorName(creator?.username) ? { ...model, creator } : model;
     });
   }
@@ -739,6 +741,7 @@ function modelSearchOptions(filters) {
   const username = modelCreatorName(filters.modelAuthor);
   if (filters.modelAuthor && !username) throw new Error('Enter a Civitai username in the Creator filter.');
   const advanced = Boolean(filters.category || filters.checkpointType || filters.period || filters.fromPlatform === 'true' || access || username);
+  const commercialUse = siteUseCondition(modelFilterValues(filters.creatorUsage));
   const common = {
     baseModels: modelFilterParam(filters.baseModel),
     types: modelFilterParam(filters.resourceType) ?? (filters.checkpointType ? 'Checkpoint' : undefined),
@@ -748,9 +751,10 @@ function modelSearchOptions(filters) {
   const siteFilters = {
     ...common, nsfw: true, tag: filters.category, checkpointType: filters.checkpointType, username,
     period: filters.period, fromPlatform: filters.fromPlatform === 'true' ? 'true' : undefined,
+    allowCommercialUse: commercialUse,
     ...(access && { [access.parameter]: true }),
   };
-  return { access, advanced, common, siteFilters };
+  return { access, advanced, common, siteFilters, commercialUse };
 }
 
 export async function sampleModelFilterChange(context, query, filters, field, { signal, fetcher } = {}) {
@@ -828,20 +832,25 @@ export async function galleryModelSources(context, query, filters, options) {
   if (!key) return {};
   const { downloadAccess } = filters;
   const access = modelDownloadFilter(downloadAccess);
+  const requiredUse = modelFilterValues(filters.creatorUsage);
+  const commercialUse = siteUseCondition(requiredUse);
   const families = new Set(galleryBaseModels(filters.mediaBaseModels));
-  const { read, routeForModels, confirmedLists } = modelCatalogReads(context, { downloadAccess, baseModel: [...families] }, options);
-  const route = access ? CATALOG.models : routeForModels;
-  const params = { query, limit: 12, ...(route === CATALOG.models && { nsfw: true }), ...(access && { [access.parameter]: true }) };
+  const { read, routeForModels, confirmedLists } = modelCatalogReads(context, { downloadAccess, baseModel: [...families],
+    creatorUsage: requiredUse }, options);
+  const route = access || commercialUse ? CATALOG.models : routeForModels;
+  const params = { query, limit: 12, ...(route === CATALOG.models && { nsfw: true, allowCommercialUse: commercialUse }),
+    ...(access && { [access.parameter]: true }) };
   const data = await read('Find the model named in the gallery search', route, params, true);
   if (!data) return { unavailable: true };
   let models = matchingModelRows(data, {}, undefined, params.onSale);
-  if (access) {
+  if (access || commercialUse) {
     const [verified] = await confirmedLists([{ label: literalLabel, models }], query);
     models = verified.models;
   }
   const matches = new Map();
   for (const model of models) {
     if (!appVersionId(model?.id) || !isPublished(model) || model.mode === 'TakenDown') continue;
+    if (!matchesModelUse(modelUsage(model), requiredUse)) continue;
     const name = text(model.name);
     const exact = nameKey(name) === key;
     const shortTitle = name.split(/\s+(?:[-–—|:]\s+|\()/u, 1)[0];
@@ -1141,7 +1150,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   const ceiling = modelCatalogCeiling(context);
   const { read, exactVersions, saleListings, confirmedLists, finishCards, flows, rateLimits, routeForModels, routeForImages, appCatalog } =
     modelCatalogReads(context, filters, { signal, fetcher });
-  const { access, advanced, common, siteFilters } = modelSearchOptions(filters);
+  const { access, advanced, common, siteFilters, commercialUse } = modelSearchOptions(filters);
   const ordered = Boolean(filters.sort || filters.period);
   let reference = null;
   let hashStatus;
@@ -1178,7 +1187,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       seenQueries.add(key);
       return true;
     }).slice(0, 3);
-    const rail = advanced ? CATALOG.models : routeForModels;
+    const rail = advanced || ordered && commercialUse ? CATALOG.models : routeForModels;
     const retrieve = plan => retrieveModels(plan, rail, {
       ...(rail === CATALOG.models ? siteFilters : common), query: plan.query, limit: access ? 24 : filters.fileFormat ? 20 : 10,
     });
@@ -1191,12 +1200,16 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       }
     };
     const lookup = modelSearch ? Promise.all(variants.map(retrieve)) : [];
+    const siteUsage = modelSearch && commercialUse && rail === CATALOG.blockModels
+      ? retrieveModels({ label: 'Site creator usage matches', query: variants[0].query }, CATALOG.models, {
+        ...siteFilters, query: variants[0].query, limit: 16,
+      }) : null;
     const relatedQuery = words(target.value).length > 3 ? intent[1] ?? target.value : target.value;
     relatedFallback = recovery.find(({ query }) => foldSearchText(query) !== foldSearchText(relatedQuery))?.query;
     // Tags can affect model ranking. The other Site result groups can finish
     // independently while exact-version pictures and details load.
     if (scope === 'all' && target.value) {
-      const broad = !catalogOnly && !advanced && !ordered &&
+      const broad = !catalogOnly && !advanced && !ordered && !modelFilterValues(filters.creatorUsage).length &&
         !common.baseModels && !common.types && !common.supportsGeneration && !filters.fileFormat && !filters.exclude &&
         !protectedReference(target.value) && terms(target.value).length > 0;
       pendingRelated = Promise.allSettled([
@@ -1207,8 +1220,9 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
     const siteSearch = target.value || !modelSearch
       ? searchSite(read, origin, relatedQuery, modelSearch ? 'tags' : scope, ceiling, relatedFallback)
       : {};
-    const [primary, extra] = await Promise.all([lookup, siteSearch]);
+    const [primary, extra, usage] = await Promise.all([lookup, siteSearch, siteUsage]);
     await addModelLists(primary);
+    if (usage) lists.push(...await confirmedLists([usage], target.value));
     if (modelSearch && spelling) {
       const focus = terms(intent[1] ?? target.value);
       const direct = rankVersions(lists, target.value, filters);
@@ -1230,7 +1244,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       const exactTags = related.tags.filter(item => queryTerms.every(word => terms(item.tag).includes(word)));
       if (exactTags.length) lists.push({ label: 'Catalog tag matches', models: await tagModels(exactTags[0].tag) });
     }
-    if (rail === CATALOG.blockModels && modelSearch && !lists.some(list => list.models.length) && !rateLimits.has('app')) {
+    if (rail === CATALOG.blockModels && modelSearch && !usage && !lists.some(list => list.models.length) && !rateLimits.has('app')) {
       const fallback = { label: 'Site name matches', query: variants[1]?.query ?? variants[0].query };
       const source = await retrieveModels(fallback, CATALOG.models, { ...siteFilters, query: fallback.query, limit: 12 });
       lists.push(...await confirmedLists([source], target.value));
@@ -1319,6 +1333,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
     flows: [...flows], alternateQueries: [...alternateQueries].slice(0, 2),
     baseline: baseline.map(candidate => candidate.id), combined: rows.map(candidate => candidate.id), primaryCount,
     ...(nativeLink && { nativeLink, ...(filters.exclude && { nativeModelExclusions: true }) }),
+    ...(nativeLink && modelFilterValues(filters.creatorUsage).length && { nativeModelUsage: true }),
     ...(nextCursor && { modelPager: { scope: 'models', nextCursor } }),
     ...(hashStatus && { hashStatus }),
     ...(preferenceEligible && { preferenceMode, preferenceChanges: ranked.filter((model, index) => model.id !== standardOrder[index]?.id).length }),
@@ -1347,7 +1362,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
     access: modelCatalogAccess(context), query: rankQuery,
     filters: { baseModel: filters.baseModel, resourceType: filters.resourceType, fileFormat: filters.fileFormat,
       exclude: filters.exclude, sort: filters.sort, period: filters.period, downloadAccess: filters.downloadAccess,
-      supportsGeneration: filters.supportsGeneration, modelAuthor: filters.modelAuthor },
+      supportsGeneration: filters.supportsGeneration, modelAuthor: filters.modelAuthor, creatorUsage: filters.creatorUsage },
     seen: [...seen], pending: standardOrder.filter(row => !seen.has(row.modelId)), rails,
   });
   return snapshot(complete, nextCursor);

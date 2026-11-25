@@ -11,7 +11,7 @@ import { environmentProfile } from './workflow-profile.mjs';
 import { upgradeForSearch } from './upgrade-evidence.mjs';
 
 const searchScopes = new Set(['all', 'pictures', 'tags', 'creators', 'guides', 'report', ...Object.keys(reportSources)]);
-const fields = new Set(['query', 'scope', 'category', 'modelAuthor', 'baseModel', 'resourceType', 'checkpointType', 'fileFormat', 'downloadAccess', 'sort',
+const fields = new Set(['query', 'scope', 'category', 'modelAuthor', 'baseModel', 'resourceType', 'checkpointType', 'fileFormat', 'downloadAccess', 'creatorUsage', 'sort',
   'period', 'exclude', 'supportsGeneration', 'fromPlatform', 'catalogSort', 'mediaSort', 'bountyType', 'bountyBase',
   'bountyStatus', 'bountySort', 'articleAuthor', 'articleTag', 'articleOfficial', 'comicAuthor', 'comicGenre',
   'collectionAuthor', 'collectionType', 'toolType', 'toolCompany', 'appKind', 'appCategory', 'reportType',
