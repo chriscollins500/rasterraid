@@ -29,7 +29,7 @@
   <main id="main-content" tabindex="-1" class="doc page-width">
     <div class="doc-heading"><h1>Build and verify RasterRaid</h1></div>
     <div class="doc-layout has-outline"><nav class="page-outline" aria-label="On this page">
-      <p class="eyebrow">On this page</p><ul><li><a href="#local-app">Run the app locally</a></li><li><a href="#documentation">Build the documentation</a></li><li><a href="#verification">Repository checks</a></li></ul>
+      <p class="eyebrow">On this page</p><ul><li><a href="#local-app">Run the app locally</a></li><li><a href="#hosted-build">Verify the deployed build</a></li><li><a href="#documentation">Build the documentation</a></li><li><a href="#verification">Repository checks</a></li></ul>
     </nav><div class="doc-content">
 <h2 id="local-app">Run the app locally</h2>
 <p>Use Node.js 24 or newer. The native app uses static browser modules and has no runtime npm packages. From the repository root, build the app, run its tests and start the local example.</p>
@@ -38,6 +38,10 @@ npm test
 npm run verify:bundle
 npm run dev -- 5188 dist --mock-deep-search</code></pre>
 <p>Open <code>http://127.0.0.1:5188/mock-deep-search</code> and try the Linocut walkthrough. Simulated credits use 0 Buzz. See the repository README for Civitai’s app validation commands and <a href="../releases/">releases</a> for hosted status.</p>
+<h2 id="hosted-build">Verify the deployed build</h2>
+<p>Sign in to the app owner account through the official CLI and build the expected release source. Pipe its bundle receipt into the hosted check to compare the review records, public listings, and serving files.</p>
+<pre><code>npm run --silent verify:bundle | npm run --silent verify:hosted -- /path/to/civitai</code></pre>
+<p>For an earlier release, pipe its saved bundle receipt into the same hosted check from the current checkout.</p>
 <h2 id="documentation">Build the documentation</h2>
 <p>Run <code>node site/build.mjs</code> at the repository root to regenerate <code>docs/</code>. Use <code>node site/build.mjs --check</code> to compare the committed pages and assets to their source. GitHub Pages serves the generated folder.</p>
 <h2 id="verification">Repository checks</h2>

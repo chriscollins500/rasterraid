@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.6 developer prerelease adds verified Deep Search citations, combined subject references, exact download-link lookup, and recent public work in Workspace. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.6](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.6) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.7 developer prerelease adds checks for restrictive model and media filters, exact model evidence across gallery posts, and a way to verify the deployed build. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.7](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.7) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 
@@ -22,18 +22,6 @@ npm run dev -- 5188 dist --mock-deep-search
 
 Open `http://127.0.0.1:5188/mock-deep-search`. The Linocut example lets you try search, comparison and a complete simulated Deep Search run with 0 Buzz.
 
-## On-device subject matching
-
-**Find the same subject** compares up to six eligible public previews against a whole picture or video poster in supported browsers. It uses WebGPU with JavaScript Promise Integration when available and runs the same model with single-threaded WebAssembly SIMD otherwise. Selecting **Compare on this device** downloads about 78–81 MB of pinned model and runtime files, verifies their hashes, and compares the previews in a local worker. RasterRaid sends no preview pixels or local ranks to the binary hosts. The regular appearance results stay available.
-
-The first comparison shows download progress. Subsequent comparisons in the same tab can reuse the loaded model for up to two minutes between uses. Each comparison revalidates public preview requests and analyzes the reference again. The worker can reuse analysis for up to 24 eligible public previews whose decoded pixels match. The app releases the worker and its cache when you leave the page, when the idle tab is hidden, or when viewing access changes.
-
-When both free rankings cover the same whole previews, Deep Search can quote a four-preview shortlist alongside the full comparison. The paid request uses only the shortlisted public Civitai URLs and catalog associations. The result can show both free ranks for that same set of previews.
-
-You can also add a picture from your device, search by reference, and run the subject comparison on the gallery results. A selected area stays part of the comparison. If you add several positive local references, choose which one supplies the subject. Deep Search can describe the top public matches and use your written search as context. Your local file, filename, metadata, crop coordinates, and scores stay in your browser.
-
-RasterRaid pins ONNX Runtime Web 1.31.1 and the ONNX Community Q4 export of Google’s SigLIP 2 vision model. The bundled JavaScript preserves the MIT-licensed runtime and replaces dynamic binding generation with static calls. Bundle verification checks five vendored script hashes. [Browser binary pins](src/subject-artifacts.mjs) · [Third-party notices](src/vendor/ort/LICENSE.txt)
-
 ## Civitai package
 
 Use the official Civitai CLI to validate and package the native app. The command below builds and verifies the source archive locally.
@@ -43,6 +31,17 @@ python scripts/package-release.py --civitai /path/to/civitai
 ```
 
 The build keeps Civitai’s iframe sandbox, validates platform permissions and writes a private receipt before sending a workflow. [Deep Search and Buzz](https://chriscollins500.github.io/rasterraid/deep-search/) · [Privacy and permissions](https://chriscollins500.github.io/rasterraid/privacy/)
+
+### Verify a Civitai deployment
+
+From the expected release source, build the app and save its bundle receipt. Run the hosted check with the official CLI signed in to the app owner account.
+
+```sh
+npm run build
+npm run --silent verify:bundle | npm run --silent verify:hosted -- /path/to/civitai
+```
+
+For earlier releases, pass their bundle receipt to the command from the current checkout. The check reads both Civitai submission records and public listings, compares the expected files with the serving app, and confirms the serving records again. A successful check verifies deployment identity and bundle contents. Use browser qualification for viewer access and app behavior.
 
 ## Project checks and documentation
 

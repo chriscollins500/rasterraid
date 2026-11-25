@@ -3,7 +3,7 @@ export const site = {
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
   version: '0.0.4',
-  developerVersion: '0.0.6',
+  developerVersion: '0.0.7',
   checked: '2026-11-24',
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
@@ -71,7 +71,7 @@ export const pages = [
       <h1 id="hero-title">Find the look.<em>Follow the trail.</em></h1>
       <p class="intro">Search Civitai models, pictures, clips, music and guides. Follow the work you like back to the exact releases and creators behind it.</p>
       <div class="actions"><a class="button primary" href="{{root}}guide/">Get started <span aria-hidden="true">→</span></a><a class="button secondary" href="#app-preview">See RasterRaid in action</a></div>
-      <a class="release-link" href="{{root}}releases/">Developer preview ${site.version} <span aria-hidden="true">↗</span></a>
+      <a class="release-link" href="{{root}}releases/">Developer prerelease ${site.developerVersion} <span aria-hidden="true">↗</span></a>
     </div>
     <div class="hero-art" aria-hidden="true"><img src="{{root}}assets/rasterraid-hero.webp" alt="" width="1536" height="1024" fetchpriority="high"></div>
   </div>
@@ -103,7 +103,7 @@ export const pages = [
 <aside class="callout"><strong>Opening the preview</strong><p>RasterRaid runs inside Civitai. Developer previews are available to the app author. Sign in on the same domain as the preview you open.</p>${previewLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
 ${sectionHeading('search-a-brief', 'Search from a few words')}
 <ol><li>Type a model name, describe what you’re looking for, or select an example.</li><li>Use <strong>Search areas</strong> to focus on models, pictures, clips, guides or another part of Civitai.</li><li>Open <strong>Filter &amp; sort</strong> for choices appropriate to that area. Search again when you’re ready.</li></ol>
-<p>In current source builds, <strong>Check model filters</strong> or <strong>Check media filters</strong> can help when a filtered search finds few results. Gallery images and Videos can check the selected base models, date range and published-prompt filter. Each suggestion includes an example and a count from its sample. Choose a change to search again, or use <strong>Back to original filters</strong>.</p>
+<p>In the ${site.developerVersion} developer prerelease, <strong>Check model filters</strong> or <strong>Check media filters</strong> can help when a filtered search finds few results. Gallery images and Videos can check the selected base models, date range and published-prompt filter. Each suggestion includes an example and a count from its sample. Choose a change to search again, or use <strong>Back to original filters</strong>.</p>
 <div class="examples"><p>Try <code>DreamShaper 8</code>, <code>pictures of ginger cats in a rainy window</code>, or <code>guides for ComfyUI workflows</code>.</p></div>
 ${sectionHeading('search-a-picture', 'Search from a picture or clip')}
 <p>Choose <strong>Add a picture</strong> or paste a public Civitai media link. In the visual comparison, focus on the whole picture or a selected detail. Choose the palette, lighting, layout or texture you want to match or avoid. Eligible clip results open close to the matched moment.</p>
@@ -112,7 +112,7 @@ ${sectionHeading('search-a-link', 'Follow an exact link')}
 <p>Paste a Civitai model, picture, clip, post, article or collection link. An exact model version gives you its own examples and file details. A Civitai model download link can identify an exact version or file in the catalog. <strong>Check recorded settings</strong> shows the references Civitai recorded for a picture or clip. Two media links can open a side-by-side settings comparison.</p>
 ${sectionHeading('compare-and-report', 'Compare, refine and report')}
 <p>Choose <strong>Compare</strong> on up to three model releases, then <strong>Compare free</strong>. See their base-model families, published file details and sample pictures together. <strong>Build a free report</strong> combines selected sources, such as model releases, media and articles, and links to the evidence. Choose <strong>Copy report</strong> for a Markdown version.</p>
-<p>In current source builds, choose <strong>Models</strong> with <strong>Gallery images</strong> or <strong>Videos</strong> in a free report to check the model versions recorded in the samples. When several posts name the same version in their media metadata, <strong>Verified connections</strong> links one example from each post.</p>
+<p>In the ${site.developerVersion} developer prerelease, choose <strong>Models</strong> with <strong>Gallery images</strong> or <strong>Videos</strong> in a free report to check the model versions recorded in the samples. When several posts name the same version in their media metadata, <strong>Verified connections</strong> links one example from each post.</p>
 <p><a href="{{root}}workspace/">Save your search or picks</a> · <a href="{{root}}deep-search/">Get live Deep Search quotes</a></p>` },
   { slug: 'coverage', name: 'Coverage', title: 'What RasterRaid can search', description: 'Browse all RasterRaid search areas and see which results open on Civitai or require sign-in.', body: `
 <p>Both domains have been checked with the current developer build. The catalog you see depends on your Civitai account, browsing settings and the host’s available routes. For some areas RasterRaid finds the relevant listing, then opens Civitai’s full feed.</p>
@@ -160,10 +160,10 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Civitai review</p><h2>Developer previews on both domains</h2><p>Civitai lists RasterRaid 0.0.4 as pending review. The app author can open the developer previews on both domains. The public run page requires Civitai approval and deployment.</p>${previewLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
-<ul><li>Deep Search verifies inline citations against the run’s sources and shows what broader estimates add.</li><li>Combine multiple subject references on your device or use a Civitai download link to identify a model file.</li><li>Compare changes in saved searches, find your recent public work, and check graphics memory guidance during a workflow upgrade.</li></ul>
-<p>Developer-frame tests covered Chrome, Firefox, and WebKit on both domains and spent 0 Buzz. GitHub rebuilt the source ZIP and attested its provenance and runtime software inventory.</p>
+<ul><li>Check one change to a restrictive model, picture, or video filter. Preview the result and switch back to your original filters.</li><li>See examples from distinct posts that record the same exact model version. The copied report and eligible Deep Search inputs carry those citations.</li><li>Verify a deployed Civitai build against its expected file hashes from the repository.</li></ul>
+<p>The archive passed 12 signed developer-frame checks in Chrome, Firefox, and WebKit across both domains at 0 Buzz. GitHub rebuilt the source ZIP and attested its provenance and runtime software inventory.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
-<p><a href="${site.repository}/releases/tag/v0.0.5">Earlier 0.0.5 prerelease</a> with guest media search, partial search recovery and the first on-device subject comparison.</p>
+<p><a href="${site.repository}/releases/tag/v0.0.6">Earlier 0.0.6 prerelease</a> with combined on-device subject references, verified Deep Search citations, and recent public work in Workspace. <a href="${site.repository}/releases/tag/v0.0.5">0.0.5 prerelease</a> with guest media search and partial search recovery.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
 <ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>
@@ -184,6 +184,10 @@ npm test
 npm run verify:bundle
 npm run dev -- 5188 dist --mock-deep-search</code></pre>
 <p>Open <code>http://127.0.0.1:5188/mock-deep-search</code> and try the Linocut walkthrough. Simulated credits use 0 Buzz. See the repository README for Civitai’s app validation commands and <a href="{{root}}releases/">releases</a> for hosted status.</p>
+${sectionHeading('hosted-build', 'Verify the deployed build')}
+<p>Sign in to the app owner account through the official CLI and build the expected release source. Pipe its bundle receipt into the hosted check to compare the review records, public listings, and serving files.</p>
+<pre><code>npm run --silent verify:bundle | npm run --silent verify:hosted -- /path/to/civitai</code></pre>
+<p>For an earlier release, pipe its saved bundle receipt into the same hosted check from the current checkout.</p>
 ${sectionHeading('documentation', 'Build the documentation')}
 <p>Run <code>node site/build.mjs</code> at the repository root to regenerate <code>docs/</code>. Use <code>node site/build.mjs --check</code> to compare the committed pages and assets to their source. GitHub Pages serves the generated folder.</p>
 ${sectionHeading('verification', 'Repository checks')}
