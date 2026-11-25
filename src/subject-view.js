@@ -3,7 +3,30 @@ import { subjectDownloadBytes } from './subject-artifacts.mjs';
 import { createSubjectMatcher, subjectMatchAvailable } from './subject-matching.mjs';
 import { element, sourceLink } from './view.js';
 
-export function configureSubjectComparison(document, onComplete) {
+export function renderSubjectMatches(results, sample, matches, context) {
+  const byId = new Map(sample.map(item => [item.id, item]));
+  const cards = matches.map((match, index) => {
+    const item = byId.get(match.id);
+    const row = element('li');
+    const link = sourceLink(item.link, null, context);
+    const image = element('span', null, 'subject-thumbnail');
+    const preview = element('img');
+    preview.alt = '';
+    preview.referrerPolicy = 'no-referrer';
+    preview.addEventListener('error', () => preview.replaceWith(element('small', 'Preview unavailable')), { once: true });
+    preview.src = item.cover;
+    const rank = element('span', String(index + 1), 'subject-rank');
+    rank.setAttribute('aria-hidden', 'true');
+    image.append(preview, rank);
+    link.append(image, element('span', item.title, 'subject-source'));
+    if (item.kind === 'Video poster') link.append(element('small', item.kind, 'subject-source'));
+    row.append(link);
+    return row;
+  });
+  results.replaceChildren(...cards);
+}
+
+export function configureSubjectComparison(document, onComplete, matcher = createSubjectMatcher(document)) {
   const section = document.getElementById('subject-comparison');
   const start = document.getElementById('subject-start');
   const stop = document.getElementById('subject-stop');
@@ -16,7 +39,6 @@ export function configureSubjectComparison(document, onComplete) {
   const help = document.getElementById('subject-help');
   const results = document.getElementById('subject-results');
   const deep = document.getElementById('subject-deep-search');
-  const matcher = createSubjectMatcher(document);
   progress.max = subjectDownloadBytes;
   let current;
   let context;
@@ -140,24 +162,7 @@ export function configureSubjectComparison(document, onComplete) {
       } });
       if (active !== attempt) return;
       matches = ranked;
-      const byId = new Map(sample.map(item => [item.id, item]));
-      for (const [index, match] of matches.entries()) {
-        const item = byId.get(match.id);
-        const row = element('li');
-        const link = sourceLink(item.link, null, context);
-        link.setAttribute('aria-label', 'Rank ' + (index + 1) + ', ' + item.title);
-        const image = element('span', null, 'subject-thumbnail');
-        const preview = element('img');
-        preview.alt = '';
-        preview.referrerPolicy = 'no-referrer';
-        preview.addEventListener('error', () => preview.replaceWith(element('small', 'Preview unavailable')), { once: true });
-        preview.src = item.cover;
-        image.append(preview, element('span', String(index + 1), 'subject-rank'));
-        link.append(image, element('span', item.title, 'subject-source'));
-        if (item.kind === 'Video poster') link.append(element('small', item.kind, 'subject-source'));
-        row.append(link);
-        results.append(row);
-      }
+      renderSubjectMatches(results, sample, matches, context);
       const displayed = matches.length;
       const basis = [...references, ...sample].some(item => item.kind === 'Video poster') ? ' · Includes video posters' : '';
       const cropped = references.filter(reference => reference.region).length;

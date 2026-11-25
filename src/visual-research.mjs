@@ -1,11 +1,12 @@
 import { audioDescriptionSteps, publicMedia, publicPicture } from './catalog-research.mjs';
-import { numericId, SITE_ORIGINS, text } from './catalog.mjs';
+import { numericId, SITE_ORIGINS, text, visibleRating } from './catalog.mjs';
 import { sampleMediaByPost } from './gallery.mjs';
 import { describeMediaQuery } from './gallery-relevance.mjs';
 import { captionStep, embeddingStep, makeChat, pictureAnalysis, RESEARCH_MODEL } from './research.mjs';
 import { subjectCandidateLimit } from './subject-artifacts.mjs';
 import { visualRoles } from './visual-analysis.mjs';
 import { recordedAcrossPosts, recordedPostLabel } from './report-media-models.mjs';
+import { validVisualDescription, visualTextCandidateLimit } from './visual-text-pack.mjs';
 
 export const visualPickLimit = 3;
 const imagePage = /^\/images\/[1-9]\d{0,14}$/u;
@@ -32,6 +33,29 @@ function publicGalleryPreview(item, origin) {
   const matches = Array.isArray(item.visualSources) ? item.visualSources : [];
   return { id, title, link: item.link, cover, postId: numericId(item.postId), kind: item.video ? 'Video poster' : 'Picture',
     catalogMatches: matches.slice(0, 4).map(value => text(value, 120)).filter(Boolean) };
+}
+
+export function galleryDescriptionSample(result, displayed, context) {
+  const { origin, browsingLevel, connectionLost } = context ?? {};
+  if (!SITE_ORIGINS.includes(origin) || connectionLost || result?.gallery?.scope !== 'gallery' ||
+      result.library || result.visualComposition || !['text', 'tag'].includes(result.target?.kind)) return null;
+  const query = result.gallery.query;
+  if (!validVisualDescription(query)) return null;
+  const description = query.split(/\s+without\s+/iu, 1)[0].trim();
+  if (!description) return null;
+  const seenIds = new Set();
+  const seenCovers = new Set();
+  const eligible = [];
+  for (const row of displayed) {
+    if (row.video || !visibleRating(row.browsingLevel, browsingLevel)) continue;
+    const item = publicGalleryPreview(row, origin);
+    if (!item || seenIds.has(item.id) || seenCovers.has(item.cover)) continue;
+    seenIds.add(item.id);
+    seenCovers.add(item.cover);
+    eligible.push(item);
+  }
+  const sample = sampleMediaByPost(eligible, visualTextCandidateLimit);
+  return sample.length >= 2 ? { description, sample } : null;
 }
 
 export function gallerySimilaritySample(result, origin) {

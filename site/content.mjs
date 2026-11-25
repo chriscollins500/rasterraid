@@ -3,7 +3,7 @@ export const site = {
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
   version: '0.0.4',
-  developerVersion: '0.0.7',
+  developerVersion: '0.0.8',
   checked: '2026-11-24',
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
@@ -104,6 +104,7 @@ export const pages = [
 ${sectionHeading('search-a-brief', 'Search from a few words')}
 <ol><li>Type a model name, describe what you’re looking for, or select an example.</li><li>Use <strong>Search areas</strong> to focus on models, pictures, clips, guides or another part of Civitai.</li><li>Open <strong>Filter &amp; sort</strong> for choices appropriate to that area. Search again when you’re ready.</li></ol>
 <p>In the ${site.developerVersion} developer prerelease, <strong>Check model filters</strong> or <strong>Check media filters</strong> can help when a filtered search finds few results. Gallery images and Videos can check the selected base models, date range and published-prompt filter. Each suggestion includes an example and a count from its sample. Choose a change to search again, or use <strong>Back to original filters</strong>.</p>
+<p>To compare the visible details in a Gallery images search, choose <strong>Match by appearance → Compare pictures</strong>. The comparison ranks up to eight loaded pictures beside the gallery. It runs on your device and uses 0 Buzz. First use can download about 231 MB. If the download fails, use a saved copy of the visual model pack from the developer release.</p>
 <div class="examples"><p>Try <code>DreamShaper 8</code>, <code>pictures of ginger cats in a rainy window</code>, or <code>guides for ComfyUI workflows</code>.</p></div>
 ${sectionHeading('search-a-picture', 'Search from a picture or clip')}
 <p>Choose <strong>Add a picture</strong> or paste a public Civitai media link. In the visual comparison, focus on the whole picture or a selected detail. Choose the palette, lighting, layout or texture you want to match or avoid. Eligible clip results open close to the matched moment.</p>
@@ -160,10 +161,10 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Civitai review</p><h2>Developer previews on both domains</h2><p>Civitai lists RasterRaid 0.0.4 as pending review. The app author can open the developer previews on both domains. The public run page requires Civitai approval and deployment.</p>${previewLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
-<ul><li>Check one change to a restrictive model, picture, or video filter. Preview the result and switch back to your original filters.</li><li>See examples from distinct posts that record the same exact model version. The copied report and eligible Deep Search inputs carry those citations.</li><li>Verify a deployed Civitai build against its expected file hashes from the repository.</li></ul>
-<p>The archive passed 12 signed developer-frame checks in Chrome, Firefox, and WebKit across both domains at 0 Buzz. GitHub rebuilt the source ZIP and attested its provenance and runtime software inventory.</p>
+<ul><li>Match up to eight loaded gallery pictures against your search words on your device.</li><li>Find matching passages in eligible Civitai articles and open their source sections.</li><li>Filter models by their creator’s declared usage settings and open the exact version license where available.</li></ul>
+<p>The GitHub release includes the Civitai source archive, the runtime inventory, and the appearance model pack.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
-<p><a href="${site.repository}/releases/tag/v0.0.6">Earlier 0.0.6 prerelease</a> with combined on-device subject references, verified Deep Search citations, and recent public work in Workspace. <a href="${site.repository}/releases/tag/v0.0.5">0.0.5 prerelease</a> with guest media search and partial search recovery.</p>
+<p><a href="${site.repository}/releases/tag/v0.0.7">0.0.7 prerelease</a> with filter checks and verified model records across distinct posts. <a href="${site.repository}/releases/tag/v0.0.6">0.0.6 prerelease</a> with combined subject references and verified Deep Search citations. <a href="${site.repository}/releases/tag/v0.0.5">0.0.5 prerelease</a> with guest media search and partial search recovery.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
 <ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>

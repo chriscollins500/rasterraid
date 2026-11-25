@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.7 developer prerelease adds checks for restrictive model and media filters, exact model evidence across gallery posts, and a way to verify the deployed build. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.7](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.7) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.8 developer prerelease adds an on-device appearance comparison for loaded gallery pictures, passage search for Civitai articles, and filters for creator usage settings on models. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.8](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.8) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 
@@ -50,6 +50,17 @@ GitHub Actions checks supported Node versions, the built app and the generated s
 ```sh
 node site/build.mjs
 node site/build.mjs --check
+```
+
+### Visual model pack
+
+**Match by appearance** in Gallery images loads the signed release’s compact text weights on demand. The browser verifies each part of the pack before running the comparison. A viewer can also select the pack from the GitHub release. The model is adapted from Google’s SigLIP 2 Base Patch16-224 and the pinned ONNX Community Q4 export. RasterRaid separates the token table, quantizes its ordinary rows to 4 bits, and preserves 64 special rows at full precision. [Model and Apache 2.0 license](https://huggingface.co/google/siglip2-base-patch16-224) · [Pinned ONNX source](https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/tree/ba1f3b0843f24bc5417d38e19c37b287d719b2f4)
+
+Use Node 26.13.0 with the verified parts named in `src/visual-text-pack.mjs`. The pack and staging scripts verify the expected SHA-256. GitHub Pages deploys the generated docs with the pinned pack from the 0.0.8 GitHub release.
+
+```sh
+node scripts/package-visual-model.mjs /path/to/verified-parts /path/to/rasterraid-visual-model-v1.rrvision
+node scripts/stage-pages.mjs /path/to/rasterraid-visual-model-v1.rrvision /path/to/new-pages-directory
 ```
 
 [Contributing](CONTRIBUTING.md) · [Report a vulnerability](SECURITY.md) · [Get help](https://chriscollins500.github.io/rasterraid/support/)

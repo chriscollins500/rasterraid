@@ -1,40 +1,20 @@
 import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectReferenceLimit, subjectSide, subjectVisionModel, subjectWasm,
   subjectWasmAvailable } from './subject-artifacts.mjs';
 import { subjectScore } from './subject-score.mjs';
+import { sha256Hex, verifiedModelBytes } from './model-bytes.mjs';
+import { validVisualDescription, visualPackBytes, visualTextCandidateLimit } from './visual-text-pack.mjs';
 
 const pixels = subjectSide * subjectSide;
 const dimensions = 768;
 const previewCacheLimit = 24;
 const previewVectors = new Map();
 
-async function sha256Hex(bytes) {
-  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-  return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function checkedBytes({ url, bytes, sha256 }, received) {
-  const reply = await fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(60_000) });
+async function checkedBytes(artifact, received) {
+  const reply = await fetch(artifact.url, { credentials: 'omit', referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(60_000) });
   if (!reply.ok || !reply.body || !subjectAssetOrigins.includes(new URL(reply.url).origin)) {
     throw new Error('The pinned inference file is unavailable.');
   }
-  const output = new Uint8Array(bytes);
-  const reader = reply.body.getReader();
-  let position = 0;
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (position + value.byteLength > bytes) throw new Error('Unexpected inference file size.');
-      output.set(value, position);
-      position += value.byteLength;
-      received(position);
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-  if (position !== bytes || await sha256Hex(output) !== sha256) throw new Error('Inference file verification failed.');
-  return output;
+  return verifiedModelBytes(reply.body, artifact, received);
 }
 
 async function pictureVector({ ort, session, input, output }, rgba) {
@@ -133,20 +113,31 @@ async function loadRuntime() {
 const validPixels = row => row?.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels;
 const cosine = (reference, values) => reference.reduce((sum, value, index) => sum + value * values[index], 0);
 
-async function compare(data, runtime) {
-  const { references, sample } = data ?? {};
-  if (!Array.isArray(references) || references.length < 1 || references.length > subjectReferenceLimit ||
-      !references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity)) ||
-      !references.some(row => row.polarity === 'prefer') ||
-      !Array.isArray(sample) || sample.length < 1 || sample.length > subjectCandidateLimit ||
+function validateComparison(data) {
+  const { description, references, sample, modelPack } = data ?? {};
+  const visual = description !== undefined;
+  const validReference = visual ? validVisualDescription(description) && references?.length === 0 &&
+      (modelPack == null || modelPack instanceof Blob && modelPack.size === visualPackBytes)
+    : references?.some?.(row => row?.polarity === 'prefer') && references.length <= subjectReferenceLimit &&
+      references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity));
+  if (!Array.isArray(references) || !validReference ||
+      !Array.isArray(sample) || sample.length < (visual ? 2 : 1) || sample.length > (visual ? visualTextCandidateLimit : subjectCandidateLimit) ||
       !sample.every(row => validPixels(row) && Number.isSafeInteger(row.id) && row.id > 0) ||
-      new Set(sample.map(row => row.id)).size !== sample.length) throw new Error('Invalid picture inputs.');
+      new Set(sample.map(row => row.id)).size !== sample.length) throw new Error('Invalid comparison inputs.');
+}
+
+async function compare({ description, references, sample }, runtime, textRuntime) {
   const { provider } = runtime;
-  const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: references.length + sample.length });
+  const anchorCount = description ? 1 : references.length;
+  const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: anchorCount + sample.length });
   reportCount(0);
   const preferred = [];
   const avoided = [];
   try {
+    if (description) {
+      preferred.push(await textRuntime.encode(textRuntime.model, description));
+      if (provider === 'wasm') reportCount(1);
+    }
     for (const { rgba, polarity } of references) {
       const vector = await pictureVector(runtime, rgba);
       (polarity === 'avoid' ? avoided : preferred).push(vector);
@@ -159,7 +150,7 @@ async function compare(data, runtime) {
       const score = subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values)));
       if (reused) reusedPreviews++;
       matches.push({ id, score });
-      if (provider === 'wasm') reportCount(references.length + matches.length);
+      if (provider === 'wasm') reportCount(anchorCount + matches.length);
     }
     return { phase: 'complete', reusedPreviews, matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
@@ -172,6 +163,24 @@ const runtime = loadRuntime().catch(() => {
   self.postMessage({ phase: 'failed' });
   return null;
 });
+let textRuntime;
+
+async function loadTextRuntime(pack) {
+  const { readVisualTextModel, createVisualTextSession, visualTextVector } = await import('./visual-text-model.mjs');
+  let assets;
+  try {
+    assets = await readVisualTextModel(pack, (phase, loaded) => self.postMessage({ phase, loaded, total: visualPackBytes }));
+  } catch {
+    self.postMessage({ phase: 'model-pack-unavailable' });
+    return null;
+  }
+  const vision = await runtime;
+  if (!vision) return null;
+  self.postMessage({ phase: 'starting', provider: vision.provider });
+  const model = await createVisualTextSession(vision.ort, vision.provider, assets);
+  return { model, encode: visualTextVector };
+}
+
 let matching = false;
 self.addEventListener('message', async event => {
   // The browser's dedicated-worker port sends trusted messages without a window origin or source.
@@ -184,8 +193,13 @@ self.addEventListener('message', async event => {
   matching = true;
   let reply;
   try {
+    validateComparison(data);
+    if (data.description && !textRuntime) {
+      textRuntime = await loadTextRuntime(data.modelPack);
+      if (!textRuntime) return;
+    }
     const loaded = await runtime;
-    if (loaded) reply = await compare(data, loaded);
+    if (loaded) reply = await compare(data, loaded, textRuntime);
   } catch {
     reply = { phase: 'failed' };
   } finally {

@@ -40,6 +40,8 @@ import { loadPublicPreview, visualRegionLabel, visualRoles } from './visual-anal
 import { clipMatchTarget, refineVisualNeighbors } from './visual-discovery.mjs';
 import { galleryCandidateResearch, galleryCompositionResearch, gallerySimilarityResearch, visualPickLimit, visualResearch } from './visual-research.mjs';
 import { configureSubjectComparison } from './subject-view.js';
+import { createSubjectMatcher } from './subject-matching.mjs';
+import { configureGalleryAppearance } from './gallery-appearance.js';
 import { configureSoundMatch } from './sound-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
@@ -283,6 +285,7 @@ function clearSearchResults(current) {
   showResearchPrices();
   search = undefined;
   subjectComparison.show(null, current);
+  galleryAppearance.clear();
   retryButton.hidden = true;
   filterReview.show(null);
   searchTrail.length = 0;
@@ -309,6 +312,7 @@ function setSearchBusy(busy, restore = searchButton) {
   if (busy) articlePassages.close();
   filterReview.setBusy(busy);
   subjectComparison.setSearchBusy(busy);
+  galleryAppearance.setSearchBusy(busy);
   form.toggleAttribute('data-searching', busy);
   byId('open-search-areas').disabled = busy;
   byId('reset-search-area').disabled = busy;
@@ -344,7 +348,9 @@ const filterReview = configureFilterReview(document, {
 });
 const updateButtonLayout = configureSearchButtons(window, selectSearchArea);
 const cropEditor = createVisualCropEditor(document);
-const subjectComparison = configureSubjectComparison(document, renderResearch);
+const localSubjectMatcher = createSubjectMatcher(document);
+const subjectComparison = configureSubjectComparison(document, renderResearch, localSubjectMatcher);
+const galleryAppearance = configureGalleryAppearance(document, localSubjectMatcher);
 const visualReferences = configureLocalReferences(document, report => {
   if (search?.result.report !== report || !report) return;
   if (visualReferences.researchSelection(report).length) {
@@ -473,7 +479,10 @@ watchHost(window, update => {
   const collectionAccessLost = context && hasCollectionAccess(context, libraryPrivate) && !hasCollectionAccess(update, libraryPrivate);
   const quoteAccessLost = context?.scopes.includes(QUOTE_SCOPE) && !update.scopes.includes(QUOTE_SCOPE);
   if (context && (identityChanged || visibilityReduced || collectionAccessLost ||
-      context.origin !== update.origin || update.connectionLost && !context.connectionLost)) subjectComparison.release();
+      context.origin !== update.origin || update.connectionLost && !context.connectionLost)) {
+    subjectComparison.release();
+    galleryAppearance.clear();
+  }
   context = update;
   if (search?.context !== update) {
     articlePassages.close();
@@ -585,6 +594,7 @@ function renderGroup() {
   const gallery = search.result.gallery;
   const subjectResult = search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope) ? search.result : null;
   subjectComparison.show(subjectResult, search.context, visualReferences.subjectReferences(subjectResult?.visualComposition));
+  galleryAppearance.show(subjectResult, search.groups.gallery ?? [], search.context);
   if (gallery && isVisualGalleryScope(gallery.scope)) filterControls.showGalleryTagNames(search.groups[gallery.scope] ?? []);
   renderResults(resultArea, search.result, search.groups, search.filter, {
     context: search.context,

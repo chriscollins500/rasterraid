@@ -16,6 +16,8 @@ const subjectVendor = Object.freeze({
   'src/vendor/ort/ort.wasm.min.mjs': 'c21d9c326d453a4a61398270c804d5979e118540597cb0c07f7b3d64e6098234',
   'src/vendor/ort/ort-wasm-simd-threaded.mjs': '30ed0b5cd1182ede931fea448afb567d4dc705ec957af09f108a2be5f770dac3',
   'src/vendor/ort/ort-static-emval.mjs': '8ccfdd306e038d989c151a1ba15b77822f805381ee57192577b725e6b5db04fc',
+  'src/vendor/tokenizers/tokenizers.min.mjs': '258e46332101335ce8d95aed7745b19ac3b46d37f3e159a89cf894c2ea9b1d3a',
+  'src/vendor/tokenizers/LICENSE': 'c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4',
 });
 
 const folder = await lstat(output);
