@@ -5,7 +5,7 @@ import { catalogPause } from './catalog.mjs';
 import { runHostProbe, HOST_PROBES } from './probe.mjs';
 import { discover, hashLookupNote, readModelPage, readRecordedVersions } from './search.mjs';
 import { showModelHandoff } from './model-handoff.js';
-import { modelChoiceFields, modelDownloadFilter, modelFilterValues } from './model-access.mjs';
+import { catalogSearchText, civitaiDownloadReference, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelFilterValues } from './model-access.mjs';
 import { readNativeModelSearch } from './native-model-search.mjs';
 import { suggestedCatalogSearch } from './search-intent.mjs';
 import { isGalleryScope, isVisualGalleryScope, readGalleryPage, readNativeGallerySearch, tagRecord } from './gallery.mjs';
@@ -749,6 +749,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
   }
   const hashNote = !result.report && hashLookupNote(result.hashStatus);
   if (hashNote) parts.push(hashNote);
+  if (!result.report && result.target.download) parts.push(downloadReferenceNote(result.target, result.candidates));
   reviewReleases.hidden = !(resultScope === 'ownedModels' && result.ownerStatus === 'ready' && result.candidates.length);
   if (services?.missing) parts.push('This service ID is absent from Civitai’s registry.');
   if (services && !services.exact && services.total !== null) {
@@ -1496,7 +1497,23 @@ searchPictureFiles.addEventListener('change', () => {
 });
 query.addEventListener('paste', event => {
   const clipboard = event.clipboardData;
-  if (!canAddSearchPicture() || !clipboard || clipboard.getData('text/plain').trim()) return;
+  if (!clipboard) return;
+  const pasted = clipboard.getData('text/plain');
+  if (pasted.trim()) {
+    try {
+      const download = civitaiDownloadReference(pasted);
+      if (download) {
+        event.preventDefault();
+        query.value = download.download.link;
+        query.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    } catch (error) {
+      event.preventDefault();
+      searchStatus.textContent = error.message;
+    }
+    return;
+  }
+  if (!canAddSearchPicture()) return;
   const pictures = [...clipboard.files];
   if (!pictures.length) for (const item of clipboard.items) {
     const file = item.kind === 'file' && item.getAsFile();
@@ -1570,6 +1587,13 @@ form.addEventListener('submit', event => {
 async function runSearch(submitter = searchButton, { restored, visualCrop, savedSearch, followInput = true, branch } = {}) {
   if (activeSearch || addingSearchPicture || !context || submitter.disabled) return;
   const applyFilters = submitter.id === 'apply-search-filters';
+  try {
+    const download = civitaiDownloadReference(query.value);
+    if (download) query.value = download.download.link;
+  } catch (error) {
+    searchStatus.textContent = error.message;
+    return;
+  }
   const address = query.value.trim();
   const link = !restored && scope.value !== 'report' ? URL.parse(address) : null;
   if (link && clipMatchTarget(link) && scope.value !== 'videos') {
@@ -1625,6 +1649,12 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
       traceRecorded && (filters.scope !== 'report' || referenceVersion !== referenceRevision) ||
       compose && (!isVisualGalleryScope(filters.scope) || briefVersion !== visualBriefRevision || !visualBrief.length)) return;
   if (action?.reportType) Object.assign(filters, { scope: 'report', reportType: action.reportType, query: action.query });
+  try {
+    if (filters.query) filters.query = catalogSearchText(filters.query);
+  } catch (error) {
+    searchStatus.textContent = error.message;
+    return;
+  }
   const changedFilter = restored && Object.entries(restored).find(([name, value]) => {
     if (modelChoiceFields.includes(name)) {
       const label = name === 'resourceType' ? modelTypeLabel : value => value;

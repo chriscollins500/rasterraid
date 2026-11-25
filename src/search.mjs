@@ -20,7 +20,7 @@ import { catalogWords, foldSearchText, searchTerms as terms, searchWords as word
 import { correctSpelling, editDistance, protectedReference, searchStarts } from './text-assist.mjs';
 import { personalModelOrder } from './preferences.mjs';
 import { orderModelRelevance } from './model-reranker.mjs';
-import { matchesModelDownload, modelChoiceKey, modelCreatorName, modelDownloadFilter, modelFilterParam, modelFilterValues,
+import { civitaiDownloadReference, matchesModelDownload, modelChoiceKey, modelCreatorName, modelDownloadFilter, modelFilterParam, modelFilterValues,
   modelVersionDownload } from './model-access.mjs';
 import { nativeModelSearchLink } from './native-model-search.mjs';
 import { mergeQuickCatalog, readQuickCatalog, sampleQuickCatalog } from './quick-catalog.mjs';
@@ -65,6 +65,8 @@ function spellingPrefix(input) {
 }
 
 export function searchTarget(value, { gallery = false, assets3d = false, aiServices = false } = {}) {
+  const download = civitaiDownloadReference(value);
+  if (download) return download;
   const input = text(value, 500);
   if (!input) throw new Error('Enter a search brief or an exact Civitai reference.');
   const aiService = aiServiceReference(input, { allowId: aiServices });
@@ -212,6 +214,7 @@ function modelVersions(model) {
       trainedWords: Array.isArray(version.trainedWords) ? version.trainedWords : null,
       ...(version.selectedFile && { selectedFile: version.selectedFile }),
       ...(version.matchingFiles && { matchingFiles: version.matchingFiles }),
+      ...(version.fileOptionsMatched && { fileOptionsMatched: true }),
     }];
   });
 }
@@ -333,20 +336,51 @@ function normalizeVersion(version) {
   };
 }
 
-function airFiles(models, target) {
-  if (!target.fileId && !target.format) return models;
+function selectVersionFiles(models, target) {
+  const { type, format = target.format, size, fp, quantType } = target.download?.selectors ?? {};
+  if (!target.fileId && !format && !type && !size && !fp && !quantType) return models;
   const formatKey = value => text(value, 40).toLowerCase().replace(/safetensors?$/u, 'safetensor');
+  const matchesOption = (option, value) => !option || modelChoiceKey(value) === modelChoiceKey(option);
   return models.flatMap(model => {
     const versions = model.modelVersions.flatMap(version => {
       const files = Array.isArray(version.files) ? version.files : [];
       const matches = files.filter(entry => numericId(entry?.id) && (!target.fileId || entry.id === target.fileId) &&
-        (!target.format || [entry.metadata?.format, text(entry.name, 220).split('.').at(-1)].some(value => formatKey(value) === formatKey(target.format))))
+        (!format || [entry.metadata?.format, text(entry.name, 220).split('.').at(-1)].some(value => formatKey(value) === formatKey(format))) &&
+        matchesOption(type, entry.type) && matchesOption(size, entry.metadata?.size) &&
+        matchesOption(fp, entry.metadata?.fp) && matchesOption(quantType, entry.metadata?.quantType))
         .map(publicFile).filter(Boolean);
       if (matches.length === 1) return [{ ...version, selectedFile: matches[0] }];
-      return matches.length ? [{ ...version, matchingFiles: matches }] : [];
+      return matches.length ? [{ ...version, matchingFiles: matches, fileOptionsMatched: Boolean(target.download) }] : [];
     });
     return versions.length ? [{ ...model, modelVersions: versions }] : [];
   });
+}
+
+function publishedDownloadPin(file, target, origin) {
+  if (file?.id !== target.fileId || (file.modelVersionId != null && file.modelVersionId !== target.id)) return false;
+  // Linked components can appear in the host version's catalog files. The
+  // publisher's pinned URL (or an explicit owner field) establishes the pair.
+  if (file.modelVersionId === target.id) return true;
+  try {
+    const url = typeof file.downloadUrl === 'string' && URL.parse(file.downloadUrl, origin);
+    const reported = url && civitaiDownloadReference(url.href);
+    return reported?.id === target.id && reported.fileId === target.fileId;
+  } catch { return false; }
+}
+
+async function versionReferenceFiles(models, target, origin, { read, appCatalog }) {
+  if (!target.download || !target.fileId || !models.length) return selectVersionFiles(models, target);
+  const visible = models.flatMap(model => {
+    const modelVersions = model.modelVersions.filter(version => version?.id === target.id && Array.isArray(version.files) &&
+      version.files.some(file => appCatalog ? file?.id === target.fileId : publishedDownloadPin(file, target, origin)));
+    return modelVersions.length ? [{ ...model, modelVersions }] : [];
+  });
+  if (!visible.length) return [];
+  if (!appCatalog) return selectVersionFiles(visible, target);
+  const authority = await read('Published download file identity', '/api/v1/model-versions/' + target.id, {}, true);
+  if (authority?.id !== target.id || !Array.isArray(authority.files) ||
+      !authority.files.some(file => publishedDownloadPin(file, target, origin))) return [];
+  return selectVersionFiles(visible.filter(model => model.id === authority.modelId), target);
 }
 
 function matchVersionDigest(version, digest) {
@@ -359,7 +393,7 @@ function matchVersionDigest(version, digest) {
 
 function recordedModelMatches(models, claim) {
   const compatible = models.filter(model => !claim.modelId || model.id === claim.modelId);
-  const pinned = airFiles(compatible, claim);
+  const pinned = selectVersionFiles(compatible, claim);
   if (!claim.sha256) return pinned;
   return pinned.flatMap(model => {
     const versions = model.modelVersions.flatMap(version => matchVersionDigest(version, claim.sha256));
@@ -843,7 +877,7 @@ async function discoverOwnedModels(context, target, filters, { signal, fetcher, 
   let hashStatus;
   const result = (rows, status, nextCursor) => ({
     scope: 'ownedModels', target, directoryTitle: ownerLabel, nativeLink, ownerStatus: status, hashStatus, alternateQueries,
-    candidates: rows, shortlisted: hashStatus && hashStatus !== 'unique' ? [] : rows.slice(0, 3), reference: null,
+    candidates: rows, shortlisted: (hashStatus && hashStatus !== 'unique') || rows.some(row => row.fileOptionsMatched) ? [] : rows.slice(0, 3), reference: null,
     related: {}, guides: [], baseline: [], combined: rows.map(row => row.id), flows: [...reads.flows],
     ...(nextCursor && { modelPager: { scope: 'models', nextCursor } }),
   });
@@ -894,10 +928,10 @@ async function discoverOwnedModels(context, target, filters, { signal, fetcher, 
       const record = await reads.read('Published model version list', '/api/v1/models/' + target.id, {}, true);
       const ids = record?.id === target.id && Array.isArray(record.modelVersions)
         ? [...new Set(record.modelVersions.map(version => version?.id).filter(appVersionId))].slice(0, 12) : [];
-      models = airFiles((await versions(ids)).filter(model => model.id === target.id), target);
+      models = selectVersionFiles((await versions(ids)).filter(model => model.id === target.id), target);
     } else {
       const ids = appVersionId(target.id) ? [target.id] : [];
-      models = airFiles((await versions(ids)).filter(model => !target.modelId || model.id === target.modelId), target);
+      models = await versionReferenceFiles((await versions(ids)).filter(model => !target.modelId || model.id === target.modelId), target, origin, reads);
     }
     page = { ranked: rankOwnedModels(models, '', filters, tags, true).slice(0, modelPageSize), status };
   }
@@ -996,10 +1030,12 @@ export async function readRecordedVersions(context, plan, filters, options = {})
 export async function discover(context, filters, { signal, fetcher, onPhase = () => {}, onRanked, preferences, catalogOnly = false,
   rankModelEvidence = true, focusModelBrief = true, visualCrop, visualBrief, includePublishedSetup = false } = {}) {
   const { origin } = context;
-  const scope = filters.scope || 'all';
-  const gallery = isGalleryScope(scope);
-  const target = filters.query?.trim() ? searchTarget(filters.query, { gallery, assets3d: scope === 'assets3d', aiServices: scope === 'aiServices' })
+  const requestedScope = filters.scope || 'all';
+  const target = filters.query?.trim() ? searchTarget(filters.query, { gallery: isGalleryScope(requestedScope),
+    assets3d: requestedScope === 'assets3d', aiServices: requestedScope === 'aiServices' })
     : { kind: 'text', value: '' };
+  const scope = target.download && requestedScope !== 'ownedModels' ? 'models' : requestedScope;
+  const gallery = isGalleryScope(scope);
   if (visualBrief?.length) return discoverVisualComposition(context, target, { ...filters, scope }, visualBrief, {
     signal, fetcher, onPhase, onRanked,
     searchCatalog: () => discover(context, filters, { signal, fetcher, onPhase, catalogOnly, rankModelEvidence, focusModelBrief }),
@@ -1191,15 +1227,15 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
     lists.push({ label: 'Exact hash lookup', models: matches });
   } else if (target.kind === 'version') {
     const models = await exactVersions([target.id]);
-    lists.push({ label: target.air ? 'Exact Civitai AIR' : 'Exact version',
-      models: airFiles(models.filter(model => !target.modelId || model.id === target.modelId), target) });
+    const matched = await versionReferenceFiles(models.filter(model => !target.modelId || model.id === target.modelId), target, origin, { read, appCatalog });
+    lists.push({ label: target.download ? 'Civitai download reference' : target.air ? 'Exact Civitai AIR' : 'Exact version', models: matched });
   } else if (target.kind === 'model') {
     const model = await read('Exact model lookup', '/api/v1/models/' + target.id, {});
     const versions = Array.isArray(model?.modelVersions) ? model.modelVersions : [];
     const requested = target.air ? versions.slice(0, 1) : versions;
     const versionIds = requested.map(version => version?.id).filter(numericId).slice(0, 12);
     const data = appCatalog ? await exactVersions(versionIds) : model ? [{ ...model, modelVersions: requested }] : [];
-    lists.push({ label: target.air ? 'Exact Civitai AIR' : 'Exact model', models: airFiles(data.filter(model => model?.id === target.id), target) });
+    lists.push({ label: target.air ? 'Exact Civitai AIR' : 'Exact model', models: selectVersionFiles(data.filter(model => model?.id === target.id), target) });
   } else {
     const data = await read('Reference image', routeForImages, {
       imageId: target.id, limit: 1, withMeta: true, ...(appCatalog ? {} : { browsingLevel: ceiling }),
@@ -1247,7 +1283,8 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   const candidates = modelCards(ranked, origin, ceiling);
   const nativeLink = canPage ? nativeModelSearchLink(origin, target, filters) : null;
   const snapshot = (rows, nextCursor) => ({
-    target, reference, candidates: rows, shortlisted: hashStatus && hashStatus !== 'unique' ? [] : rows.slice(0, 3), related,
+    target, reference, ...(target.download && { scope }), candidates: rows,
+    shortlisted: (hashStatus && hashStatus !== 'unique') || rows.some(row => row.fileOptionsMatched) ? [] : rows.slice(0, 3), related,
     guides: guideEvidence ?? related.guides ?? [], ...(quickCatalog && { quickCatalog }),
     flows: [...flows], alternateQueries: [...alternateQueries].slice(0, 2),
     baseline: baseline.map(candidate => candidate.id), combined: rows.map(candidate => candidate.id), primaryCount,

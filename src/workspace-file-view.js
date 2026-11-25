@@ -16,7 +16,7 @@ export function workflowFileStatus(check) {
   if (check.fitIssue) return 'Review setup fit';
   if (check.newer) return 'Newer matching release';
   if (check.partial) return 'File found · Some releases unchecked';
-  return check.identity === 'hash' ? 'SHA-256 matched' : check.identity === 'air' ? 'File ID matched'
+  return check.identity === 'hash' ? 'SHA-256 matched' : ['air', 'download'].includes(check.identity) ? 'File ID matched'
     : check.identity === 'version' ? 'Version and filename matched' : 'Published filename found';
 }
 
@@ -26,6 +26,7 @@ function identityDescription(check) {
   const note = differs ? ' The workflow uses a different filename.' : '';
   if (check.identity === 'hash') return 'The entered SHA-256 matches this published file.' + note;
   if (check.identity === 'air') return 'The AIR address identifies this model, release, and file.' + note;
+  if (check.identity === 'download') return 'Civitai publishes this exact file for the release in the download link.' + note;
   if (check.identity === 'version') return 'The recorded version contains this filename. A SHA-256 can verify the file contents.';
   return 'The workflow filename matches the catalog. A SHA-256 can verify the file contents.';
 }

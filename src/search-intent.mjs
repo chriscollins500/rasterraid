@@ -62,7 +62,8 @@ export function quickSearchIntent(value) {
     const link = query.slice(match[0].length);
     if (!singleLink.test(link)) continue;
     try {
-      if (kinds.includes(searchTarget(link).kind)) return { reportType, label, query: link, literal: true };
+      const target = searchTarget(link);
+      if (kinds.includes(target.kind)) return { reportType, label, query: target.download?.link ?? link, literal: true };
     } catch { return null; }
   }
   return null;

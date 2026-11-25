@@ -263,7 +263,8 @@ function modelCard(candidate, context, chosen, toggle, eager, loadingDetails, fe
     facts.append(files);
   }
   if (candidate.matchingFiles?.length) {
-    facts.append(element('p', 'This SHA-256 appears on multiple files in this release.'));
+    facts.append(element('p', candidate.fileOptionsMatched ? 'The download link’s options match multiple files in this release.'
+      : 'Multiple catalog files match this reference.'));
     const matches = element('ul');
     for (const file of candidate.matchingFiles.slice(0, 8)) matches.append(element('li', 'File #' + file.id + ' · ' + file.name));
     facts.append(matches);

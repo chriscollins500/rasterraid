@@ -6,7 +6,7 @@ import { readCatalogCheckpoint, readReportCheckpoint } from './report-checkpoint
 import { releaseMediaSources } from './release-trail.mjs';
 import { discover, modelUsage, readModelFileHistory, readRecordedVersions, readSavedModelVersions, searchTarget } from './search.mjs';
 import { comparePublishedRelease, isModelFile, listedCreatorTerms, publishedName, releaseSetupIssue } from './release-compatibility.mjs';
-import { modelChoiceFields, modelCreatorName, modelDownloadFilter, modelFilterParam } from './model-access.mjs';
+import { catalogSearchText, modelChoiceFields, modelCreatorName, modelDownloadFilter, modelFilterParam } from './model-access.mjs';
 import { environmentProfile } from './workflow-profile.mjs';
 import { upgradeForSearch } from './upgrade-evidence.mjs';
 
@@ -35,13 +35,17 @@ export function workspaceFilters(filters) {
       continue;
     }
     if (typeof value !== 'string') continue;
+    if (field === 'query') {
+      try { selected.query = catalogSearchText(value); } catch { return null; }
+      continue;
+    }
     if (field === 'downloadAccess' && !modelDownloadFilter(value)) continue;
     if (field === 'modelAuthor') {
       const name = modelCreatorName(value);
       if (name) selected[field] = name;
       continue;
     }
-    selected[field] = text(value, field === 'query' ? 500 : field === 'exclude' ? 200 : 100);
+    selected[field] = text(value, field === 'exclude' ? 200 : 100);
   }
   try {
     const assets3d = selected.scope === 'assets3d' || selected.scope === 'report' && /^https:\/\/civitai\.(?:com|red)\/3d-models\//iu.test(selected.query ?? '');
@@ -320,7 +324,7 @@ function checkIdentity(candidates, file, target) {
       if (!isModelFile(entry) || !numericId(entry.id)) continue;
       const matches = !target ? publishedName(entry.name) === publishedName(file) : target.kind === 'hash'
         ? publishedName(entry.sha256) === publishedName(target.value)
-        : model.modelId === target.modelId && model.id === target.id &&
+        : (!target.modelId || model.modelId === target.modelId) && model.id === target.id &&
           (target.fileId ? entry.id === target.fileId : Boolean(file && publishedName(entry.name) === publishedName(file)));
       if (matches) results.set([model.modelId, model.id, entry.id].join('/'), { model, file: entry });
     }
@@ -359,11 +363,12 @@ export async function checkWorkspaceAsset(context, asset, baseModel, {
   const imported = normalized.assets[0];
   if (!imported) throw new Error('Choose a recognized workflow model file or reference.');
   const file = imported.file ?? '';
-  const supplied = text(reference, 500);
+  const supplied = catalogSearchText(reference);
   const entered = supplied || imported.air || '';
   const target = entered ? searchTarget(entered) : null;
-  if (target && target.kind !== 'hash' && !(target.kind === 'version' && target.air && (target.fileId || !supplied))) {
-    throw new Error('Enter a SHA-256 or a Civitai AIR address that includes a version and file ID.');
+  if (target && target.kind !== 'hash' && !(target.kind === 'version' &&
+      (target.air && (target.fileId || !supplied) || target.download && target.fileId))) {
+    throw new Error('Enter a SHA-256, an AIR with a file ID, or a pinned Civitai download link.');
   }
   const queries = filenameQueries(file);
   const query = entered || queries[0];
@@ -410,7 +415,12 @@ export async function checkWorkspaceAsset(context, asset, baseModel, {
     return target ? found : checkIdentity([...candidates, ...[...histories.values()].flatMap(record => record.candidates)], file, null);
   }
 
-  if (target) {
+  if (target?.download) {
+    const resolved = await discoverSource(context, { scope: 'models', query: target.download.link }, options);
+    flows.push(...resolved.flows);
+    const match = resolved.candidates.find(model => model.id === target.id && model.selectedFile?.id === target.fileId);
+    if (match) discovered.set(match.id, match);
+  } else if (target) {
     const resolved = exactResult?.air === entered ? exactResult :
       await readExact(context, { records: [exactLookupRecord(target)] }, {}, { ...options, includeMatchCards: true });
     flows.push(...resolved.flows ?? []);
@@ -439,7 +449,7 @@ export async function checkWorkspaceAsset(context, asset, baseModel, {
   const proposed = assessment?.swaps[0];
   const throttled = throttleOf(flows);
   return { file, query: target ? '' : query, matching, alternatives: [...discovered.values()].slice(0, 3),
-    identity: target?.kind === 'hash' ? 'hash' : target?.fileId ? 'air' : target ? 'version' : 'filename', sharedHash,
+    identity: target?.kind === 'hash' ? 'hash' : target?.download ? 'download' : target?.fileId ? 'air' : target ? 'version' : 'filename', sharedHash,
     exactVersion: target?.kind === 'version' ? discovered.get(target.id) ?? null : null,
     newer: proposed?.model ?? null, newerFile: proposed?.file ?? null, fitIssue: assessment?.fit ?? '',
     current: current ? setupEvidence(current.model, normalized) : null,

@@ -3,7 +3,7 @@ import { catalogResearchItems } from './catalog-research.mjs';
 import { collectionTraceCoverage, collectionTrailSources, tracePublicCollection } from './collection-trace.mjs';
 import { followGuideReferences } from './guide-trace.mjs';
 import { hydratePosts } from './community.mjs';
-import { modelChoiceFields, modelDownloadFilter, modelDownloadLabel, modelFilterParam } from './model-access.mjs';
+import { catalogSearchText, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelDownloadLabel, modelFilterParam } from './model-access.mjs';
 import { discover, galleryModelSources, hashLookupNote, readRecordedVersions, searchTarget } from './search.mjs';
 import { describeReferenceEdits, editVerificationPriorities, pictureIntegrityText, recordedReferenceLimit, recordedReferencePlan, studioAuditReport,
   studioEditSession } from './reference-provenance.mjs';
@@ -359,6 +359,7 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
   const { origin } = context;
   if (!releaseSample && !['creator', 'examplePair'].includes(settings.type)) rows = linkMediaEvidence(rows, origin);
   const reference = anchorEvidence(anchor, origin);
+  const downloadNote = downloadReferenceNote(anchor?.target, anchor?.candidates ?? []);
   const localTrace = anchor?.localTrace;
   const exampleSetup = anchor?.exampleSetup;
   const upgrade = anchor?.upgrade;
@@ -430,6 +431,7 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
         releaseSample || ['creator', 'examplePair'].includes(settings.type) ? 24 : collectionTrail ? 20 : 8 + (mediaModels?.edges.length ?? 0)),
       anchor: reference.slice(0, 2),
       ...(anchor?.hashStatus && { hashStatus: anchor.hashStatus }),
+      ...(downloadNote && { downloadNote }),
       ...(localTrace && { localTrace }),
       ...(exampleSetup && { exampleSetup }),
       ...(upgrade && { upgrade }),
@@ -518,6 +520,7 @@ async function discoverReleaseReport(context, settings, filters, brief, { signal
     result.report.rails = [];
     result.report.releaseLookup = { choices: choices ?? [], query: brief };
     if (modelResult?.hashStatus) result.report.hashStatus = modelResult.hashStatus;
+    if (modelResult?.target?.download) result.report.downloadNote = downloadReferenceNote(modelResult.target, modelResult.candidates);
     return result;
   }
   onPhase('Verifying the Civitai model release…');
@@ -567,7 +570,7 @@ export async function discoverReport(context, filters, {
   const pairKind = editPairs?.[0]?.kind;
   const pictureComparison = pairKind === 'pictures';
   const sidecarComparison = pairKind === 'sidecars';
-  const brief = sidecarComparison ? '' : text(filters.query, 500);
+  const brief = sidecarComparison ? '' : catalogSearchText(filters.query);
   const references = editPairs ? editPairs.flatMap(({ original, draft, kind }) => [original,
     kind === 'pictures' || kind === 'sidecars' ? draft : { source: studioEditSession, references: [...draft.references, ...draft.removed] }]) : recordedReferences;
   const upgrade = references ? null : upgradeForSearch(filters);
@@ -692,7 +695,7 @@ export async function discoverReport(context, filters, {
     }
   }
   let exactModels = (hasLocal || upgrade) && anchor.candidates.length ? anchor : undefined;
-  const pinnedFile = parsed.kind === 'version' && parsed.fileId;
+  const pinnedFile = parsed.kind === 'version' && (parsed.fileId || parsed.download);
   if ((trace || pinnedFile || parsed.kind === 'hash') && anchor && ['image', 'model', 'version', 'hash'].includes(parsed.kind) && settings.sources.includes('models')) {
     exactModels = !exampleOptions.includePublishedSetup && Object.keys(modelFilters).length && anchor.candidates.length
       ? await discoverSource(context, { ...modelFilters, scope: 'models', query: brief }, options) : anchor;
@@ -933,6 +936,7 @@ export function reportMarkdown(report, graphicsMemory) {
   if (report.constraints.length) lines.push('**Model filters** ' + report.constraints.map(value => markdownLine(reportConstraint(value))).join(' · '));
   const hashNote = hashLookupNote(report.hashStatus);
   if (hashNote) lines.push('', hashNote);
+  if (report.downloadNote) lines.push('', markdownLine(report.downloadNote));
   if (report.portfolio) {
     lines.push('', '## Published release evidence', portfolioCoverage(report.portfolio),
       ...report.portfolio.releases.map(release => '- ' + markdownLink(release) + ' · ' +
