@@ -1,7 +1,7 @@
-import { createWorkflowSession, runFinished, workflowOutputPending } from './workflow-session.mjs';
+import { createWorkflowSession, runFinished, workflowDelivery, workflowOutputPending } from './workflow-session.mjs';
 import { reportSynthesisPlan } from './report-research.mjs';
 import { element } from './view.js';
-import { copyWorkflowReport, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
+import { copyWorkflowReport, workflowCompletionLabel, workflowResultElements } from './workflow-results-view.js';
 
 const busyMessages = { restoring: 'Restoring your run…', quoting: 'Pricing the exact workflow…',
   confirming: 'Checking the latest price before starting the run…', submitting: 'Starting the run…',
@@ -80,7 +80,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
     const availableResults = run?.workflowId && outputsAccessible && !snapshot?.restricted && Boolean(
       snapshot?.similarity?.ranked.length || snapshot?.text?.length || snapshot?.steps?.some(step => step.lines.length || step.transcriptScope));
     const outputsPending = outputsAccessible && workflowOutputPending(run, snapshot);
-    const outputsMissing = outputsPending || outputsAccessible && run?.status === 'succeeded' && Boolean(snapshot?.withheld);
+    const delivery = outputsAccessible && snapshot && workflowDelivery(run, snapshot);
+    const outputsMissing = done && (outputsPending || outputsAccessible && (delivery?.incomplete || Boolean(snapshot?.withheld)));
     const canCheckOutput = outputsPending && outputChecks < outputCheckLimit;
     const waitingForUpdate = !done && availableResults && snapshot.steps.length > 0 &&
       snapshot.steps.every(step => step.status === 'succeeded');
@@ -97,9 +98,9 @@ export function installWorkflowRun(container, { client, journal, context, simula
         : originalInTab || retry ? 'The submission outcome is unknown. Check history or review a fresh estimate to retry the original operation.'
           : 'The submission outcome is unknown. Check history or recreate the original picks to review a retry.'
         : canCheckOutput ? 'Analysis finished · Waiting for Civitai to return results'
-          : outputsMissing ? 'Analysis finished · Some results are unavailable'
+          : run?.status === 'succeeded' && outputsMissing ? 'Analysis finished · Some results are unavailable'
           : waitingForUpdate ? 'Analysis steps finished · Waiting for Civitai’s final update'
-        : run ? workflowStatusLabel(run.status) : '');
+        : run ? workflowCompletionLabel(run, outputsAccessible ? snapshot : undefined) : '');
     status.textContent = ticket?.revised && !busy && !problem
       ? 'The estimate changed. Review the updated price before confirming. ' + message
       : receiptRefreshed && !busy && !ticket && !problem ? ('Latest saved run loaded. ' + message).trim() : message;
@@ -135,13 +136,14 @@ export function installWorkflowRun(container, { client, journal, context, simula
       if (!runFinished(run.status)) button('Cancel run', session.cancel);
     }
     if (!busy && !receiptCheckRequired && run?.previous && !previousSnapshot) button('Load previous research', session.refreshPrevious);
-    if (!busy && availableResults) button(done && !outputsMissing ? 'Copy research results' : 'Copy available results', () => {
+    if (!busy && (availableResults || done && delivery)) button(!availableResults ? 'Copy result check' :
+      done && !outputsMissing ? 'Copy research results' : 'Copy available results', () => {
       const records = previousSnapshot ? [{ run: run.previous, snapshot: previousSnapshot }] : [];
       exported = copyWorkflowReport([...records, { run, snapshot }], { context, simulated, partial: !done || outputsMissing });
     });
     const synthesis = !busy && !ticket && !receiptPending && !receiptCheckRequired && outputsAccessible && !canCheckOutput
       ? reportSynthesisPlan(run, snapshot) : null;
-    if (synthesis) button('Quote a final synthesis', () => {
+    if (synthesis) button(outputsMissing ? 'Quote a synthesis of available results' : 'Quote a final synthesis', () => {
       selected = { plan: synthesis, sources: run.sources };
       return session.prepare(synthesis, run.sources, { continueRun: true });
     });

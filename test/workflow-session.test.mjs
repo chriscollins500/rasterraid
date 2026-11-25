@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { appRunTransport } from '../src/workflow-client.mjs';
-import { createWorkflowSession, historyResearchOutput, researchOutput, transcriptEvidence, workflowOutputPending } from '../src/workflow-session.mjs';
+import { createWorkflowSession, historyResearchOutput, researchOutput, transcriptEvidence, workflowDelivery, workflowOutputPending } from '../src/workflow-session.mjs';
 import { embeddingStep } from '../src/research.mjs';
 import { workflowRecoveryStep } from '../src/workflow-recovery.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
@@ -29,6 +29,7 @@ test('transcription keeps valid time labels and distinguishes whole clips from r
     { scope: 'repetitive', lines: [] });
   assert.deepEqual(transcriptEvidence({ hasAudio: false }), { scope: 'silent', lines: [] });
   assert.deepEqual(transcriptEvidence({ text: '', hasAudio: true }), { scope: 'empty', lines: [] });
+  assert.equal(transcriptEvidence({}), null);
 });
 
 test('a succeeded snapshot can still be waiting for output from the same run', () => {
@@ -44,7 +45,70 @@ test('a succeeded snapshot can still be waiting for output from the same run', (
   assert.equal(workflowOutputPending(run, ready), false);
   assert.equal(ready.steps[1].transcriptScope, 'empty');
   assert.deepEqual(ready.steps[0].lines, ['Ranked sources.']);
-  assert.equal(workflowOutputPending(run, { ...initial, withheld: 'Provider withheld output.' }), false);
+  assert.equal(workflowOutputPending(run, { ...initial, withheld: 'Provider withheld output.' }), true);
+});
+
+test('grouped chat text remains readable without claiming named delivery', () => {
+  const outcome = { workflowId: 'wf_fixture', title: 'Research', status: 'succeeded', sources: sources.slice(0, 1),
+    quote: { total: 6, authorFee: 1 }, steps: plan.body.steps.slice(0, 2) };
+  const rows = outcome.steps.map(step => ({ ...step, status: 'succeeded' }));
+  const grouped = researchOutput({ steps: rows, textOutputs: ['First note.', 'Second note.'] }, outcome);
+  assert.deepEqual(workflowDelivery(outcome, grouped).items.map(item => item.state), ['grouped', 'grouped']);
+  assert.equal(workflowOutputPending(outcome, grouped), false);
+  const output = workflowReportMarkdown([{ run: outcome, snapshot: grouped }]);
+  assert.match(output, /0 of 2 result checks resolved\./u);
+  assert.match(output, /2 notes together without step names/u);
+  assert.match(output, /First note\.[\s\S]*Second note\./u);
+
+  const duplicate = researchOutput({ steps: rows, textOutputs: ['First note.', 'First note.'] }, outcome);
+  assert.equal(workflowOutputPending(outcome, duplicate), true);
+  const recovered = researchOutput({ steps: rows.map((step, index) => ({ ...step, textOutputs: [grouped.text[index]] })) }, outcome, grouped);
+  assert.equal(workflowDelivery(outcome, recovered).resolved, 2);
+  assert.equal(workflowOutputPending(outcome, recovered), false);
+  assert.deepEqual(recovered.text, []);
+});
+
+test('a new provider withhold removes stale chat text and preserves a clean result while another step arrives', () => {
+  const outcome = { workflowId: 'wf_fixture', title: 'Research', status: 'succeeded', sources: sources.slice(0, 1),
+    quote: { total: 8, authorFee: 1 }, steps: plan.body.steps };
+  const steps = outcome.steps.map(step => ({ ...step, status: 'succeeded' }));
+  const prior = researchOutput({ steps: [{ ...steps[0], textOutputs: ['Previously visible.'] }, ...steps.slice(1)],
+    textOutputs: ['Old shared note.'] }, outcome);
+  const current = researchOutput({ steps, textOutputs: ['Visible sibling.'], textOutputWithheld: { reason: 'Provider withheld text.' } }, outcome, prior);
+  assert.deepEqual(current.text, ['Visible sibling.']);
+  assert.deepEqual(workflowDelivery(outcome, current).items.map(item => item.state), ['unconfirmed', 'unconfirmed', 'waiting']);
+  assert.equal(workflowOutputPending(outcome, current), true);
+  const after = researchOutput({ steps: [...steps.slice(0, 2), { ...steps[2], output: { hasAudio: false } }] }, outcome, current);
+  assert.equal(workflowOutputPending(outcome, after), false);
+  const report = workflowReportMarkdown([{ run: outcome, snapshot: after }]);
+  assert.match(report, /Quoted author fee · 1 Buzz/u);
+  assert.match(report, /1 of 3 result checks resolved/u);
+  assert.match(report, /Visible sibling\./u);
+  assert.doesNotMatch(report, /Previously visible|Old shared note/u);
+  const synthesis = reportSynthesisPlan(outcome, after);
+  assert.equal(synthesis.title, 'Synthesize available research');
+  const { resultCheck } = JSON.parse(synthesis.body.steps[0].input.messages[1].content);
+  assert.equal(resultCheck.providerReportedTextUnavailable, true);
+  assert.deepEqual(resultCheck.gaps.map(item => item.state), ['unconfirmed', 'unconfirmed', 'no-audio']);
+  assert.doesNotMatch(workflowReportMarkdown([{ run: outcome, snapshot: after, restricted: true }]), /Visible sibling|Result check/u);
+});
+
+test('delivery cannot substitute an unrelated step or rank at the same position', () => {
+  const source = { title: 'Exact target', link: origin + '/images/42' };
+  const query = { name: 'anchor', $type: 'multimodalEmbedding' };
+  const target = { name: 'known', $type: 'multimodalEmbedding' };
+  const step = { name: 'caption', $type: 'mediaCaptioning', sourceLink: source.link };
+  const outcome = { workflowId: 'wf_exact', title: 'Preview comparison', sources: [source], status: 'succeeded',
+    steps: [query, target, step], similarity: { anchor: query.name, targets: [{ step: target.name, ...source }] } };
+  const unmatched = { steps: [{ ...step, $type: 'chatCompletion', status: 'succeeded', lines: ['A different result.'] }],
+    similarity: { ranked: [{ step: target.name, link: origin + '/images/44', score: 0.9 }] }, text: [] };
+  assert.equal(workflowOutputPending(outcome, unmatched), true);
+  assert.deepEqual(workflowDelivery(outcome, unmatched).items.map(item => item.state), ['waiting', 'waiting']);
+  const matched = { ...unmatched, steps: [{ ...step, status: 'succeeded', lines: ['Test caption.'] }],
+    similarity: { ranked: [{ step: target.name, link: source.link, score: 0.9 }] } };
+  assert.equal(workflowOutputPending(outcome, matched), false);
+  assert.equal(workflowDelivery(outcome, matched).resolved, 2);
+  assert.equal(workflowDelivery(outcome, { ...matched, restricted: true }), null);
 });
 
 test('Civitai WeMM text and video preprocessing profiles compare within the same embedding space', () => {

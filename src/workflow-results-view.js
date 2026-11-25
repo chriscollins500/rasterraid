@@ -2,7 +2,7 @@ import { downloadJson, workflowReportFilename } from './download-json.js';
 import { showReportExport } from './report-view.js';
 import { element, evidenceSource } from './view.js';
 import { isWorkflowId, workflowIdBelongsToViewer } from './workflow-client.mjs';
-import { workflowOutputPending } from './workflow-session.mjs';
+import { runFinished, workflowDelivery } from './workflow-session.mjs';
 import { workflowReportFile } from './workflow-report-file.mjs';
 import { workflowNoteParts, workflowSourceLookup } from './workflow-citations.mjs';
 
@@ -36,6 +36,10 @@ const units = simulated => simulated ? ' simulated credits' : ' Buzz';
 const comparisonBasis = 'The comparison uses still previews for video clips.';
 const previewRankNote = 'Free preview rank follows the order shown for the same set of previews in RasterRaid.';
 const subjectRankNote = 'On-device subject rank compares the same previews by subject.';
+const deliveryLabels = {
+  waiting: 'Result unavailable', unconfirmed: 'Result unconfirmed', unavailable: 'Step did not finish',
+  repetitive: 'Transcript repeats', grouped: 'Notes returned together',
+};
 
 function stepTitle(name, type) {
   if (type === 'composeMedia') return 'Soundtrack extraction';
@@ -55,6 +59,25 @@ function historyContext(snapshot) {
   if (!snapshot.civitaiHistoryOnly) return '';
   return 'Exact sources and itemized estimates use the saved RasterRaid receipt.' +
     (snapshot.historyIncludesEmbeddings ? ' That receipt also links the visual comparisons to their pictures.' : '');
+}
+
+export function workflowCompletionLabel(run, snapshot) {
+  const delivery = snapshot && workflowDelivery(run, snapshot);
+  if (run.status === 'succeeded' && (delivery?.incomplete || snapshot?.withheld)) return 'Civitai finished · Some results are unavailable';
+  if (run.status === 'succeeded' && delivery?.grouped) return 'Civitai finished · Notes returned together';
+  return workflowStatusLabel(run.status);
+}
+
+function deliveryNotes(run, snapshot) {
+  const delivery = runFinished(run.status) && workflowDelivery(run, snapshot);
+  if (!delivery) return null;
+  const summary = delivery.resolved + ' of ' + delivery.items.length + ' result checks resolved.';
+  const group = delivery.groupedNotes ? 'Civitai returned ' + delivery.groupedNotes +
+    (delivery.groupedNotes === 1 ? ' note without a step name.' : ' notes together without step names.') : '';
+  const gaps = delivery.items.flatMap(item => Object.hasOwn(deliveryLabels, item.state) ? [
+    (item.$type === 'comparison' ? 'Compare ' + item.title : stepTitle(item.name, item.$type)) + ' · ' + deliveryLabels[item.state],
+  ] : []);
+  return { summary, group, gaps };
 }
 
 function analysisNote(note, lookup, context, onLookup, className) {
@@ -99,6 +122,18 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
   const lookup = workflowSourceLookup(run);
   const contextNote = historyContext(snapshot);
   if (contextNote) children.push(element('p', contextNote));
+  const checked = deliveryNotes(run, snapshot);
+  if (checked) {
+    const section = element('section', null, 'workflow-step');
+    section.append(element('h3', 'Result check'), element('p', checked.summary));
+    if (checked.group) section.append(element('p', checked.group));
+    if (checked.gaps.length) {
+      const list = element('ul');
+      list.append(...checked.gaps.map(gap => element('li', gap)));
+      section.append(list);
+    }
+    children.push(section);
+  }
   for (const step of snapshot.steps) {
     const group = element('section', null, 'workflow-step');
     group.append(element('h3', stepTitle(step.name, step.$type)), element('p', workflowStatusLabel(step.status), 'workflow-step-status'));
@@ -116,7 +151,6 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
   }
   for (const line of snapshot.text ?? []) children.push(analysisNote(line, lookup, context, onLookup, 'workflow-step'));
   if (snapshot.withheld) children.push(element('p', snapshot.withheld, 'workflow-step'));
-  if (workflowOutputPending(run, snapshot)) children.push(element('p', 'Waiting for or missing some results from Civitai.', 'workflow-step'));
   const similarity = snapshot.similarity;
   if (similarity) {
     const section = element('section', null, 'workflow-step');
@@ -158,7 +192,7 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
   for (const { run, snapshot, restricted } of records) {
     if (!run) continue;
     const hide = restricted || snapshot?.restricted;
-    result.push('## ' + plain(hide ? 'Deep Search run' : run.title), '', 'Status · ' + workflowStatusLabel(run.status));
+    result.push('## ' + plain(hide ? 'Deep Search run' : run.title), '', 'Status · ' + workflowCompletionLabel(run, hide ? undefined : snapshot));
     if (run.workflowId) result.push('Workflow ID · ' + plain(run.workflowId));
     if (run.operationId) result.push('Operation ID · ' + plain(run.operationId));
     if (Number.isFinite(run.createdAt) && Number.isFinite(new Date(run.createdAt).getTime())) {
@@ -179,6 +213,9 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
         '[' + plain(part.title) + '](<' + part.link + '>)').join('')));
     const contextNote = historyContext(snapshot);
     if (contextNote) result.push('', contextNote);
+    const checked = deliveryNotes(run, snapshot);
+    if (checked) result.push('', '### Result check', checked.summary,
+      ...(checked.group ? [checked.group] : []), ...checked.gaps.map(gap => '- ' + plain(gap)));
     for (const step of snapshot.steps) {
       result.push('', '### ' + stepTitle(step.name, step.$type), workflowStatusLabel(step.status));
       const source = run.sources.find(item => item.link === step.sourceLink);
@@ -190,7 +227,6 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
     }
     for (const note of snapshot.text ?? []) result.push(...quoteNote(note));
     if (snapshot.withheld) result.push('', '> ' + plain(snapshot.withheld));
-    if (workflowOutputPending(run, snapshot)) result.push('', 'Some results were unavailable when this report was copied.');
     if (snapshot.similarity?.ranked.length) {
       const { ranked, previewBasis } = snapshot.similarity;
       result.push('', '### Visual similarity estimates');

@@ -6,4 +6,6 @@ Published execution requires AI consent and private receipt access. **Review run
 
 Find saved results in **Workspace → Deep Search history**. If a submission response was interrupted, **Find original run** checks Civitai’s history without a new charge. If another tab is confirming a run and the saved receipt is temporarily unavailable, use **Check saved run**. [Full Deep Search guide](https://chriscollins500.github.io/rasterraid/deep-search/)
 
+In the next developer build, **Result check** shows which expected results arrived and which still need attention. Civitai sometimes sends analysis notes together without step names. The notes remain available in the report. If a result is pending, **Check for results** reads the same run at 0 Buzz.
+
 In the next developer build, **Find spoken words** searches transcripts from completed runs. Load eligible transcripts or view a completed run, then enter the words you remember. Matches include any returned time and recorded source. The phrase stays in the browser.

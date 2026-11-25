@@ -1,6 +1,6 @@
 import { text } from './catalog.mjs';
 import { makeChat, pictureAnalysis, RESEARCH_MODEL } from './research.mjs';
-import { runFinished } from './workflow-session.mjs';
+import { runFinished, workflowDelivery } from './workflow-session.mjs';
 import { sampledFrameSteps } from './visual-research.mjs';
 import { audioDescriptionSteps, publicMedia, publicPicture } from './catalog-research.mjs';
 import { workflowEvidenceText, workflowSourceLookup } from './workflow-citations.mjs';
@@ -253,14 +253,24 @@ export function reportSynthesisPlan(run, snapshot) {
     const boundary = section.notes.lastIndexOf(' ', sectionBudget);
     return { ...section, notes: section.notes.slice(0, boundary > sectionBudget / 2 ? boundary : sectionBudget), abridged: true };
   });
-  const evidence = JSON.stringify({ completedAnalysis: run.title, sources: run.sources, previousResearch });
+  const delivery = workflowDelivery(run, snapshot);
+  const partial = Boolean(delivery?.incomplete || snapshot.withheld);
+  const evidence = JSON.stringify({ completedAnalysis: run.title, sources: run.sources, previousResearch,
+    ...(delivery && { resultCheck: { requested: delivery.items.length, resolved: delivery.resolved,
+      groupedNotes: delivery.groupedNotes, ...(snapshot.withheld && { providerReportedTextUnavailable: true }),
+      gaps: delivery.items.filter(item => item.state !== 'received').map(item => ({
+        step: item.name, state: item.state, ...(item.sourceLink && { sourceLink: item.sourceLink }),
+      })) } }) });
   const task = sections.some(({ name }) => /^compose_picture_\d+$/u.test(name))
     ? 'Compare the candidates using only each reference’s specified trait. For an Avoid trait, look for a difference. Qualify missing or uncertain observations. Distinguish visible descriptions from catalog associations.'
     : sections.some(({ name }) => /^public_preview_picture_\d+$/u.test(name))
       ? 'Compare the linked preview descriptions. Identify meaningful visual differences and any reported conflicts with the search. Explain which preview to open for each distinct visual goal. Treat a numeric similarity rank as separate evidence and explain uncertainty when it disagrees with the descriptions.'
     : 'Summarize what the completed checks establish, where they disagree, and what the searcher can use next. Distinguish observed appearance from catalog records and similarity estimates. Cite transcript times only when supplied.';
-  return paid('reportsynthesis', 'Synthesize completed research', 'Joins completed analysis into a sourced recommendation with next steps and open questions.', [
+  const title = partial ? 'Synthesize available research' : 'Synthesize completed research';
+  const scope = partial ? 'Uses the available results and explains the gaps.' : 'Joins completed analysis into a sourced recommendation with next steps and open questions.';
+  return paid('reportsynthesis', title, scope, [
     makeChat('report_synthesis', RESEARCH_MODEL, task + ' ' + safeInstructions +
+      ' Use resultCheck to describe delivery gaps and explicit negative findings. Keep grouped notes unassigned. Never infer missing results.' +
       ' End with one concrete recommendation, an action the searcher can take next, and an open question tied to the sources. If the goal is unspecified, make the recommendation conditional on what the searcher values.', evidence, 900),
   ]);
 }
