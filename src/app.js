@@ -20,8 +20,8 @@ import { catalogResearch } from './catalog-research.mjs';
 import { discoverReport } from './report.mjs';
 import { catalogSearchFailure, createReportRecovery } from './report-recovery.mjs';
 import { reportResearchPlans } from './report-research.mjs';
-import { renderReport, renderReportChanges } from './report-view.js';
-import { captureCatalogCheckpoint, reviewCatalogCheckpoint, reviewReportCheckpoint } from './report-checkpoint.mjs';
+import { renderEarlierSearchSources, renderReport, renderReportChanges } from './report-view.js';
+import { captureCatalogCheckpoint, recoverEarlierSearchSources, reviewCatalogCheckpoint, reviewReportCheckpoint } from './report-checkpoint.mjs';
 import { appRunTransport } from './workflow-client.mjs';
 import { appWorkflowJournal, localWorkflowJournal } from './workflow-journal.mjs';
 import { installWorkflowRun } from './workflow-view.js';
@@ -307,6 +307,7 @@ function clearSearchResults(current) {
     dialog.remove();
   }
   renderReport(byId('report-overview'), null, current);
+  renderEarlierSearchSources(byId('search-retry-sources'), null, current);
   renderReportChanges(byId('report-changes'), null, current);
   byId('quick-coverage').hidden = true;
   byId('quick-coverage-areas').replaceChildren();
@@ -981,6 +982,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
     onCompareSetup: phase === 'complete' ? setup => workspace.openExampleCheck(current, setup) : undefined,
     graphicsMemory: result.report?.upgrade ? workspace.graphicsMemory() : null,
   });
+  renderEarlierSearchSources(byId('search-retry-sources'), result.searchRetry, current);
   renderReportChanges(byId('report-changes'), result.searchComparison, current, checkpoint =>
     workspace.refreshSearch(result.savedSearch, checkpoint, current), startExample);
   visualReferences.show(phase === 'loading' ? null : result.report, current);
@@ -1829,7 +1831,7 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
     trigger.focus({ preventScroll: true });
   }
   clearReportRecovery();
-  if (!traceRecorded && !compose && !visualCrop && !savedSearch?.checkpoint) {
+  if (!traceRecorded && !compose && !visualCrop) {
     reportRecovery = createReportRecovery(context, filters, preferences.forSearch(context)) ?? undefined;
   }
   await executeSearch(reportRecovery?.filters ?? filters, {
@@ -1856,6 +1858,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
   activeQuote?.abort();
   workflowRun?.clearOffer();
   const current = context;
+  const previous = (retrying || continuing) && search?.context === current && search.filters === filters ? search.result : null;
   const { signal } = activeSearch;
   soundMatch.show(null, {}, current);
   showClipSearches(null, {}, current);
@@ -1876,7 +1879,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
   function hasEarlierEvidence(next) {
     if (!continuing || search?.filters !== filters || !search.result.report) return false;
     const keys = new Set(next.report.evidence.map(item => item.key));
-    return search.result.report.evidence.some(item => !keys.has(item.key));
+    return Boolean(search.result.searchRetry?.sources.length || search.result.report.evidence.some(item => !keys.has(item.key)));
   }
   try {
     const find = filters.scope === 'report' ? discoverReport : discover;
@@ -1904,6 +1907,13 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
     });
     signal.throwIfAborted();
     const checkedAt = new Date().toISOString();
+    const baseline = result.report ? savedSearch?.checkpoint : savedSearch?.catalogCheckpoint;
+    if (previous) {
+      const savedRefs = baseline?.origin === current.origin && baseline.browsingLevel === current.browsingLevel ? baseline.references : undefined;
+      const searchRetry = await recoverEarlierSearchSources(previous, result, current, { signal, savedRefs });
+      signal.throwIfAborted();
+      if (searchRetry) result.searchRetry = searchRetry;
+    }
     if (result.report) result.reportCheckedAt = checkedAt;
     else result.catalogCheckpoint = captureCatalogCheckpoint(result, current, checkedAt);
     if (savedSearch) result.savedSearch = savedSearch;
@@ -1916,7 +1926,6 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
     offerContinue = Boolean(attempt && (attempt.retryable || result.report?.rails.some(rail => rail.retryable)));
     if (attempt?.reused) searchStatus.textContent += ' · Reused ' + attempt.reused +
       (attempt.reused === 1 ? ' completed check.' : ' completed checks.');
-    const baseline = result.report ? savedSearch?.checkpoint : savedSearch?.catalogCheckpoint;
     if (baseline) {
       checkingSaved = true;
       const summary = searchStatus.textContent;
@@ -1944,8 +1953,15 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
     offerContinue = Boolean(retained && (stopped || attempt.retryable));
     const snapshot = offerContinue && checkpoint?.();
     if (snapshot && !hasEarlierEvidence(snapshot)) {
+      snapshot.reportCheckedAt = new Date().toISOString();
+      snapshot.reportPaused = true;
+      if (savedSearch) snapshot.savedSearch = savedSearch;
       renderSearch(snapshot, filters, current, 'interrupted');
     } else if (search?.filters === filters && (search.phase === 'loading' || stopped)) {
+      if (retained && search.result.report) {
+        search.result.reportCheckedAt ??= new Date().toISOString();
+        search.result.reportPaused = true;
+      }
       renderSearch(search.result, filters, current, 'interrupted');
     } else if (search?.phase === 'complete' && search.context === context) {
       soundMatch.show(search.result, search.groups, search.context);
@@ -2026,7 +2042,7 @@ continueButton.addEventListener('click', async () => {
     clearReportRecovery();
     return;
   }
-  await executeSearch(recovery.filters, { trigger: continueButton, continuing: true, recovery });
+  await executeSearch(recovery.filters, { trigger: continueButton, continuing: true, recovery, savedSearch: search?.result.savedSearch });
 });
 
 galleryMore.addEventListener('click', async () => {

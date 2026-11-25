@@ -110,14 +110,19 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   function choices() {
     const current = getSearch();
     const viewer = getContext();
-    const publicResults = current && current.phase === 'complete' && !current.result.library &&
+    const sameView = current && !current.result.library &&
       current.context?.origin === viewer?.origin && current.context?.viewerUserId === viewer?.viewerUserId;
+    const publicResults = sameView && current.phase === 'complete';
+    const report = current?.result.report;
+    const checkpoint = sameView && current.context.browsingLevel === viewer.browsingLevel &&
+      (publicResults || current.result.reportPaused)
+      ? report ? captureReportCheckpoint(current.result, current.context, current.result.reportCheckedAt)
+        : current.result.catalogCheckpoint : null;
+    const canSaveSearch = (publicResults || checkpoint?.partial) && !report?.localTrace && !current.result.visualComposition;
     return {
-      searches: publicResults && !current.result.report?.localTrace && !current.result.visualComposition ? workspaceFilters(current.filters) : null,
+      searches: canSaveSearch ? workspaceFilters(current.filters) : null,
       shortlists: publicResults ? versionReferences(current.result.candidates.filter(candidate => current.chosen.has(candidate.id))) : [],
-      checkpoint: publicResults && current.context.browsingLevel === viewer.browsingLevel
-        ? current.result.report ? captureReportCheckpoint(current.result, current.context, current.result.reportCheckedAt)
-          : current.result.catalogCheckpoint : null,
+      checkpoint,
     };
   }
 
@@ -126,7 +131,8 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     const canSave = ready && !busy && !pendingChange;
     saveSearch.closest('.workspace-save').hidden = !selected.searches && !selected.shortlists.length;
     saveSearch.disabled = !canSave || !selected.searches;
-    saveSearch.textContent = selected.checkpoint && selected.searches?.scope === 'report' ? 'Save report for comparison' : 'Save current search';
+    saveSearch.textContent = selected.checkpoint && selected.searches?.scope === 'report'
+      ? selected.checkpoint.partial ? 'Save report progress' : 'Save report for comparison' : 'Save current search';
     saveList.disabled = !canSave || !selected.shortlists.length;
     profileSave.disabled = !canSave;
     checkChange.hidden = !pendingChange?.uncertain;
@@ -176,7 +182,8 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
         remove.setAttribute('aria-label', 'Remove ' + entry.name);
         remove.addEventListener('click', () => { void change(value => ({ ...value, [type]: value[type].filter(item => item.id !== entry.id) })); });
         row.append(open, remove);
-        if (entry.checkpoint) row.append(element('small', entry.checkpoint.references.length + ' saved sources', 'workspace-report-summary'));
+        if (entry.checkpoint) row.append(element('small', entry.checkpoint.references.length + ' saved sources' +
+          (entry.checkpoint.partial ? ' · Partial report' : ''), 'workspace-report-summary'));
         if (entry.catalogCheckpoint) row.append(element('small', entry.catalogCheckpoint.references.length + ' saved results', 'workspace-report-summary'));
         list.append(row);
       }

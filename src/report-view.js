@@ -695,6 +695,22 @@ function addCheckpointAction(container, comparison, updateCheckpoint, search) {
   container.append(actions);
 }
 
+export function renderEarlierSearchSources(container, recovery, context) {
+  container.replaceChildren();
+  container.hidden = !recovery?.sources.length;
+  if (container.hidden) return;
+  const heading = element('h3', 'Earlier matches');
+  heading.id = 'search-retry-title';
+  const list = element('ul', null, 'report-change-list');
+  for (const source of recovery.sources) {
+    const row = element('li');
+    row.append(source.link ? sourceLink(source.link, source.title, context) : element('span', source.title),
+      element('small', ' · ' + earlierSourceStatus[source.status]));
+    list.append(row);
+  }
+  container.append(heading, element('p', 'Civitai returned an incomplete search. Here is the current availability of earlier matches.'), list);
+}
+
 export function renderReportChanges(container, comparison, context, updateCheckpoint, onLookup) {
   container.replaceChildren();
   container.hidden = !comparison;
@@ -729,6 +745,7 @@ export function renderReportChanges(container, comparison, context, updateCheckp
   counts.append(element('li', added.length + ' new in this sample'), element('li', same + (search ? ' still in this sample' : ' still in the report')),
     element('li', older.length + ' earlier sources outside this sample'));
   container.append(counts);
+  if (comparison.savedPartial) container.append(element('p', 'The saved report had incomplete source coverage.'));
   if (comparison.incomplete) container.append(element('p', 'Some sources could not be checked. Your saved comparison point is kept.'));
 
   if (added.length) {
