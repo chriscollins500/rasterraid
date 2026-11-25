@@ -350,7 +350,14 @@ const updateButtonLayout = configureSearchButtons(window, selectSearchArea);
 const cropEditor = createVisualCropEditor(document);
 const localSubjectMatcher = createSubjectMatcher(document);
 const subjectComparison = configureSubjectComparison(document, renderResearch, localSubjectMatcher);
-const galleryAppearance = configureGalleryAppearance(document, localSubjectMatcher);
+const galleryAppearance = configureGalleryAppearance(document, localSubjectMatcher, (result, open) => {
+  if (search?.result !== result || activeSearch) return;
+  renderResearch();
+  if (open) {
+    setResearchOpen(true);
+    if (search.context.signedIn && search.context.scopes.includes(QUOTE_SCOPE)) quoteButton.click();
+  }
+});
 const visualReferences = configureLocalReferences(document, report => {
   if (search?.result.report !== report || !report) return;
   if (visualReferences.researchSelection(report).length) {
@@ -594,7 +601,7 @@ function renderGroup() {
   const gallery = search.result.gallery;
   const subjectResult = search.phase === 'complete' && (search.filter === 'all' || search.filter === gallery?.scope) ? search.result : null;
   subjectComparison.show(subjectResult, search.context, visualReferences.subjectReferences(subjectResult?.visualComposition));
-  galleryAppearance.show(subjectResult, search.groups.gallery ?? [], search.context);
+  galleryAppearance.show(subjectResult, search.groups[gallery?.scope] ?? [], search.context);
   if (gallery && isVisualGalleryScope(gallery.scope)) filterControls.showGalleryTagNames(search.groups[gallery.scope] ?? []);
   renderResults(resultArea, search.result, search.groups, search.filter, {
     context: search.context,
@@ -1168,7 +1175,8 @@ function renderResearch() {
   const soundSelection = soundMatch.selected(search.result);
   const sound = soundResearch(soundSelection.available, soundSelection.picks, search.context.origin);
   const scenes = sceneResearch(selectedReport, search.context.origin, sceneMatch.selected(search.result));
-  const local = scenes ?? visual ?? sound;
+  const writtenScene = galleryAppearance.reviewFor(search.result);
+  const local = scenes ?? visual ?? sound ?? writtenScene;
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const subjectOrder = subjectComparison.orderFor(search.result);
@@ -1201,6 +1209,7 @@ function renderResearch() {
   byId('quote-actions').hidden = mockPreview || (!visualMode && !(modelMode ? picked : local?.picks ?? report?.evidence ?? catalog.picks).length);
   byId('research-intro').textContent = legacyMock ? 'Local simulation · Compare the base model recorded for each pick. 0 Buzz used.' : modelMode
     ? 'See prices for different ways to compare your picks. Civitai charges in Buzz credits.'
+    : writtenScene ? 'Get a live quote for describing this frame. Your search description stays in this tab.'
     : scenes ? 'Price a closer look at the selected public scenes. Your reference files stay in your browser.'
       : visual ? 'Price a closer look at your selected public media and video times. Local reference files stay in your browser.'
       : sound ? 'Price a closer look at the selected public recordings. Local sound references stay in your browser.'
@@ -1216,7 +1225,7 @@ function renderResearch() {
   }
   if (local) {
     const label = scenes ? scenePickLimit + ' public scenes' : sound ? soundPickLimit + ' public recordings' : visualPickLimit + ' visual matches';
-    picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
+    if (!writtenScene) picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
     const list = element('ul', null, 'pick-list catalog-pick-summary visual-pick-summary');
     for (const [index, item] of local.picks.entries()) {
       const itemRow = element('li');
@@ -1233,6 +1242,7 @@ function renderResearch() {
     clear.addEventListener('click', () => {
       if (scenes) sceneMatch.clearSelection();
       else if (sound) soundMatch.clearSelection();
+      else if (writtenScene) galleryAppearance.clearReview();
       else visualReferences.clearResearchSelection();
       (byId('quote-actions').hidden ? researchTitle : quoteButton).focus({ preventScroll: true });
     });

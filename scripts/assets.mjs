@@ -29,6 +29,7 @@ export const previewFiles = Object.freeze({
   '/src/subject-worker.mjs': 'text/javascript; charset=utf-8',
   '/src/subject-artifacts.mjs': 'text/javascript; charset=utf-8',
   '/src/gallery-appearance.js': 'text/javascript; charset=utf-8',
+  '/src/written-scenes.mjs': 'text/javascript; charset=utf-8',
   '/src/model-bytes.mjs': 'text/javascript; charset=utf-8',
   '/src/resize-preview.mjs': 'text/javascript; charset=utf-8',
   '/src/visual-text-pack.mjs': 'text/javascript; charset=utf-8',

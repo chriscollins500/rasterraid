@@ -1,8 +1,8 @@
 import { mediaUrl } from './catalog.mjs';
-import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
+import { loadPublicPreview, sampleWrittenClip, visualRegion } from './visual-analysis.mjs';
 import { subjectCandidateLimit, subjectDownloadBytes, subjectReferenceLimit, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 import { resizePreview } from './resize-preview.mjs';
-import { validVisualDescription, visualPackBytes, visualTextCandidateLimit } from './visual-text-pack.mjs';
+import { validVisualDescription, visualPackBytes, visualTextCandidateLimit, visualTextClipLimit } from './visual-text-pack.mjs';
 
 const idleLifetime = 120_000;
 
@@ -167,6 +167,38 @@ async function preparePictures(document, references, sample, signal, description
   }
 }
 
+async function prepareClipPictures(document, clips, signal, description, modelPack, onProgress) {
+  const frames = [];
+  const sample = [];
+  const parallelClips = 2;
+  const total = clips.length;
+  for (let index = 0; index < total; index += parallelClips) {
+    const batch = clips.slice(index, index + parallelClips);
+    const captured = await Promise.allSettled(batch.map(clip => sampleWrittenClip(document, clip.stream, signal)));
+    signal.throwIfAborted();
+    for (const [offset, reply] of captured.entries()) {
+      if (reply.status !== 'fulfilled') continue;
+      for (const frame of reply.value) {
+        try {
+          const { width, height } = frame.preview;
+          const pixels = frame.preview.getContext('2d').getImageData(0, 0, width, height);
+          const id = sample.length + 1;
+          sample.push({ id, rgba: resizePreview(pixels.data, width, height, subjectSide) });
+          frames.push({ ...frame, id, clip: batch[offset] });
+        } catch { /* This browser could play the clip without giving the app its pixels. */ }
+      }
+    }
+    onProgress({ phase: 'sampling', done: Math.min(index + parallelClips, total), total });
+  }
+  if (!sample.length) {
+    const posterClips = clips.filter(clip => clip.cover).map(clip => ({ ...clip, kind: 'Video poster' }));
+    if (posterClips.length < 2) throw new Error('The loaded clips could not be sampled.');
+    const comparison = await preparePictures(document, [], posterClips, signal, description, modelPack);
+    return { comparison, posterClips };
+  }
+  return { frames, comparison: { references: [], sample, description, modelPack, clipFrames: true } };
+}
+
 export function createSubjectMatcher(document) {
   let worker;
   let active;
@@ -185,12 +217,14 @@ export function createSubjectMatcher(document) {
     if (document.hidden && !active) release();
   });
 
-  async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample, description, modelPack }, { signal, onProgress }) {
+  async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample, description, modelPack,
+    clipFrames = false }, { signal, onProgress }) {
     const visual = description !== undefined;
     const withReferences = !visual || references?.length > 0;
     if (active || !(visual ? visualTextMatchAvailable() : subjectMatchAvailable())) throw new Error('Subject matching is unavailable right now.');
-    if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual ? 2 : 1) ||
-        sample.length > (withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
+    if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual && !clipFrames ? 2 : 1) ||
+        sample.length > (clipFrames ? visualTextClipLimit : withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
+        clipFrames && (!visual || withReferences) ||
         visual && !validVisualDescription(description) ||
         withReferences && (references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
           !references.some(row => row.polarity === 'prefer'))) {
@@ -205,13 +239,16 @@ export function createSubjectMatcher(document) {
     try {
       deadline.throwIfAborted();
       worker ??= startWorker();
-      const prepared = preparePictures(document, references, sample, deadline, description, modelPack);
-      const matches = await matchInWorker(worker, prepared, deadline, onProgress);
+      const prepared = clipFrames
+        ? prepareClipPictures(document, sample, deadline, description, modelPack, onProgress)
+        : preparePictures(document, references, sample, deadline, description, modelPack).then(comparison => ({ comparison }));
+      const matches = await matchInWorker(worker, prepared.then(({ comparison }) => comparison), deadline, onProgress);
+      const { frames, posterClips } = await prepared;
       deadline.throwIfAborted();
       active = undefined;
       if (document.hidden) release();
       else idleTimer = setTimeout(release, idleLifetime);
-      return matches;
+      return clipFrames ? { matches, frames, posterClips } : matches;
     } catch (error) {
       if (active === attempt) release();
       throw error;
