@@ -43,6 +43,7 @@ import { createSubjectMatcher } from './subject-matching.mjs';
 import { configureGalleryAppearance } from './gallery-appearance.js';
 import { configureSoundMatch } from './sound-view.js';
 import { configureSpokenSearch } from './spoken-view.js';
+import { configureWrittenSoundSearch } from './written-sound-view.js';
 import { soundPickLimit, soundResearch } from './sound-research.mjs';
 import { configureSceneMatch } from './scene-view.js';
 import { scenePickLimit, sceneResearch, sceneTime } from './scene-research.mjs';
@@ -291,7 +292,7 @@ function clearSearchResults(current) {
   search = undefined;
   subjectComparison.show(null, current);
   galleryAppearance.clear();
-  spokenSearch.show(null, {}, current);
+  showClipSearches(null, {}, current);
   retryButton.hidden = true;
   filterReview.show(null);
   searchTrail.length = 0;
@@ -358,7 +359,7 @@ const localSubjectMatcher = createSubjectMatcher(document);
 const subjectComparison = configureSubjectComparison(document, renderResearch, localSubjectMatcher);
 const galleryAppearance = configureGalleryAppearance(document, localSubjectMatcher, (result, open) => {
   if (search?.result !== result || activeSearch) return;
-  if (open) spokenSearch.clearReview(false);
+  if (open) clearClipReviews();
   renderResearch();
   if (open) openResearchWithQuotes();
 });
@@ -367,7 +368,7 @@ const visualReferences = configureLocalReferences(document, report => {
   if (visualReferences.researchSelection(report).length) {
     soundMatch.clearSelection(false);
     sceneMatch.clearSelection(false);
-    spokenSearch.clearReview(false);
+    clearClipReviews();
   }
   renderResearch();
 }, ready => {
@@ -398,13 +399,26 @@ const soundMatch = configureSoundMatch(document, result => {
   if (soundMatch.selected(result).picks.length) {
     visualReferences.clearResearchSelection(false);
     sceneMatch.clearSelection(false);
-    spokenSearch.clearReview(false);
+    clearClipReviews();
   }
   renderResearch();
 }, refreshScenes);
-const spokenSearch = configureSpokenSearch(document, (result, open) => {
+const spokenSearch = configureSpokenSearch(document, (result, open) => chooseClipReview(spokenSearch, result, open));
+const writtenSoundSearch = configureWrittenSoundSearch(document, (result, open) => chooseClipReview(writtenSoundSearch, result, open));
+const clipSearches = [spokenSearch, writtenSoundSearch];
+
+function showClipSearches(result, groups, current) {
+  for (const view of clipSearches) view.show(result, groups, current);
+}
+
+function clearClipReviews(keep) {
+  for (const view of clipSearches) if (view !== keep) view.clearReview(false);
+}
+
+function chooseClipReview(view, result, open) {
   if (search?.result !== result || activeSearch) return;
   if (open) {
+    clearClipReviews(view);
     visualReferences.clearResearchSelection(false);
     soundMatch.clearSelection(false);
     sceneMatch.clearSelection(false);
@@ -412,13 +426,13 @@ const spokenSearch = configureSpokenSearch(document, (result, open) => {
   }
   renderResearch();
   if (open) openResearchWithQuotes();
-});
+}
 const sceneMatch = configureSceneMatch(document, visualReferences, soundMatch, result => {
   if (search?.result !== result || !result) return;
   if (sceneMatch.selected(result).length) {
     visualReferences.clearResearchSelection(false);
     soundMatch.clearSelection(false);
-    spokenSearch.clearReview(false);
+    clearClipReviews();
   }
   renderResearch();
 });
@@ -507,7 +521,7 @@ watchHost(window, update => {
       context.origin !== update.origin || update.connectionLost && !context.connectionLost)) {
     subjectComparison.release();
     galleryAppearance.clear();
-    spokenSearch.show(null, {}, update);
+    showClipSearches(null, {}, update);
   }
   context = update;
   if (search?.context !== update) {
@@ -971,7 +985,7 @@ function renderSearch(result, filters, current, phase = 'complete') {
     workspace.refreshSearch(result.savedSearch, checkpoint, current), startExample);
   visualReferences.show(phase === 'loading' ? null : result.report, current);
   soundMatch.show(phase === 'complete' ? result : null, groups, current);
-  spokenSearch.show(phase === 'complete' ? result : null, groups, current);
+  showClipSearches(phase === 'complete' ? result : null, groups, current);
 
   const populated = renderResultFilters();
   renderGroup();
@@ -1196,8 +1210,9 @@ function renderResearch() {
   const sound = soundResearch(soundSelection.available, soundSelection.picks, search.context.origin);
   const scenes = sceneResearch(selectedReport, search.context.origin, sceneMatch.selected(search.result));
   const writtenScene = galleryAppearance.reviewFor(search.result);
-  const spoken = spokenSearch.reviewFor(search.result);
-  const local = spoken ?? scenes ?? visual ?? sound ?? writtenScene;
+  const clipOffer = clipSearches.map(view => ({ view, report: view.reviewFor(search.result) })).find(({ report }) => report);
+  const clip = clipOffer?.report;
+  const local = clip ?? scenes ?? visual ?? sound ?? writtenScene;
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const subjectOrder = subjectComparison.orderFor(search.result);
@@ -1230,7 +1245,7 @@ function renderResearch() {
   byId('quote-actions').hidden = mockPreview || (!visualMode && !(modelMode ? picked : local?.picks ?? report?.evidence ?? catalog.picks).length);
   byId('research-intro').textContent = legacyMock ? 'Local simulation · Compare the base model recorded for each pick. 0 Buzz used.' : modelMode
     ? 'See prices for different ways to compare your picks. Civitai charges in Buzz credits.'
-    : spoken ? 'Review this public clip. Deep Search uses the recording you selected. Your search words stay in this tab.'
+    : clip ? 'Review this public clip. Deep Search uses the recording you selected. Your search words stay in this tab.'
     : writtenScene ? 'Get a live quote for describing this frame. Your search description stays in this tab.'
     : scenes ? 'Price a closer look at the selected public scenes. Your reference files stay in your browser.'
       : visual ? 'Price a closer look at your selected public media and video times. Local reference files stay in your browser.'
@@ -1247,12 +1262,12 @@ function renderResearch() {
   }
   if (local) {
     const label = scenes ? scenePickLimit + ' public scenes' : sound ? soundPickLimit + ' public recordings' : visualPickLimit + ' visual matches';
-    if (!writtenScene && !spoken) picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
+    if (!writtenScene && !clip) picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
     const list = element('ul', null, 'pick-list catalog-pick-summary visual-pick-summary');
     for (const [index, item] of local.picks.entries()) {
       const itemRow = element('li');
       itemRow.append(sourceLink(item.link, item.title, search.context));
-      const description = spoken ? spoken.hasFrame ? 'Full clip · Frame near ' + sceneTime(item.seconds) : 'Full recording'
+      const description = clip ? clip.hasFrame ? 'Full clip · Frame near ' + sceneTime(item.seconds) : 'Full recording'
         : scenes ? 'Frame near ' + sceneTime(item.seconds) + ' · Sound ' + sceneTime(item.start) + '–' + sceneTime(item.end)
         : sound ? 'Audio near ' + item.seconds + ' s' :
         [item.kind === 'clip' ? 'Frame near ' + item.seconds + ' s' : item.kind === 'poster' ? 'Video poster' : 'Public picture',
@@ -1263,7 +1278,7 @@ function renderResearch() {
     const clear = element('button', report ? 'Use full report' : 'Use regular comparison', 'chip');
     clear.type = 'button';
     clear.addEventListener('click', () => {
-      if (spoken) spokenSearch.clearReview();
+      if (clipOffer) clipOffer.view.clearReview();
       else if (scenes) sceneMatch.clearSelection();
       else if (sound) soundMatch.clearSelection();
       else if (writtenScene) galleryAppearance.clearReview();
@@ -1271,12 +1286,12 @@ function renderResearch() {
       (byId('quote-actions').hidden ? researchTitle : quoteButton).focus({ preventScroll: true });
     });
     picks.append(list);
-    if (spoken?.picks[0].video) {
+    if (clip?.picks[0].video) {
       const settings = element('button', 'Check recorded settings', 'chip');
       settings.type = 'button';
       settings.addEventListener('click', () => {
         setResearchOpen(false);
-        followResult(spoken.picks[0].link, 'report', undefined, 'trace');
+        followResult(clip.picks[0].link, 'report', undefined, 'trace');
       });
       picks.append(settings);
     }
@@ -1843,7 +1858,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
   const current = context;
   const { signal } = activeSearch;
   soundMatch.show(null, {}, current);
-  spokenSearch.show(null, {}, current);
+  showClipSearches(null, {}, current);
   preferences.paintResults();
   setSearchBusy(true);
   visualReferences.enableLookup(false);
@@ -1934,7 +1949,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       renderSearch(search.result, filters, current, 'interrupted');
     } else if (search?.phase === 'complete' && search.context === context) {
       soundMatch.show(search.result, search.groups, search.context);
-      spokenSearch.show(search.result, search.groups, search.context);
+      showClipSearches(search.result, search.groups, search.context);
     }
     searchStatus.textContent = signal.reason === accessChange && context.connectionLost ? connectionNotice
       : signal.reason === accessChange || signal.reason === referenceChange || signal.reason === visualBriefChange
@@ -2070,7 +2085,7 @@ galleryMore.addEventListener('click', async () => {
     })) renderGroup();
     if (unique.length) {
       soundMatch.show(current.result, current.groups, current.context);
-      spokenSearch.show(current.result, current.groups, current.context);
+      showClipSearches(current.result, current.groups, current.context);
     }
     if (unique.length && !current.result.library && (['all', pager.scope].includes(current.filter) || models && current.filter === 'pictures')) {
       const picker = byId('catalog-picks');

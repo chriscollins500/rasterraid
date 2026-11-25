@@ -1,5 +1,6 @@
 import { createSoundDecoder, decodeExactPublicSound } from './sound-analysis.mjs';
 import { soundCandidates, spokenClipResearch, spokenFrameAvailable } from './sound-research.mjs';
+import { requestSoundWorker, startSoundWorker } from './sound-worker-client.mjs';
 import { speechClipLimit, speechDownloadBytes, speechSecondsLimit } from './spoken-artifacts.mjs';
 import { speechRate } from './spoken-regions.mjs';
 import { subjectWasmAvailable } from './subject-artifacts.mjs';
@@ -19,30 +20,6 @@ export function spokenWordHits(rows, query) {
       phrase.every((word, step) => terms[offset + step]?.word === word));
     return index < 0 ? [] : [{ item, ...cue, from: terms[index].start, through: terms[index + phrase.length - 1].end }];
   })).slice(0, 12);
-}
-
-function request(worker, message, timeout, signal, progress, transfer = []) {
-  const guard = AbortSignal.any([signal, AbortSignal.timeout(timeout)]);
-  guard.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const settle = result => {
-      guard.removeEventListener('abort', abort);
-      worker.onmessage = worker.onerror = null;
-      if (result instanceof Error) reject(result);
-      else resolve(result);
-    };
-    const abort = () => settle(guard.reason);
-    guard.addEventListener('abort', abort, { once: true });
-    worker.onerror = () => settle(new Error('This browser could not start the speech model.'));
-    worker.onmessage = event => {
-      if (!event.isTrusted || event.origin !== '' || event.source !== null || event.ports.length !== 0) return;
-      const { data } = event;
-      if (data.type === 'progress') progress(data);
-      else settle(data.type === 'error' ? new Error('The speech model could not read this audio.') : data);
-    };
-    try { worker.postMessage(message, transfer); }
-    catch (error) { settle(error); }
-  });
 }
 
 function samplesFrom(audio) {
@@ -208,15 +185,18 @@ export function configureSpokenSearch(document, onReview) {
         if (audio) {
           if (!worker) {
             status.textContent = 'Getting the English speech model…';
-            const script = 'import ' + JSON.stringify(new URL('./spoken-worker.mjs', import.meta.url).href) + ';';
-            worker = new window.Worker('data:text/javascript;charset=UTF-8,' + encodeURIComponent(script), { type: 'module' });
-            await request(worker, { type: 'load' }, 75_000, signal, update => {
-              if (active === run) status.textContent = 'Getting the speech model · ' + Math.floor(100 * update.loaded / speechDownloadBytes) + '%';
+            worker = startSoundWorker(window, new URL('./spoken-worker.mjs', import.meta.url));
+            const response = await requestSoundWorker(worker, { type: 'load' }, signal, 75_000, {
+              progress(update) {
+                if (active === run) status.textContent = 'Getting the speech model · ' + Math.floor(100 * update.loaded / speechDownloadBytes) + '%';
+              },
             });
+            if (response.type !== 'ready') throw new Error('The speech model could not read this audio.');
             status.textContent = 'Checking the recording for speech…';
           }
           const pcm = samplesFrom(audio);
-          const { cues } = await request(worker, { type: 'read', samples: pcm }, 20_000, signal, () => {}, [pcm.buffer]);
+          const { type, cues } = await requestSoundWorker(worker, { type: 'read', samples: pcm }, signal, 20_000, { transfer: [pcm.buffer] });
+          if (type !== 'cues' || !Array.isArray(cues)) throw new Error('The speech model could not read this audio.');
           signal.throwIfAborted();
           rows.push({ item, cues });
         }

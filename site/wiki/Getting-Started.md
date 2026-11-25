@@ -12,7 +12,9 @@ In the development build, try “Find SDXL LoRAs for Linocut Relief Print by @Bo
 
 After a **Videos** search, use **Find a scene** to compare visible frames with a description. Play near a matched time or get a free quote for a Deep Search frame review. If the browser can only read the posters, RasterRaid ranks those and links to the clips. The description stays in your browser.
 
-In the 0.0.10 developer prerelease, choose **More ways to explore → Find spoken words** after a **Videos** or **Audio & music** search. It checks English speech in the first 30 seconds of up to four loaded public clips. Play near a match to confirm it by ear. The check uses 0 Buzz and downloads about 59 MB of model files when you start it.
+Choose **More ways to explore → Find a sound by description** after a **Videos** or **Audio & music** search. Describe what you want to hear in English. You can match a second sound in the same moment or prefer to avoid another. RasterRaid checks the first 30 seconds of up to four loaded public clips. The first check downloads about 42 MB and uses 0 Buzz.
+
+Choose **Find spoken words** to check English speech in the same sample. Play near a match to confirm it by ear. The speech model downloads about 59 MB. Both checks run on your device.
 
 Choose **Research this clip** to see live estimates for that recording. In Videos, **Review at playback position** uses the time you choose. You can also **Check recorded settings** for free on clips with published video metadata. In **Audio & music**, you can price a transcript and sound classification together. Your spoken-word query stays in the current tab.
 
