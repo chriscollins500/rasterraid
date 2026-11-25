@@ -6,7 +6,8 @@ import { copyWorkflowReport, workflowResultElements, workflowStatusLabel } from 
 const busyMessages = { restoring: 'Restoring your run…', quoting: 'Pricing the exact workflow…',
   confirming: 'Checking the latest price before starting the run…', submitting: 'Starting the run…',
   reconciling: 'Looking for the original run on Civitai…', archiving: 'Saving the unresolved receipt…',
-  saving: 'Saving the receipt…', checking: 'Checking for results…', canceling: 'Requesting cancellation…' };
+  saving: 'Saving the receipt…', checking: 'Checking for results…', checkingReceipt: 'Checking the saved run…',
+  canceling: 'Requesting cancellation…' };
 const outputCheckLimit = 3;
 
 export function installWorkflowRun(container, { client, journal, context, simulated = false, onLookup, onOpenHistory, onAvailability }) {
@@ -62,9 +63,10 @@ export function installWorkflowRun(container, { client, journal, context, simula
     if (disposed) return;
     const state = session.state();
     const { busy, run, snapshot, previousSnapshot, outputsAccessible, recoveryAvailable, recoveryContinuing, retryAvailable,
-      originalInTab, receiptPending } = state;
+      originalInTab, receiptPending, receiptCheckRequired, receiptRefreshed, submissionPending } = state;
     const ticket = state.quote;
-    container.hidden = (!simulated && receiptAccess !== 'ready') || (!busy && !run && !ticket && !problem);
+    container.hidden = (!simulated && receiptAccess !== 'ready') ||
+      (!busy && !run && !ticket && !problem && !receiptCheckRequired && !receiptRefreshed);
     const estimateLabel = ticket?.revised ? ' · Updated estimate ' : ticket?.retry ? ' · New retry estimate ' : ' · Estimated ';
     quote.textContent = ticket ? ticket.title + estimateLabel + ticket.price.total + units :
       run ? (outputsAccessible ? run.title : 'Deep Search run') + ' · Estimated ' + run.quote.total + units : '';
@@ -87,6 +89,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
       ? ticket.retry && !simulated ? 'Confirming uses the original operation. If Civitai has yet to start it, a run may start and cost Buzz.'
         : simulated ? 'This simulation uses 0 Buzz.' : 'Civitai can charge the final workflow cost if it changes.'
       : receiptPending ? 'Save the current receipt to continue.'
+        : receiptCheckRequired ? 'Check the saved Deep Search run to continue.'
+        : submissionPending ? 'The confirmation is still being checked. You can look for the original run.'
         : unknown ? recoveryContinuing ? 'There are more Civitai runs to check. Continuing uses 0 Buzz.'
         : recoveryAvailable ? 'The submission outcome is unknown. Find the original run on Civitai for free.'
         : !retryAvailable ? 'The submission outcome is unknown. Review history or keep the unresolved receipt.'
@@ -97,7 +101,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
           : waitingForUpdate ? 'Analysis steps finished · Waiting for Civitai’s final update'
         : run ? workflowStatusLabel(run.status) : '');
     status.textContent = ticket?.revised && !busy && !problem
-      ? 'The estimate changed. Review the updated price before confirming. ' + message : message;
+      ? 'The estimate changed. Review the updated price before confirming. ' + message
+      : receiptRefreshed && !busy && !ticket && !problem ? ('Latest saved run loaded. ' + message).trim() : message;
     const available = [];
     const button = (name, run, description) => available.push({ name, run, description });
     if (!busy && ticket) {
@@ -107,14 +112,17 @@ export function installWorkflowRun(container, { client, journal, context, simula
       button('Dismiss estimate', session.discardQuote);
     }
     if (!busy && !ticket && unknown) {
-      if (!receiptPending && recoveryAvailable) {
+      if (!receiptPending && !receiptCheckRequired && recoveryAvailable) {
         button(recoveryContinuing ? 'Continue looking' : 'Find original run', session.recoverOriginal, status.id);
       }
       if (onOpenHistory) button('View Deep Search history', onOpenHistory);
-      if (!receiptPending && outputsAccessible && retryAvailable && (originalInTab || retry)) {
+      if (!receiptPending && !receiptCheckRequired && outputsAccessible && retryAvailable && (originalInTab || retry)) {
         button('Review retry estimate', () => session.prepareRetry(retry), status.id);
       }
-      if (!receiptPending) button('Keep unresolved receipt', session.archiveUnconfirmed, status.id);
+      if (!receiptPending && !receiptCheckRequired && !submissionPending) button('Keep unresolved receipt', session.archiveUnconfirmed, status.id);
+    }
+    if (!busy && !ticket && !receiptPending && (submissionPending || receiptCheckRequired) && Date.now() >= checkAfter) {
+      button('Check saved run', session.checkSavedRun, status.id);
     }
     if (!busy && !ticket && receiptPending) button('Save receipt again', session.saveReceiptAgain, status.id);
     if (!busy && !ticket && run && (receiptPending || run.workflowId || ['unknown', 'unconfirmed', 'refused', 'not-started'].includes(run.status))) {
@@ -122,16 +130,17 @@ export function installWorkflowRun(container, { client, journal, context, simula
         exported = copyWorkflowReport([{ run, restricted: !outputsAccessible }], { simulated, receipt: true });
       });
     }
-    if (!busy && run?.workflowId) {
+    if (!busy && !receiptCheckRequired && run?.workflowId) {
       if (Date.now() >= checkAfter) button('Check status', session.refresh);
       if (!runFinished(run.status)) button('Cancel run', session.cancel);
     }
-    if (!busy && run?.previous && !previousSnapshot) button('Load previous research', session.refreshPrevious);
+    if (!busy && !receiptCheckRequired && run?.previous && !previousSnapshot) button('Load previous research', session.refreshPrevious);
     if (!busy && availableResults) button(done && !outputsMissing ? 'Copy research results' : 'Copy available results', () => {
       const records = previousSnapshot ? [{ run: run.previous, snapshot: previousSnapshot }] : [];
       exported = copyWorkflowReport([...records, { run, snapshot }], { context, simulated, partial: !done || outputsMissing });
     });
-    const synthesis = !busy && !ticket && !receiptPending && outputsAccessible && !canCheckOutput ? reportSynthesisPlan(run, snapshot) : null;
+    const synthesis = !busy && !ticket && !receiptPending && !receiptCheckRequired && outputsAccessible && !canCheckOutput
+      ? reportSynthesisPlan(run, snapshot) : null;
     if (synthesis) button('Quote a final synthesis', () => {
       selected = { plan: synthesis, sources: run.sources };
       return session.prepare(synthesis, run.sources, { continueRun: true });
@@ -153,10 +162,13 @@ export function installWorkflowRun(container, { client, journal, context, simula
 
   function nextCheck() {
     clearTimeout(timer);
-    const { busy, run, snapshot, outputsAccessible } = session.state();
+    const { busy, run, snapshot, outputsAccessible, receiptPending, receiptCheckRequired, submissionPending } = session.state();
     const pending = outputsAccessible && outputChecks < outputCheckLimit && workflowOutputPending(run, snapshot);
-    if (disposed || busy || problem && !checkAfter || !run?.workflowId || runFinished(run.status) && !checkAfter && !pending) return;
-    timer = setTimeout(() => { void act(session.refresh); }, Math.max(simulated ? 750 : 2800, checkAfter - Date.now()));
+    const firstRead = outputsAccessible && !snapshot && outputChecks === 0;
+    if (disposed || busy || receiptCheckRequired || problem && !checkAfter) return;
+    const check = submissionPending && !receiptPending ? session.checkSavedRun :
+      run?.workflowId && (!runFinished(run.status) || checkAfter || pending || firstRead) ? session.refresh : null;
+    if (check) timer = setTimeout(() => { void act(check); }, Math.max(simulated ? 750 : 2800, checkAfter - Date.now()));
   }
 
   async function act(task) {
@@ -172,11 +184,11 @@ export function installWorkflowRun(container, { client, journal, context, simula
         outputCheckId = run?.workflowId;
         outputChecks = 0;
       }
-      if (task === session.refresh && workflowOutputPending(run, snapshot)) outputChecks++;
-      if (task === session.refresh || runFinished(run?.status)) { readFailures = 0; checkAfter = 0; }
+      if (task === session.refresh && runFinished(run?.status)) outputChecks++;
+      if (task === session.refresh || task === session.checkSavedRun || runFinished(run?.status)) { readFailures = 0; checkAfter = 0; }
     } catch (error) {
       if (!disposed && error.name !== 'AbortError') {
-        const temporary = task === session.refresh && (error.code === 'workflow-throttled' ||
+        const temporary = (task === session.refresh || task === session.checkSavedRun) && (error.code === 'workflow-throttled' ||
           [429, 502, 503, 504].includes(error.status) || error.name === 'TimeoutError');
         if (temporary && ++readFailures <= 3) {
           const serverDelay = Number.isFinite(error.retryAfter) ? error.retryAfter * 1000 : 0;
@@ -226,7 +238,7 @@ export function installWorkflowRun(container, { client, journal, context, simula
         return;
       }
       selected = { plan, sources, advisory };
-      if (session.state().run?.status === 'unknown') {
+      if (session.state().receiptCheckRequired || session.state().run?.status === 'unknown') {
         paint();
         container.scrollIntoView({ block: 'nearest' });
         status.focus({ preventScroll: true });

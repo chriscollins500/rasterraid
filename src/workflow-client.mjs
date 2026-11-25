@@ -1,6 +1,7 @@
 import { SITE_ORIGINS } from './catalog.mjs';
 
 export const QUOTE_SCOPE = 'ai:write:budgeted';
+export const WORKFLOW_REQUEST_TIMEOUT_MS = 25_000;
 
 const operationKey = /^[a-z\d_-]{1,64}$/iu;
 const workflowKey = /^[a-z\d_-]{1,64}$/iu;
@@ -40,7 +41,7 @@ export async function appWorkflowRequest(origin, token, operation, request, { fe
     throw new TypeError('Expected a Civitai App credential, origin and workflow operation.');
   }
   signal?.throwIfAborted();
-  const timeout = AbortSignal.timeout(operation === 'poll' ? 22_000 : 25_000);
+  const timeout = AbortSignal.timeout(operation === 'poll' ? 22_000 : WORKFLOW_REQUEST_TIMEOUT_MS);
   const response = await fetcher(new URL('/api/v1/blocks/workflows/' + operation, origin), {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
