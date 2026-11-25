@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clipAnalysisUrl } from '../src/catalog.mjs';
 import { selectWrittenClipFrames } from '../src/visual-analysis.mjs';
-import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence } from '../src/written-scenes.mjs';
-import { writtenSoundBrief } from '../src/written-sound.mjs';
+import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence,
+  writtenSceneSpeechSamples } from '../src/written-scenes.mjs';
+import { writtenSoundBrief, writtenSoundRate } from '../src/written-sound.mjs';
 
 const origin = 'https://civitai.red';
 const video = id => ({ id, video: true, link: origin + '/images/' + id, browsingLevel: 1, postId: id, title: 'Clip ' + id,
@@ -86,4 +87,23 @@ test('joined written cues favor the same interval and reject a different renditi
   assert.equal(speechPlan.stepEvidence[speech.name].sourceLink, aligned.link);
   assert.equal(writtenSceneReview({ ...ranked[0], soundStart: '5' }, origin).plans.length, 1);
   assert.equal(writtenSceneReview({ ...ranked[0], soundEnd: 5 }, origin).plans.length, 1);
+});
+
+test('scene speech reads the selected audio interval from the same rendition', () => {
+  const clip = video(24);
+  const wave = new Float32Array(writtenSoundRate * 15);
+  wave.fill(9, 0, writtenSoundRate * 5);
+  wave.fill(.25, writtenSoundRate * 5, writtenSoundRate * 10);
+  wave.fill(8, writtenSoundRate * 10);
+  const stream = clipAnalysisUrl(clip.stream);
+  const frame = { clip, stream, timestamp: 7.5, duration: 15, soundStart: 5, soundEnd: 10 };
+  const recording = { item: clip, rendition: stream, duration: 15, samples: wave };
+  const selected = writtenSceneSpeechSamples(frame, recording);
+  assert.equal(selected.length, 5 * writtenSoundRate);
+  assert.ok(selected.every(value => value === .25));
+  assert.notEqual(selected.buffer, wave.buffer);
+  assert.equal(writtenSceneSpeechSamples(frame, { ...recording, rendition: clip.stream }), null);
+  assert.equal(writtenSceneSpeechSamples(frame, { ...recording, duration: 13 }), null);
+  assert.equal(writtenSceneSpeechSamples(frame, { ...recording, item: video(25) }), null);
+  assert.equal(writtenSceneSpeechSamples({ ...frame, soundEnd: 11 }, recording), null);
 });

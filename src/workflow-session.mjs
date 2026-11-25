@@ -156,6 +156,10 @@ export function transcriptEvidence(output) {
   }
   if (wordsByTime.size) return { scope: 'timed',
     lines: [...wordsByTime.values()].map(({ start, parts }) => clock(start) + ' · ' + parts.join(' ')) };
+  return fullClipTranscript(output);
+}
+
+function fullClipTranscript(output) {
   const words = text(output?.text, 24_000);
   if (!words) {
     const explicitEmpty = typeof output?.text === 'string' || [output?.segments, output?.timeStamps].some(rows => Array.isArray(rows) && !rows.length);
@@ -213,8 +217,12 @@ function acceptStep(reported, previous, registered, defaultStatus) {
   }
   if (previous && runFinished(previous.status) && !runFinished(reported.status)) return previous;
   if (registered.$type === 'transcription') {
-    const available = !reported.output ? null : isSceneTranscript(registered)
+    let available = !reported.output ? null : isSceneTranscript(registered)
       ? sceneTranscriptEvidence(reported.output, registered.name) : transcriptEvidence(reported.output);
+    if (available?.scope === 'untimed-window') {
+      const full = fullClipTranscript(reported.output);
+      if (full?.scope === 'clip' || full?.scope === 'repetitive') available = full;
+    }
     const scope = available?.scope ?? previous?.transcriptScope;
     return { ...registered, status: reported.status, lines: available?.lines ?? previous?.lines ?? [],
       ...(scope && { transcriptScope: scope }) };
@@ -267,6 +275,7 @@ export function workflowDelivery(run, snapshot) {
       else if (result.transcriptScope === 'empty') state = 'no-words';
       else if (result.transcriptScope === 'empty-window') state = 'no-words-in-window';
       else if (result.transcriptScope === 'repetitive') state = 'repetitive';
+      else if (result.transcriptScope === 'clip' && isSceneTranscript(step)) state = 'full-clip-only';
       else if (result.lines.length) state = 'received';
       else if (step.$type === 'chatCompletion') unnamedChats.push(step.name);
     }

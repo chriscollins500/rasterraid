@@ -99,7 +99,10 @@ self.addEventListener('message', async event => {
       self.postMessage({ type: 'ready' });
     } else if (model && data?.type === 'read' && data.samples instanceof Float32Array &&
       data.samples.length >= writtenSoundMinimum * writtenSoundRate && data.samples.length <= writtenSoundSampleLimit) {
-      self.postMessage({ type: 'checked', windows: await checkAudio(model, data.samples) });
+      const windows = await checkAudio(model, data.samples);
+      // The scene view can reuse this decoded rendition for on-device speech.
+      if (data.retainSamples === true) self.postMessage({ type: 'checked', windows, samples: data.samples }, [data.samples.buffer]);
+      else self.postMessage({ type: 'checked', windows });
     } else {
       self.postMessage({ type: 'error' });
     }

@@ -1,10 +1,13 @@
 import { visualTextMatchAvailable } from './subject-matching.mjs';
 import { renderSubjectMatches } from './subject-view.js';
 import { sceneTime } from './scene-research.mjs';
+import { speechDownloadBytes } from './spoken-artifacts.mjs';
+import { openSpokenReader, resampleSceneSpeech } from './spoken-reading.mjs';
 import { element, sourceLink } from './view.js';
 import { galleryDescriptionSample } from './visual-research.mjs';
 import { validVisualDescription, visualPackBytes, visualPackUrl } from './visual-text-pack.mjs';
-import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence } from './written-scenes.mjs';
+import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence,
+  writtenSceneSpeechSamples } from './written-scenes.mjs';
 import { readWrittenSounds, supportsWrittenSound } from './written-sound-search.mjs';
 import { writtenSoundBrief, writtenSoundClipLimit, writtenSoundSeconds } from './written-sound.mjs';
 
@@ -35,6 +38,7 @@ export function configureGalleryAppearance(document, matcher, onReview) {
   let context;
   let chosenPack;
   let active;
+  let speechRead;
   let playing;
   let review;
   let searchBusy = false;
@@ -82,6 +86,8 @@ export function configureGalleryAppearance(document, matcher, onReview) {
   function clear(message = '') {
     active?.abort();
     active = undefined;
+    speechRead?.abort();
+    speechRead = undefined;
     stopPlayer();
     results.replaceChildren();
     moreScenes.hidden = true;
@@ -118,7 +124,51 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     clear();
   }
 
-  function showWrittenScenes(scenes, selected) {
+  function speechDetails(samples, selected) {
+    const window = document.defaultView;
+    const details = element('details');
+    const label = element('summary', 'Read English speech · 0 Buzz');
+    const message = element('p');
+    message.setAttribute('role', 'status');
+    details.append(label, message);
+    let completed = false;
+    let pending;
+    details.addEventListener('toggle', async () => {
+      if (!details.open) { pending?.abort(); return; }
+      if (completed || pending || current !== selected || !details.isConnected) return;
+      speechRead?.abort();
+      const request = pending = speechRead = new AbortController();
+      const { signal } = request;
+      const present = () => current === selected && details.isConnected && details.open;
+      let reader;
+      try {
+        const pcm = await resampleSceneSpeech(window, samples, signal);
+        const size = Math.ceil(speechDownloadBytes / 1_000_000);
+        message.textContent = 'Getting the English speech model · Up to ' + size + ' MB on first use';
+        reader = await openSpokenReader(window, signal, percent => {
+          if (!signal.aborted && present()) message.textContent = 'Getting the speech model · ' + percent + '%';
+        });
+        message.textContent = 'Reading speech in this sample…';
+        const cues = await reader.read(pcm);
+        signal.throwIfAborted();
+        if (!present()) return;
+        const words = cues.map(row => row.text).join(' ').trim();
+        const transcript = words ? 'On-device transcript · ' + words : 'No clear English speech recognized in this sample.';
+        message.textContent = transcript;
+        completed = true;
+      } catch {
+        if (present()) message.textContent = signal.aborted ? 'Speech check stopped. Reopen to try again.'
+          : 'Speech could not be read here. Reopen to try again.';
+      } finally {
+        reader?.close();
+        pending = undefined;
+        if (speechRead === request) speechRead = undefined;
+      }
+    });
+    return details;
+  }
+
+  function showWrittenScenes(scenes, selected, soundRecordings) {
     for (const [index, eventFrame] of scenes.entries()) {
       const { clip, preview, timestamp, stream, soundStart, soundEnd } = eventFrame;
       const item = element('li');
@@ -167,6 +217,8 @@ export function configureGalleryAppearance(document, matcher, onReview) {
       if (soundStart !== undefined) card.append(element('p', 'Sound sample ' + sceneTime(soundStart) + '–' + sceneTime(soundEnd) +
         ' · Frame near ' + sceneTime(timestamp)));
       card.append(play, price);
+      const samples = writtenSceneSpeechSamples(eventFrame, soundRecordings?.get(clip.id));
+      if (samples) card.append(speechDetails(samples, selected));
       item.append(card);
       (index === 0 ? results : extraScenes).append(item);
     }
@@ -236,7 +288,7 @@ export function configureGalleryAppearance(document, matcher, onReview) {
       const clipCount = sound ? Math.min(sample.length, writtenSoundClipLimit) : sample.length;
       if (sound) {
         sample = sample.slice(0, clipCount);
-        audio = await readWrittenSounds(document.defaultView, sample, sound, { signal: attempt.signal, maximumDuration: 60,
+        audio = await readWrittenSounds(document.defaultView, sample, sound, { signal: attempt.signal, maximumDuration: 60, retainSamples: true,
           onProgress(message) { if (active === attempt) status.textContent = message; },
         });
         attempt.signal.throwIfAborted();
@@ -275,7 +327,7 @@ export function configureGalleryAppearance(document, matcher, onReview) {
       } else if (clipFrames) {
         const evidence = audio && writtenSceneSoundEvidence(matches, audio.recordings, sound);
         const scenes = evidence ? rankWrittenSceneSounds(evidence) : rankWrittenScenes(matches);
-        showWrittenScenes(scenes, selected);
+        showWrittenScenes(scenes, selected, soundRecordings);
         status.textContent = evidence?.length
           ? 'Compared picture and sound in ' + evidence.length + ' samples from ' + scenes.length + ' of ' + clipCount + ' clips · 0 Buzz'
           : evidence ? 'No clips supplied matching picture and sound times. Clear the sound description to compare frames.'

@@ -42,10 +42,11 @@ const subjectRankNote = 'On-device subject rank compares the same previews by su
 const deliveryLabels = {
   waiting: 'Result unavailable', unconfirmed: 'Result unconfirmed', unavailable: 'Step did not finish',
   repetitive: 'Transcript repeats', grouped: 'Notes returned together',
+  'full-clip-only': 'Full-clip text available · Sample timing unavailable',
 };
 
-function stepTitle(name, type) {
-  if (isSceneTranscript({ name, $type: type })) return sceneTranscriptLabel(name);
+function stepTitle(name, type, transcriptScope) {
+  if (isSceneTranscript({ name, $type: type })) return transcriptScope === 'clip' ? 'Full-clip transcript' : sceneTranscriptLabel(name);
   if (type === 'composeMedia') return 'Soundtrack extraction';
   if (type === 'audioClassification') return 'Music, singing and speech estimates';
   if (Object.hasOwn(labels, name)) return labels[name];
@@ -140,7 +141,7 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
   }
   for (const step of snapshot.steps) {
     const group = element('section', null, 'workflow-step');
-    group.append(element('h3', stepTitle(step.name, step.$type)), element('p', workflowStatusLabel(step.status), 'workflow-step-status'));
+    group.append(element('h3', stepTitle(step.name, step.$type, step.transcriptScope)), element('p', workflowStatusLabel(step.status), 'workflow-step-status'));
     const source = run.sources.find(item => item.link === step.sourceLink);
     if (source) {
       const row = element('p');
@@ -221,7 +222,7 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
     if (checked) result.push('', '### Result check', checked.summary,
       ...(checked.group ? [checked.group] : []), ...checked.gaps.map(gap => '- ' + plain(gap)));
     for (const step of snapshot.steps) {
-      result.push('', '### ' + stepTitle(step.name, step.$type), workflowStatusLabel(step.status));
+      result.push('', '### ' + stepTitle(step.name, step.$type, step.transcriptScope), workflowStatusLabel(step.status));
       const source = run.sources.find(item => item.link === step.sourceLink);
       if (source) result.push('[' + plain(source.title) + '](<' + source.link + '>)' +
         (step.purpose ? ' · ' + plain(step.purpose) : '') +

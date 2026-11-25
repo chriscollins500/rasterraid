@@ -82,7 +82,7 @@ test('matched speech distinguishes an empty interval from missing evidence and k
   assert.equal(none.steps[0].transcriptScope, 'empty-window');
   assert.equal(workflowDelivery(run, none).resolved, 2);
   assert.equal(workflowOutputPending(run, none), false);
-  const untimed = researchOutput({ steps: [{ ...words, output: { ...output, timeStamps: [], segments: [{ start: 5, text: 'Loose' }] } }, still] }, run);
+  const untimed = researchOutput({ steps: [{ ...words, output: { timeStamps: [], segments: [{ start: 5, text: 'Loose' }] } }, still] }, run);
   assert.equal(untimed.steps[0].transcriptScope, 'untimed-window');
   assert.deepEqual(untimed.steps[0].lines, []);
   assert.equal(workflowOutputPending(run, untimed), true);
@@ -90,6 +90,33 @@ test('matched speech distinguishes an empty interval from missing evidence and k
   const silent = researchOutput({ steps: [{ ...words, output: { hasAudio: false } }, still] }, run);
   assert.equal(silent.steps[0].transcriptScope, 'silent');
   assert.equal(workflowDelivery(run, silent).resolved, 2);
+});
+
+test('whole-clip context remains available without claiming speech within the matched sample', () => {
+  const wordStep = { name: 'scene_words_5000_10000', $type: 'transcription', status: 'succeeded', sourceLink: sources[0].link };
+  const frameStep = { name: 'written_scene_caption', $type: 'mediaCaptioning', status: 'succeeded',
+    sourceLink: sources[0].link, seconds: 7.5 };
+  const run = { title: 'Review scene', workflowId: 'fixture-run', status: 'succeeded', steps: [wordStep, frameStep], sources,
+    createdAt: 100, quote: { total: 3, authorFee: 0 } };
+  const reply = { steps: [{ ...wordStep, output: { text: 'Words from somewhere in the whole clip.', timeStamps: [] } },
+    { ...frameStep, output: { caption: 'A frame.' } }] };
+  const snapshot = researchOutput(reply, run);
+  assert.deepEqual(snapshot.steps[0].lines, ['Words from somewhere in the whole clip.']);
+  assert.equal(snapshot.steps[0].transcriptScope, 'clip');
+  assert.equal(workflowDelivery(run, snapshot).items[0].state, 'full-clip-only');
+  assert.equal(workflowDelivery(run, snapshot).resolved, 1);
+  assert.equal(workflowOutputPending(run, snapshot), false);
+  assert.equal(reportSynthesisPlan(run, snapshot), null);
+  const report = workflowReportMarkdown([{ run, snapshot }]);
+  assert.match(report, /Full-clip transcript/u);
+  assert.match(report, /Whole recording · Times unavailable/u);
+  assert.match(report, /Words from somewhere in the whole clip/u);
+  const indexed = findTranscriptMatches([preparedTranscripts(run, snapshot)], 'somewhere');
+  assert.equal(indexed.count, 1);
+  assert.equal(indexed.matches[0].clock, undefined);
+  const history = historyResearchOutput(reply, { ...run, sources: [], steps: [] });
+  assert.equal(history.steps[0].transcriptScope, 'clip');
+  assert.deepEqual(history.steps[0].lines, snapshot.steps[0].lines);
 });
 
 test('a succeeded snapshot can still be waiting for output from the same run', () => {
