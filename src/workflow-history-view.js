@@ -184,7 +184,7 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     const records = [...transcripts.values()].filter(Boolean);
     const queryText = transcriptQuery.value.trim();
     const { matches, count, valid } = findTranscriptMatches(records, queryText);
-    const coverage = transcripts.size ? records.length + ' of ' + transcripts.size + ' checked runs have searchable words.' :
+    const coverage = transcripts.size ? records.length + (records.length === 1 ? ' searchable transcript.' : ' searchable transcripts.') :
       !transcriptProgress && (pending ? 'Load transcripts to search their spoken words.' : 'Open a completed transcript run to include its words.');
     const summary = queryText && (valid ? count ? (matches.length < count ? 'Showing ' + matches.length + ' of ' : '') +
       count + (count === 1 ? ' match.' : ' matches.') : 'No matches in the loaded transcripts.' : 'Enter up to 12 words.');
@@ -329,7 +329,6 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     const controller = started();
     if (!controller) return;
     transcriptBatch = controller;
-    let checked = 0;
     let unavailable = 0;
     let notice = '';
     try {
@@ -352,7 +351,6 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
           }
           const current = { ...run, receipt: reportedReceipt(reply, run.receipt) };
           rememberTranscript(current, historyResearchOutput(reply, current));
-          checked++;
           paintTranscripts();
         } catch (error) {
           assertCurrent(controller);
@@ -374,8 +372,8 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
     } finally {
       if (busy === controller) {
         transcriptBatch = undefined;
-        transcriptProgress = [checked ? checked + (checked === 1 ? ' run checked.' : ' runs checked.') : '',
-          unavailable ? unavailable + (unavailable === 1 ? ' run unavailable.' : ' runs unavailable.') : '', notice].filter(Boolean).join(' ');
+        transcriptProgress = [unavailable ? unavailable + (unavailable === 1 ? ' run unavailable.' : ' runs unavailable.') : '',
+          notice].filter(Boolean).join(' ');
       }
       finished(controller);
     }
