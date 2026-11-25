@@ -25,7 +25,7 @@ async function readPreview(cover, signal) {
   return response.blob();
 }
 
-async function previewPixels(document, { id, cover, file, region }, signal, visual) {
+async function previewPixels(document, { id, cover, file, region }, signal, visual, sceneReference = false) {
   signal.throwIfAborted();
   if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
   const previewSignal = file ? signal : AbortSignal.any([signal, AbortSignal.timeout(5500)]);
@@ -46,13 +46,18 @@ async function previewPixels(document, { id, cover, file, region }, signal, visu
     previewSignal.throwIfAborted();
     const canvas = document.createElement('canvas');
     if (visual) {
-      const { width, height } = image;
-      if (!width || !height || width * height > 4_000_000) throw new Error('The preview is too large to compare.');
+      const original = { width: image.width, height: image.height };
+      if (!original.width || !original.height || !sceneReference && original.width * original.height > 4_000_000) {
+        throw new Error('The preview is too large to compare.');
+      }
+      const scale = sceneReference ? Math.min(1, 1600 / Math.max(original.width, original.height)) : 1;
+      const width = Math.max(1, Math.round(original.width * scale));
+      const height = Math.max(1, Math.round(original.height * scale));
       canvas.width = width;
       canvas.height = height;
       const drawing = canvas.getContext('2d', { alpha: false });
       if (!drawing) throw new Error('This browser cannot compare pictures locally.');
-      drawing.drawImage(image, 0, 0);
+      drawing.drawImage(image, 0, 0, width, height);
       return { id, rgba: resizePreview(drawing.getImageData(0, 0, width, height).data, width, height, subjectSide) };
     }
     canvas.width = canvas.height = subjectSide;
@@ -154,7 +159,7 @@ function matchInWorker(worker, prepared, signal, onProgress, textPreparation) {
 async function preparePictures(document, references, sample, signal, description, clipFrames = false) {
   const visual = description !== undefined;
   const pictures = await Promise.allSettled([
-    ...references.map(item => previewPixels(document, item, signal, false)),
+    ...references.map(item => previewPixels(document, item, signal, clipFrames && !item.region, clipFrames)),
     ...(clipFrames ? sample : sample.map(item => previewPixels(document, item, signal, visual))),
   ]);
   const anchors = pictures.slice(0, references.length);
