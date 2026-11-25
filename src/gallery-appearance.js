@@ -4,7 +4,9 @@ import { sceneTime } from './scene-research.mjs';
 import { element, sourceLink } from './view.js';
 import { galleryDescriptionSample } from './visual-research.mjs';
 import { validVisualDescription, visualPackBytes, visualPackUrl } from './visual-text-pack.mjs';
-import { rankWrittenScenes, writtenSceneReview, writtenSceneSample } from './written-scenes.mjs';
+import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence } from './written-scenes.mjs';
+import { readWrittenSounds, supportsWrittenSound } from './written-sound-search.mjs';
+import { writtenSoundBrief, writtenSoundClipLimit, writtenSoundSeconds } from './written-sound.mjs';
 
 export function configureGalleryAppearance(document, matcher, onReview) {
   const byId = id => document.getElementById(id);
@@ -22,6 +24,9 @@ export function configureGalleryAppearance(document, matcher, onReview) {
   const title = byId('gallery-appearance-title');
   const sceneLabel = byId('written-scene-query-label');
   const sceneQuery = byId('written-scene-query');
+  const soundLabel = byId('written-scene-sound-label');
+  const soundQuery = byId('written-scene-sound');
+  const soundSupported = supportsWrittenSound(document.defaultView);
   const moreScenes = byId('written-scene-more');
   const moreScenesLabel = byId('written-scene-more-label');
   const extraScenes = byId('written-scene-extra');
@@ -34,13 +39,26 @@ export function configureGalleryAppearance(document, matcher, onReview) {
   let review;
   let searchBusy = false;
 
+  const soundWords = () => soundLabel.hidden ? '' : soundQuery.value.trim();
+
   function controls() {
-    start.disabled = searchBusy || !current || current.clipFrames && !validVisualDescription(sceneQuery.value);
+    const sound = soundWords();
+    start.disabled = searchBusy || !current || current.clipFrames &&
+      (!validVisualDescription(sceneQuery.value) || Boolean(sound && !writtenSoundBrief(sound)));
     sceneQuery.disabled = searchBusy;
+    soundQuery.disabled = searchBusy;
     stop.hidden = !active;
     packPicker.disabled = searchBusy || Boolean(active);
     if (active) start.setAttribute('aria-disabled', 'true');
     else start.removeAttribute('aria-disabled');
+    if (current) help.textContent = sound
+      ? 'Compare picture and sound in the same sample. Checks the first ' + writtenSoundSeconds +
+        ' seconds of up to four clips lasting a minute or less. First use can download about 273 MB of models. Both descriptions stay in this tab. 0 Buzz.'
+      : (current.clipFrames
+        ? 'Check frames in ' + current.sample.length + (current.sample.length === 1 ? ' loaded clip' : ' loaded clips') +
+          '. Clips up to one minute. Your description stays in this tab.'
+        : 'Compare ' + current.sample.length + ' loaded pictures against your search words on this device.') +
+        ' First use can download about 231 MB. 0 Buzz.';
   }
 
   function stopPlayer() {
@@ -88,28 +106,28 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     start.textContent = video ? 'Find scenes' : 'Compare pictures';
     stop.textContent = video ? 'Stop finding scenes' : 'Stop picture comparison';
     sceneLabel.hidden = !video;
-    if (!video || !sameSearch) sceneQuery.value = video ? next.description : '';
+    soundLabel.hidden = !video || !soundSupported;
+    if (!video || !sameSearch) {
+      sceneQuery.value = video ? next.description : '';
+      soundQuery.value = '';
+    }
     results.classList.toggle('written-scene-matches', video);
     results.setAttribute('aria-label', video ? 'Closest sampled scenes' : 'Appearance match order');
     setup.open = false;
     packLink.hidden = true;
-    if (next) help.textContent = (video
-      ? 'Check frames in ' + next.sample.length + (next.sample.length === 1 ? ' loaded clip' : ' loaded clips') + '. Clips up to one minute. Your description stays in this tab.'
-      : 'Compare ' + next.sample.length + ' loaded pictures against your search words on this device.') +
-      ' First use can download about 231 MB. 0 Buzz.';
     clear();
   }
 
-  function showWrittenScenes(frameMatches, selected) {
-    const scenes = rankWrittenScenes(frameMatches);
+  function showWrittenScenes(scenes, selected) {
     for (const [index, eventFrame] of scenes.entries()) {
-      const { clip, preview, timestamp, stream } = eventFrame;
+      const { clip, preview, timestamp, stream, soundStart, soundEnd } = eventFrame;
       const item = element('li');
       const card = element('article', null, 'visual-match scene-match');
       const view = element('div', null, 'scene-preview');
       preview.setAttribute('aria-hidden', 'true');
       view.append(preview);
-      const time = sceneTime(timestamp);
+      const playAt = soundStart ?? timestamp;
+      const time = sceneTime(playAt);
       const play = element('button', 'Play near ' + time, 'chip');
       play.type = 'button';
       play.addEventListener('click', () => {
@@ -122,7 +140,7 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         video.preload = 'metadata';
         video.setAttribute('aria-label', 'Matched moment from ' + clip.title);
         const url = new URL(stream);
-        url.hash = 't=' + timestamp.toFixed(3);
+        url.hash = 't=' + playAt.toFixed(3);
         playing = { video, preview };
         preview.hidden = true;
         view.append(video);
@@ -144,13 +162,15 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         review = { result: selected.result, offer };
         onReview(selected.result, true);
       });
-      card.append(view, sourceLink(clip.link, clip.title, context), play, price);
+      card.append(view, sourceLink(clip.link, clip.title, context));
+      if (soundStart !== undefined) card.append(element('p', 'Sound sample ' + sceneTime(soundStart) + '–' + sceneTime(soundEnd) +
+        ' · Frame near ' + sceneTime(timestamp)));
+      card.append(play, price);
       item.append(card);
       (index === 0 ? results : extraScenes).append(item);
     }
     moreScenes.hidden = scenes.length < 2;
     moreScenesLabel.textContent = scenes.length - 1 + (scenes.length === 2 ? ' more clip' : ' more clips');
-    status.textContent = 'Compared ' + frameMatches.matches.length + ' sampled frames across ' + scenes.length + ' of ' + selected.sample.length + ' clips · 0 Buzz';
   }
 
   copyLink.addEventListener('click', async () => {
@@ -181,19 +201,23 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     clear(file ? 'Model pack selected.' : '');
   });
 
-  sceneQuery.addEventListener('input', () => { clear(); });
-  sceneQuery.addEventListener('keydown', event => {
-    if (event.key !== 'Enter' || event.isComposing) return;
-    event.preventDefault();
-    start.click();
-  });
+  for (const field of [sceneQuery, soundQuery]) {
+    field.addEventListener('input', () => { clear(); });
+    field.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing) return;
+      event.preventDefault();
+      start.click();
+    });
+  }
 
   start.addEventListener('click', async () => {
     if (!current || searchBusy || active) return;
     const selected = current;
     const { clipFrames } = selected;
     const description = clipFrames ? sceneQuery.value.trim() : selected.description;
-    if (!validVisualDescription(description)) return;
+    const soundText = soundWords();
+    const sound = soundText && writtenSoundBrief(soundText);
+    if (!validVisualDescription(description) || soundText && !sound) return;
     clear();
     if (clipFrames) {
       results.classList.add('written-scene-matches');
@@ -205,7 +229,25 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     results.replaceChildren();
     status.textContent = clipFrames ? 'Sampling the loaded clips…' : 'Reading the loaded pictures…';
     try {
-      const matches = await matcher.rank({ description, sample: selected.sample, modelPack: chosenPack, clipFrames }, {
+      let sample = selected.sample;
+      let audio;
+      let soundRecordings;
+      const clipCount = sound ? Math.min(sample.length, writtenSoundClipLimit) : sample.length;
+      if (sound) {
+        sample = sample.slice(0, clipCount);
+        audio = await readWrittenSounds(document.defaultView, sample, sound, { signal: attempt.signal, maximumDuration: 60,
+          onProgress(message) { if (active === attempt) status.textContent = message; },
+        });
+        attempt.signal.throwIfAborted();
+        const audible = audio.recordings.filter(row => row.checked.length);
+        if (!audible.length) {
+          status.textContent = audio.failure ?? 'No sound excerpts could be read. Clear the sound description to compare frames.';
+          return;
+        }
+        sample = audible.map(recording => recording.item);
+        soundRecordings = new Map(audible.map(recording => [recording.item.id, recording]));
+      }
+      const matches = await matcher.rank({ description, sample, modelPack: chosenPack, clipFrames, soundRecordings }, {
         signal: attempt.signal,
         onProgress({ phase, loaded, total, provider, done }) {
           if (active !== attempt) return;
@@ -229,23 +271,31 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         results.setAttribute('aria-label', 'Closest video posters');
         renderSubjectMatches(results, matches.posterClips, matches.matches, context);
         status.textContent = 'Compared ' + matches.matches.length + ' video posters. This browser couldn’t read frames from these clips.';
-      } else if (clipFrames) showWrittenScenes(matches, selected);
-      else {
+      } else if (clipFrames) {
+        const evidence = audio && writtenSceneSoundEvidence(matches, audio.recordings, sound);
+        const scenes = evidence ? rankWrittenSceneSounds(evidence) : rankWrittenScenes(matches);
+        showWrittenScenes(scenes, selected);
+        status.textContent = evidence?.length
+          ? 'Compared picture and sound in ' + evidence.length + ' samples from ' + scenes.length + ' of ' + clipCount + ' clips · 0 Buzz'
+          : evidence ? 'No clips supplied matching picture and sound times. Clear the sound description to compare frames.'
+            : 'Compared ' + matches.matches.length + ' sampled frames across ' + scenes.length + ' of ' + clipCount + ' clips · 0 Buzz';
+        if (audio?.failure) status.textContent += ' ' + audio.failure;
+      } else {
         renderSubjectMatches(results, selected.sample, matches, context);
         status.textContent = 'Compared ' + matches.length + ' of ' + selected.sample.length + ' loaded pictures · 0 Buzz';
       }
-      if (document.activeElement === stop) start.focus({ preventScroll: true });
     } catch (error) {
       if (active !== attempt) return;
       if (error.name === 'NotReadableError') {
         setup.open = true;
         status.textContent = chosenPack ? 'This pack couldn’t be verified. Choose a verified RasterRaid model pack.'
           : 'The download couldn’t open. You can choose a saved model pack.';
-      } else status.textContent = clipFrames ? 'Scene search could not read these clips. Your video results are below.'
+      } else status.textContent = sound ? 'Picture and sound could not be compared in these clips. Clear the sound description to compare frames.'
+        : clipFrames ? 'Scene search could not read these clips. Your video results are below.'
         : 'Picture comparison is unavailable right now. Your gallery results are below.';
-      if (document.activeElement === stop) start.focus({ preventScroll: true });
     } finally {
       if (active === attempt) {
+        if (document.activeElement === stop) start.focus({ preventScroll: true });
         active = undefined;
         progress.hidden = true;
         controls();

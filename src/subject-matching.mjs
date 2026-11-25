@@ -1,8 +1,9 @@
 import { mediaUrl } from './catalog.mjs';
-import { loadPublicPreview, sampleWrittenClip, visualRegion } from './visual-analysis.mjs';
+import { loadPublicPreview, sampleWrittenClip, sampleWrittenSoundFrames, visualRegion } from './visual-analysis.mjs';
 import { subjectCandidateLimit, subjectDownloadBytes, subjectReferenceLimit, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 import { resizePreview } from './resize-preview.mjs';
 import { validVisualDescription, visualPackBytes, visualTextCandidateLimit, visualTextClipLimit } from './visual-text-pack.mjs';
+import { writtenSoundClipLimit } from './written-sound.mjs';
 
 const idleLifetime = 120_000;
 
@@ -170,14 +171,16 @@ async function preparePictures(document, references, sample, signal, description
   }
 }
 
-async function prepareClipPictures(document, clips, signal, description, onProgress) {
+async function prepareClipPictures(document, clips, signal, description, onProgress, soundRecordings) {
   const frames = [];
   const sample = [];
   const parallelClips = 2;
   const total = clips.length;
   for (let index = 0; index < total; index += parallelClips) {
     const batch = clips.slice(index, index + parallelClips);
-    const captured = await Promise.allSettled(batch.map(clip => sampleWrittenClip(document, clip.stream, signal)));
+    const captured = await Promise.allSettled(batch.map(clip => soundRecordings
+      ? sampleWrittenSoundFrames(document, clip.stream, soundRecordings.get(clip.id), signal)
+      : sampleWrittenClip(document, clip.stream, signal)));
     signal.throwIfAborted();
     for (const [offset, reply] of captured.entries()) {
       if (reply.status !== 'fulfilled') continue;
@@ -194,6 +197,7 @@ async function prepareClipPictures(document, clips, signal, description, onProgr
     onProgress({ phase: 'sampling', done: Math.min(index + parallelClips, total), total });
   }
   if (!sample.length) {
+    if (soundRecordings) throw new Error('No frames were available for the checked sound excerpts.');
     const posterClips = clips.filter(clip => clip.cover).map(clip => ({ ...clip, kind: 'Video poster' }));
     if (posterClips.length < 2) throw new Error('The loaded clips could not be sampled.');
     const comparison = await preparePictures(document, [], posterClips, signal, description);
@@ -221,12 +225,13 @@ export function createSubjectMatcher(document) {
   });
 
   async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample, description, modelPack,
-    clipFrames = false }, { signal, onProgress }) {
+    clipFrames = false, soundRecordings }, { signal, onProgress }) {
     const visual = description !== undefined;
     const withReferences = !visual || references?.length > 0;
     if (active || !(visual ? visualTextMatchAvailable() : subjectMatchAvailable())) throw new Error('Subject matching is unavailable right now.');
     if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual && !clipFrames ? 2 : 1) ||
         sample.length > (clipFrames ? visualTextClipLimit : withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
+        soundRecordings && (!clipFrames || !(soundRecordings instanceof Map) || sample.length > writtenSoundClipLimit) ||
         clipFrames && (!visual || withReferences) ||
         visual && !validVisualDescription(description) ||
         withReferences && (references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
@@ -243,8 +248,12 @@ export function createSubjectMatcher(document) {
       deadline.throwIfAborted();
       worker ??= startWorker();
       const prepared = clipFrames
-        ? prepareClipPictures(document, sample, deadline, description, onProgress)
+        ? prepareClipPictures(document, sample, deadline, description, onProgress, soundRecordings)
         : preparePictures(document, references, sample, deadline, description).then(comparison => ({ comparison }));
+      if (soundRecordings) {
+        await prepared;
+        deadline.throwIfAborted();
+      }
       const matches = await matchInWorker(worker, prepared.then(({ comparison }) => comparison), deadline, onProgress, visual && { modelPack });
       const { frames, posterClips } = await prepared;
       deadline.throwIfAborted();

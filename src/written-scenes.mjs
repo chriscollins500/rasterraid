@@ -4,6 +4,7 @@ import { sampleMediaByPost } from './gallery.mjs';
 import { sceneTime } from './scene-research.mjs';
 import { sampledFrameSteps } from './visual-research.mjs';
 import { validVisualDescription, visualTextClipLimit } from './visual-text-pack.mjs';
+import { scoreWrittenSoundWindows, writtenSoundSeconds, writtenSoundTimingAgrees } from './written-sound.mjs';
 
 const videoTypes = /\.(?:mp4|webm)$/iu;
 
@@ -36,18 +37,64 @@ function sampledMoment(frame) {
     (frame.stream === frame.clip?.stream || frame.stream === clipAnalysisUrl(frame.clip?.stream));
 }
 
-export function rankWrittenScenes({ frames, matches }) {
+function scoredSceneFrames({ frames, matches }) {
   const byFrame = new Map(frames.map(frame => [frame.id, frame]));
-  const preferred = new Map();
-  for (const { id, score } of matches) {
+  return matches.flatMap(({ id, score }) => {
     const frame = byFrame.get(id);
-    if (!sampledMoment(frame) || !Number.isFinite(score)) continue;
+    return sampledMoment(frame) && Number.isFinite(score) ? [{ ...frame, score }] : [];
+  });
+}
+
+function bestScenePerClip(frames) {
+  const preferred = new Map();
+  for (const frame of frames) {
+    const { score } = frame;
     const prior = preferred.get(frame.clip.id);
     if (!prior || score > prior.score || score === prior.score && frame.timestamp < prior.timestamp) {
-      preferred.set(frame.clip.id, { ...frame, score });
+      preferred.set(frame.clip.id, frame);
     }
   }
   return [...preferred.values()].sort((left, right) => right.score - left.score || left.clip.id - right.clip.id);
+}
+
+export function rankWrittenScenes(frameMatches) {
+  return bestScenePerClip(scoredSceneFrames(frameMatches));
+}
+
+export function writtenSceneSoundEvidence(frameMatches, recordings, brief) {
+  const byLink = new Map(recordings.map(recording => [recording.item.link, { ...recording, windows: [] }]));
+  for (const window of scoreWrittenSoundWindows(recordings, brief)) byLink.get(window.item.link).windows.push(window);
+  return scoredSceneFrames(frameMatches).flatMap(frame => {
+    const audio = byLink.get(frame.clip.link);
+    if (!audio || frame.clip.id !== audio.item.id || frame.clip.stream !== audio.item.stream || frame.stream !== audio.rendition ||
+        !writtenSoundTimingAgrees(audio.duration, frame.duration)) return [];
+    const window = audio.windows.find(window => window.start >= 0 && window.end <= writtenSoundSeconds &&
+      window.start <= frame.timestamp && frame.timestamp < window.end && Number.isFinite(window.score));
+    if (!window) return [];
+    return [{ ...frame, pictureScore: frame.score, soundScore: window.score, soundStart: window.start, soundEnd: window.end }];
+  });
+}
+
+function percentileRanks(values) {
+  const ordered = [...values].sort((a, b) => a - b);
+  const ranks = new Map();
+  for (let first = 0; first < ordered.length;) {
+    let end = first + 1;
+    while (ordered[end] === ordered[first]) end++;
+    ranks.set(ordered[first], (first + end + 1) / (2 * ordered.length));
+    first = end;
+  }
+  return ranks;
+}
+
+export function rankWrittenSceneSounds(evidence) {
+  const pictures = percentileRanks(evidence.map(row => row.pictureScore));
+  const sounds = percentileRanks(evidence.map(row => row.soundScore));
+  return bestScenePerClip(evidence.map(row => {
+    const picture = pictures.get(row.pictureScore);
+    const sound = sounds.get(row.soundScore);
+    return { ...row, score: Math.min(picture, sound) + .125 * (picture + sound) };
+  }));
 }
 
 export function writtenSceneReview(frame, origin) {
