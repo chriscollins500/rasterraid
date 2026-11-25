@@ -40,9 +40,9 @@ function sampledMoment(frame) {
 
 function scoredSceneFrames({ frames, matches }) {
   const byFrame = new Map(frames.map(frame => [frame.id, frame]));
-  return matches.flatMap(({ id, score }) => {
+  return matches.flatMap(({ id, score, textScore }) => {
     const frame = byFrame.get(id);
-    return sampledMoment(frame) && Number.isFinite(score) ? [{ ...frame, score }] : [];
+    return sampledMoment(frame) && Number.isFinite(score) ? [{ ...frame, score, ...(Number.isFinite(textScore) && { textScore }) }] : [];
   });
 }
 
@@ -59,7 +59,7 @@ function bestScenePerClip(frames) {
 }
 
 export function rankWrittenScenes(frameMatches) {
-  return bestScenePerClip(scoredSceneFrames(frameMatches));
+  return bestScenePerClip(rankSceneSignals(scoredSceneFrames(frameMatches), ['score']));
 }
 
 export function writtenSceneSoundEvidence(frameMatches, recordings, brief) {
@@ -89,13 +89,17 @@ function percentileRanks(values) {
 }
 
 export function rankWrittenSceneSounds(evidence) {
-  const pictures = percentileRanks(evidence.map(row => row.pictureScore));
-  const sounds = percentileRanks(evidence.map(row => row.soundScore));
-  return bestScenePerClip(evidence.map(row => {
-    const picture = pictures.get(row.pictureScore);
-    const sound = sounds.get(row.soundScore);
-    return { ...row, score: Math.min(picture, sound) + .125 * (picture + sound) };
-  }));
+  return bestScenePerClip(rankSceneSignals(evidence, ['pictureScore', 'soundScore']));
+}
+
+export function rankSceneSignals(rows, fields) {
+  const signals = rows.length && rows.every(row => Number.isFinite(row.textScore)) ? [...fields, 'textScore'] : fields;
+  if (signals.length === 1) return rows;
+  const ranks = signals.map(field => percentileRanks(rows.map(row => row[field])));
+  return rows.map(row => {
+    const scores = signals.map((field, index) => ranks[index].get(row[field]));
+    return { ...row, score: Math.min(...scores) + .25 * scores.reduce((sum, value) => sum + value, 0) / scores.length };
+  }).sort((left, right) => right.score - left.score || (left.id ?? 0) - (right.id ?? 0));
 }
 
 export function writtenSceneSpeechSamples(frame, recording) {

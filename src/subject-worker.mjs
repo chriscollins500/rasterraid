@@ -1,11 +1,10 @@
 import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectReferenceLimit, subjectSide, subjectVisionModel, subjectWasm,
   subjectWasmAvailable } from './subject-artifacts.mjs';
-import { subjectScore } from './subject-score.mjs';
+import { poolSubjectRegions, sceneSubjectSimilarity, subjectScore, subjectVectorSize } from './subject-score.mjs';
 import { sha256Hex, verifiedModelBytes } from './model-bytes.mjs';
 import { validVisualDescription, visualPackBytes, visualTextCandidateLimit, visualTextFrameLimit } from './visual-text-pack.mjs';
 
 const pixels = subjectSide * subjectSide;
-const dimensions = 768;
 const previewCacheLimit = 24;
 const previewVectors = new Map();
 
@@ -17,7 +16,7 @@ async function checkedBytes(artifact, received) {
   return verifiedModelBytes(reply.body, artifact, received);
 }
 
-async function pictureVector({ ort, session, input, output }, rgba) {
+async function pictureVector({ ort, session, input, output }, rgba, withRegions) {
   const normalized = new Float32Array(3 * pixels);
   for (let index = 0; index < pixels; index++) {
     for (let channel = 0; channel < 3; channel++) {
@@ -26,15 +25,16 @@ async function pictureVector({ ort, session, input, output }, rgba) {
   }
   const tensor = new ort.Tensor('float32', normalized, [1, 3, subjectSide, subjectSide]);
   try {
-    const result = await session.run({ [input]: tensor }, [output]);
+    const result = await session.run({ [input]: tensor }, withRegions ? [output, 'last_hidden_state'] : [output]);
     try {
       const values = await result[output].getData();
-      if (values.length !== dimensions) throw new Error('Unexpected picture vector size.');
+      if (values.length !== subjectVectorSize) throw new Error('Unexpected picture vector size.');
       let squares = 0;
       for (const value of values) squares += value * value;
       if (!Number.isFinite(squares) || squares <= 0) throw new Error('Invalid picture vector.');
       const norm = Math.sqrt(squares);
-      return Float32Array.from(values, value => value / norm);
+      const vector = Float32Array.from(values, value => value / norm);
+      return { values: vector, ...(withRegions && { regions: poolSubjectRegions(await result.last_hidden_state.getData()) }) };
     } finally {
       for (const value of Object.values(result)) value.dispose();
     }
@@ -44,21 +44,26 @@ async function pictureVector({ ort, session, input, output }, rgba) {
   }
 }
 
-async function previewVector(runtime, id, rgba) {
+function clearVector(vector) {
+  vector?.values.fill(0);
+  vector?.regions?.fill(0);
+}
+
+async function previewVector(runtime, id, rgba, withRegions) {
   // An eligible catalog preview still has to be read and decoded to reuse its vector.
   const digest = await sha256Hex(rgba);
   const previous = previewVectors.get(id);
-  const reused = previous?.digest === digest;
-  const values = reused ? previous.values : await pictureVector(runtime, rgba);
-  if (!reused) previous?.values.fill(0);
+  const reused = previous?.digest === digest && (!withRegions || Boolean(previous.regions));
+  const vector = reused ? previous : { digest, ...await pictureVector(runtime, rgba, withRegions) };
+  if (!reused) clearVector(previous);
   previewVectors.delete(id);
-  previewVectors.set(id, { digest, values });
+  previewVectors.set(id, vector);
   if (previewVectors.size > previewCacheLimit) {
     const [oldestId, oldest] = previewVectors.entries().next().value;
-    oldest.values.fill(0);
+    clearVector(oldest);
     previewVectors.delete(oldestId);
   }
-  return { values, reused };
+  return { ...vector, reused };
 }
 
 async function gpuAdapter() {
@@ -117,7 +122,7 @@ function validateComparison(data) {
   const { description, references, sample, modelPack, clipFrames = false } = data ?? {};
   const visual = description !== undefined;
   const withReferences = !visual || references?.length > 0;
-  if (!Array.isArray(references) || typeof clipFrames !== 'boolean' || clipFrames && (!visual || withReferences) ||
+  if (!Array.isArray(references) || typeof clipFrames !== 'boolean' ||
       visual && (!validVisualDescription(description) || modelPack != null && !(modelPack instanceof ReadableStream)) ||
       withReferences && (references.length > subjectReferenceLimit || !references.some(row => row?.polarity === 'prefer') ||
         !references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity))) ||
@@ -129,6 +134,7 @@ function validateComparison(data) {
 
 async function compare({ description, references, sample, clipFrames }, runtime, textRuntime) {
   const { provider } = runtime;
+  const withRegions = clipFrames && references.length > 0;
   const anchorCount = references.length + Number(description !== undefined);
   const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: anchorCount + sample.length });
   reportCount(0);
@@ -141,16 +147,20 @@ async function compare({ description, references, sample, clipFrames }, runtime,
       if (provider === 'wasm') reportCount(1);
     }
     for (const { rgba, polarity } of references) {
-      const vector = await pictureVector(runtime, rgba);
+      const vector = await pictureVector(runtime, rgba, withRegions);
       (polarity === 'avoid' ? avoided : preferred).push(vector);
       if (provider === 'wasm') reportCount(preferred.length + avoided.length + Number(Boolean(words)));
     }
     const matches = [];
     let reusedPreviews = 0;
     for (const { id, rgba } of sample) {
-      const { values, reused } = await previewVector(runtime, clipFrames ? 'frame-' + id : id, rgba);
+      const { values, regions, reused } = await previewVector(runtime, clipFrames ? 'frame-' + id : id, rgba, withRegions);
       const textScore = words && cosine(words, values);
-      const score = references.length ? subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values))) : textScore;
+      const pictureMatch = vector => {
+        const whole = cosine(vector.values, values);
+        return withRegions ? sceneSubjectSimilarity(whole, vector.regions, regions) : whole;
+      };
+      const score = references.length ? subjectScore(preferred.map(pictureMatch), avoided.map(pictureMatch)) : textScore;
       if (reused) reusedPreviews++;
       matches.push({ id, score, ...(words && references.length && { textScore }) });
       if (provider === 'wasm') reportCount(anchorCount + matches.length);
@@ -158,7 +168,7 @@ async function compare({ description, references, sample, clipFrames }, runtime,
     return { phase: 'complete', reusedPreviews, matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
     words?.fill(0);
-    for (const vector of [...preferred, ...avoided]) vector.fill(0);
+    for (const vector of [...preferred, ...avoided]) clearVector(vector);
   }
 }
 
