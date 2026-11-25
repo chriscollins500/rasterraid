@@ -339,6 +339,7 @@ export function watchHost(win, onContext) {
         const listing = /^\/(?:user\/[\w%-]+|3d-models|storylines|bounties|challenges\/winners)$/u;
         const gallery = isNativeGalleryNavigation(target);
         const models = isNativeModelNavigation(target);
+        const license = /^\/models\/license\/[1-9]\d{0,14}$/u.test(target.pathname) && !target.search && !target.hash;
         const postFeed = target.pathname === '/posts' &&
           [...target.searchParams].every(([key]) => ['tags', 'username', 'modelId', 'modelVersionId'].includes(key));
         const bountySearch = target.pathname === '/search/bounties' &&
@@ -358,7 +359,7 @@ export function watchHost(win, onContext) {
         const social = isSocialNavigation(target);
         const library = isLibraryNavigation(target, viewerUsername);
         if (target.origin !== hostOrigin || target.username || target.password ||
-            (!gallery && !models && !postFeed && !bountySearch && !challengeFeed && !crucibleDetail && !crucibleFeed && !leaderboard && !commerce &&
+            (!gallery && !models && !license && !postFeed && !bountySearch && !challengeFeed && !crucibleDetail && !crucibleFeed && !leaderboard && !commerce &&
               !directory && !opportunity && !social && !library && !detail.test(target.pathname) && !listing.test(target.pathname))) return;
         win.parent.postMessage({
           type: 'NAVIGATE',

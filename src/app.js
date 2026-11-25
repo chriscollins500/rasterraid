@@ -7,6 +7,7 @@ import { discover, hashLookupNote, readModelPage, readRecordedVersions } from '.
 import { showModelHandoff } from './model-handoff.js';
 import { configureFilterReview } from './filter-review.js';
 import { catalogSearchText, civitaiDownloadReference, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelFilterValues } from './model-access.mjs';
+import { modelUseLabel } from './model-usage.mjs';
 import { readNativeModelSearch } from './native-model-search.mjs';
 import { suggestedCatalogSearch } from './search-intent.mjs';
 import { isGalleryScope, isVisualGalleryScope, readGalleryPage, readNativeGallerySearch, tagRecord } from './gallery.mjs';
@@ -905,9 +906,11 @@ function renderSearch(result, filters, current, phase = 'complete') {
   }
   const selectedFilters = [filters.category, filters.modelAuthor && 'By @' + filters.modelAuthor, modelFilterValues(filters.baseModel).join(' or '),
     modelFilterValues(filters.resourceType).map(modelTypeLabel).join(' or '), filters.fileFormat,
-    modelDownloadFilter(filters.downloadAccess)?.label, filters.supportsGeneration === 'true' && 'Supports Civitai generation'].filter(Boolean);
+    modelDownloadFilter(filters.downloadAccess)?.label, modelFilterValues(filters.creatorUsage).map(modelUseLabel).join(' and '),
+    filters.supportsGeneration === 'true' && 'Supports Civitai generation'].filter(Boolean);
   if (selectedFilters.length) parts.push('Model filters · ' + selectedFilters.join(' · '));
   if (result.nativeModelExclusions) parts.push('Word exclusions apply in RasterRaid.');
+  if (result.nativeModelUsage) parts.push('Creator usage checks apply in RasterRaid.');
   if (catalogFailure && !pause) parts.push('Some Civitai sources could not be checked.');
   byId('result-note').textContent = parts.join(' ');
   filterReview.show(search);
@@ -1706,8 +1709,10 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
   });
   if (changedFilter) {
     byId('search-filters').open = true;
-    const value = changedFilter[1];
-    searchStatus.textContent = (imported ? 'The Civitai filter “' : 'The saved filter “') + (Array.isArray(value) ? value.join(' or ') : value) +
+    const [name, value] = changedFilter;
+    const label = name === 'creatorUsage' ? modelFilterValues(value).map(modelUseLabel).join(' and ')
+      : Array.isArray(value) ? value.join(' or ') : value;
+    searchStatus.textContent = (imported ? 'The Civitai filter “' : 'The saved filter “') + label +
       '” is unavailable. Review your filters before searching.';
     return;
   }

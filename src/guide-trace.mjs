@@ -1,5 +1,6 @@
 import { numericId } from './catalog.mjs';
 import { modelChoiceKey, modelCreatorName, modelFilterValues } from './model-access.mjs';
+import { matchesModelUse } from './model-usage.mjs';
 
 const guideLimit = 2;
 const referenceReads = 4;
@@ -23,6 +24,7 @@ function matchReference(result, reference, origin, modelFilters) {
       (!types.length || types.includes(modelChoiceKey(candidate.type))) &&
       (!modelFilters.modelAuthor || author && author === modelChoiceKey(candidate.creator)) &&
       (!modelFilters.fileFormat || candidate.formats?.includes(modelFilters.fileFormat)) &&
+      matchesModelUse(candidate.usage, modelFilterValues(modelFilters.creatorUsage)) &&
       (modelFilters.supportsGeneration !== 'true' || candidate.generationListed === true) &&
       candidate.link === new URL('/models/' + reference.id + '?modelVersionId=' + candidate.id, origin).href);
     return model ? { link: model.link, result: { candidates: [model], related: {} } } : null;
