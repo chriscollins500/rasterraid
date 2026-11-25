@@ -1083,7 +1083,7 @@ export async function readRecordedVersions(context, plan, filters, options = {})
     unavailable, filtered, unknownFit, ambiguous, unconfirmedClaims, checked: records.length, ...(matchCards && { matchCards }) };
 }
 
-export async function discover(context, filters, { signal, fetcher, onPhase = () => {}, onRanked, preferences, catalogOnly = false,
+export async function discover(context, filters, { signal, fetcher, onPhase = () => {}, onRanked, onExactModel, preferences, catalogOnly = false,
   rankModelEvidence = true, focusModelBrief = true, visualCrop, visualBrief, includePublishedSetup = false } = {}) {
   const { origin } = context;
   const requestedScope = filters.scope || 'all';
@@ -1177,19 +1177,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   if (target.kind === 'text') {
     const modelSearch = modelPageScopes.has(scope);
     const intent = target.value ? (modelSearch && !ordered && focusModelBrief ? modelQueryVariants(target.value) : queryVariants(target.value)) : [''];
-    const recovery = scope !== 'creators' ? await recoveryQueries(target.value, signal) : [];
-    const spelling = recovery.find(({ label }) => label === spellingLabel);
-    const seenQueries = new Set();
-    const variants = [
-      { query: intent[0] ?? target.value, label: literalLabel },
-      ...recovery.filter(plan => plan !== spelling),
-      ...intent.slice(1).map((query, index) => ({ query, label: 'Query expansion ' + (index + 1) })),
-    ].filter(({ query }) => {
-      const key = query.normalize('NFKC').toLowerCase();
-      if (seenQueries.has(key)) return false;
-      seenQueries.add(key);
-      return true;
-    }).slice(0, 3);
+    const literal = { query: intent[0] ?? target.value, label: literalLabel };
     const rail = advanced || ordered && commercialUse ? CATALOG.models : routeForModels;
     const retrieve = plan => retrieveModels(plan, rail, {
       ...(rail === CATALOG.models ? siteFilters : common), query: plan.query, limit: access ? 24 : filters.fileFormat ? 20 : 10,
@@ -1202,28 +1190,59 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
         lists.push(...sources);
       }
     };
-    const lookup = modelSearch ? Promise.all(variants.map(retrieve)) : [];
-    const siteUsage = modelSearch && commercialUse && rail === CATALOG.blockModels
-      ? retrieveModels({ label: 'Site creator usage matches', query: variants[0].query }, CATALOG.models, {
-        ...siteFilters, query: variants[0].query, limit: 16,
-      }) : null;
-    const relatedQuery = words(target.value).length > 3 ? intent[1] ?? target.value : target.value;
-    relatedFallback = recovery.find(({ query }) => foldSearchText(query) !== foldSearchText(relatedQuery))?.query;
-    // Tags can affect model ranking. The other Site result groups can finish
-    // independently while exact-version pictures and details load.
-    if (scope === 'all' && target.value) {
-      const broad = !catalogOnly && !advanced && !ordered && !modelFilterValues(filters.creatorUsage).length &&
-        !common.baseModels && !common.types && !common.supportsGeneration && !filters.fileFormat && !filters.exclude &&
-        !protectedReference(target.value) && terms(target.value).length > 0;
-      pendingRelated = Promise.allSettled([
-        searchSite(read, origin, relatedQuery, scope, ceiling, relatedFallback, { includeTags: false }),
-      ]);
-      if (broad) pendingQuick = Promise.allSettled([readQuickCatalog(context, target.value, { signal, fetcher })]);
+    const allowExactTitle = onExactModel && target.value && scope !== 'pictures' && !catalogOnly && !ordered &&
+      rail === CATALOG.blockModels && !preferences?.enabled && !modelFilterValues(filters.creatorUsage).length;
+    const literalRead = modelSearch ? retrieve(literal).then(source => {
+      signal?.throwIfAborted();
+      if (!allowExactTitle) return source;
+      const [match] = rankVersions([source], target.value, filters, 1);
+      if (match?.nameMatch === 2) {
+        onExactModel({ target, exactTitleReady: true, candidates: modelCards([match], origin, ceiling), shortlisted: [],
+          related: {}, flows: flows.slice(), primaryCount: source.models.length });
+      }
+      return source;
+    }) : null;
+
+    async function searchAlternates() {
+      const recovery = scope !== 'creators' ? await recoveryQueries(target.value, signal) : [];
+      signal?.throwIfAborted();
+      const spelling = recovery.find(({ label }) => label === spellingLabel);
+      const seenQueries = new Set([literal.query.normalize('NFKC').toLowerCase()]);
+      const variants = [
+        ...recovery.filter(plan => plan !== spelling),
+        ...intent.slice(1).map((query, index) => ({ query, label: 'Query expansion ' + (index + 1) })),
+      ].filter(({ query }) => {
+        const key = query.normalize('NFKC').toLowerCase();
+        if (seenQueries.has(key)) return false;
+        seenQueries.add(key);
+        return true;
+      }).slice(0, 2);
+      const expanded = modelSearch ? Promise.all(variants.map(retrieve)) : [];
+      const siteUsage = modelSearch && commercialUse && rail === CATALOG.blockModels
+        ? retrieveModels({ label: 'Site creator usage matches', query: literal.query }, CATALOG.models, {
+          ...siteFilters, query: literal.query, limit: 16,
+        }) : null;
+      const relatedQuery = words(target.value).length > 3 ? intent[1] ?? target.value : target.value;
+      relatedFallback = recovery.find(({ query }) => foldSearchText(query) !== foldSearchText(relatedQuery))?.query;
+      // Tags can affect model ranking. The other Site result groups can finish
+      // independently while exact-version pictures and details load.
+      if (scope === 'all' && target.value) {
+        const broad = !catalogOnly && !advanced && !ordered && !modelFilterValues(filters.creatorUsage).length &&
+          !common.baseModels && !common.types && !common.supportsGeneration && !filters.fileFormat && !filters.exclude &&
+          !protectedReference(target.value) && terms(target.value).length > 0;
+        pendingRelated = Promise.allSettled([
+          searchSite(read, origin, relatedQuery, scope, ceiling, relatedFallback, { includeTags: false }),
+        ]);
+        if (broad) pendingQuick = Promise.allSettled([readQuickCatalog(context, target.value, { signal, fetcher })]);
+      }
+      const siteSearch = target.value || !modelSearch
+        ? searchSite(read, origin, relatedQuery, modelSearch ? 'tags' : scope, ceiling, relatedFallback)
+        : {};
+      const [more, extra, usage] = await Promise.all([expanded, siteSearch, siteUsage]);
+      return { more, extra, usage, spelling, seenQueries, alternate: variants[0]?.query };
     }
-    const siteSearch = target.value || !modelSearch
-      ? searchSite(read, origin, relatedQuery, modelSearch ? 'tags' : scope, ceiling, relatedFallback)
-      : {};
-    const [primary, extra, usage] = await Promise.all([lookup, siteSearch, siteUsage]);
+    const [first, { more, extra, usage, spelling, seenQueries, alternate }] = await Promise.all([literalRead, searchAlternates()]);
+    const primary = first ? [first, ...more] : [];
     await addModelLists(primary);
     if (usage) lists.push(...await confirmedLists([usage], target.value));
     if (modelSearch && spelling) {
@@ -1248,7 +1267,7 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
       if (exactTags.length) lists.push({ label: 'Catalog tag matches', models: await tagModels(exactTags[0].tag) });
     }
     if (rail === CATALOG.blockModels && modelSearch && !usage && !lists.some(list => list.models.length) && !rateLimits.has('app')) {
-      const fallback = { label: 'Site name matches', query: variants[1]?.query ?? variants[0].query };
+      const fallback = { label: 'Site name matches', query: alternate ?? literal.query };
       const source = await retrieveModels(fallback, CATALOG.models, { ...siteFilters, query: fallback.query, limit: 12 });
       lists.push(...await confirmedLists([source], target.value));
     }
