@@ -3,19 +3,19 @@ import { labelKey } from './text-assist.mjs';
 
 const grammar = [
   { opening: /^(?:find(?: me)?|show(?: me)?|search for|look for)\s+(?:(?:some|the)\s+)?/iu,
-    subject: /\s+for\s+/iu, either: /\s+or\s+/iu, free: /^(?:free)\s+|\s+free$/iu, general: ['model', 'models'],
+    subject: /\s+for\s+/iu, either: /\s+or\s+/iu, free: /^free$/iu, general: ['model', 'models'],
     author: /\s+by\s+@([\p{L}\p{N}_-]{2,80})$/iu,
     format: /\s+(?:in(?: the)?(?: format)?|as)\s+/giu,
     exclude: /\s+without\s+(?:"([^"\r\n,]{1,80})"|([\p{L}\p{N}_-]{1,40}))$/iu,
     generation: /\s+with\s+Civitai generation$/iu },
   { opening: /^(?:buscar|encuentra|muestra|mu[eé]strame)\s+(?:(?:los|las)\s+)?/iu,
-    subject: /\s+para\s+/iu, either: /\s+o\s+/iu, free: /^(?:gratis|gratuitos?|gratuitas?)\s+|\s+(?:gratis|gratuitos?|gratuitas?)$/iu,
+    subject: /\s+para\s+/iu, either: /\s+o\s+/iu, free: /^(?:gratis|gratuitos?|gratuitas?)$/iu,
     general: ['modelo', 'modelos'], author: /\s+(?:de|por)\s+@([\p{L}\p{N}_-]{2,80})$/iu,
     format: /\s+en(?:\s+formato)?\s+/giu,
     exclude: /\s+sin\s+(?:"([^"\r\n,]{1,80})"|([\p{L}\p{N}_-]{1,40}))$/iu,
     generation: /\s+con generaci[oó]n (?:de|en) Civitai$/iu },
   { opening: /^(?:trouver|trouve|cherche(?:r)?|montre)\s+(?:(?:des|les)\s+)?/iu,
-    subject: /\s+pour\s+/iu, either: /\s+ou\s+/iu, free: /^(?:gratuits?|gratuites?)\s+|\s+(?:gratuits?|gratuites?)$/iu,
+    subject: /\s+pour\s+/iu, either: /\s+ou\s+/iu, free: /^(?:gratuits?|gratuites?)$/iu,
     general: ['modèle', 'modèles'], author: /\s+par\s+@([\p{L}\p{N}_-]{2,80})$/iu,
     format: /\s+au format\s+/giu,
     exclude: /\s+sans\s+(?:"([^"\r\n,]{1,80})"|([\p{L}\p{N}_-]{1,40}))$/iu,
@@ -72,7 +72,11 @@ function group(value, resolve, separator) {
 }
 
 function header(selector, locale, base, type) {
-  const words = selector.replace(locale.free, '').trim().split(/\s+/u);
+  const words = selector.split(/\s+/u);
+  const startsFree = locale.free.test(words[0]);
+  const endsFree = locale.free.test(words.at(-1));
+  if (startsFree) words.shift();
+  else if (endsFree) words.pop();
   if (!words[0] || words.length > 18) return null;
   const general = locale.general.map(labelKey);
   const types = value => general.includes(labelKey(value)) ? [] : group(value, type, locale.either);
@@ -81,7 +85,7 @@ function header(selector, locale, base, type) {
     if (!bases || !kind) return;
     const filters = { ...(bases.length && { baseModel: modelFilterParam(bases) }),
       ...(kind.length && { resourceType: modelFilterParam(kind) }),
-      ...(locale.free.test(selector) && { downloadAccess: 'free' }) };
+      ...((startsFree || endsFree) && { downloadAccess: 'free' }) };
     interpretations.set(JSON.stringify(filters), filters);
   }
   add([], types(words.join(' ')));

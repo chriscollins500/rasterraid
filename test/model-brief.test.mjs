@@ -24,6 +24,7 @@ test('typed clauses preserve disjunction and the exact subject', () => {
   const tests = [
     ['Show free Pony or SDXL LoRAs for linocut without "anime portrait"', 'linocut',
       { baseModel: ['Pony', 'SDXL 1.0'], resourceType: 'LORA', downloadAccess: 'free', exclude: 'anime portrait' }],
+    ['Show LoRAs free for Free Fall', 'Free Fall', { resourceType: 'LORA', downloadAccess: 'free' }],
     ['Find SD 1.5 checkpoints or LoRAs for landscapes with Civitai generation', 'landscapes',
       { baseModel: 'SD 1.5', resourceType: ['Checkpoint', 'LORA'], supportsGeneration: 'true' }],
     ['Buscar modelos gratis para acuarela sin anime', 'acuarela', { downloadAccess: 'free', exclude: 'anime' }],
@@ -43,6 +44,7 @@ test('typed clauses preserve disjunction and the exact subject', () => {
 test('ambiguous, unsupported, and retired values stay out of typed filter plans', () => {
   for (const phrase of ['DreamShaper', 'Find SDXL LoRAs for', 'Find SDXL LoRAs for "paint', 'Find LoRAs for art by @',
     'Find Flux LoRAs for portraits', 'Find SDXL and Pony LoRAs for portraits', 'Find SDXL LoRAs for art in format TIFF',
+    'Find SDXL free LoRAs for portraits', 'Find free SDXL LoRAs free for portraits',
     'Find LoRAs for portraits without anime or line art', 'Find LoRAs for scenic prints by @creator by @other',
     'Find models for https://civitai.com/models/2744788', 'Find my downloads for SDXL',
     'Find SDXL LoRAs for mon\u202Eotone', 'Find LoRAs for portraits\nby @creator']) {
