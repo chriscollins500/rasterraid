@@ -107,6 +107,7 @@ export const previewFiles = Object.freeze({
   '/src/written-sound-view.js': 'text/javascript; charset=utf-8',
   '/src/spoken-artifacts.mjs': 'text/javascript; charset=utf-8',
   '/src/spoken-regions.mjs': 'text/javascript; charset=utf-8',
+  '/src/spoken-reading.mjs': 'text/javascript; charset=utf-8',
   '/src/ort-speech.mjs': 'text/javascript; charset=utf-8',
   '/src/spoken-worker.mjs': 'text/javascript; charset=utf-8',
   '/src/spoken-view.js': 'text/javascript; charset=utf-8',

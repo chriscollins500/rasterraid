@@ -5,7 +5,7 @@ import { sceneTime } from './scene-research.mjs';
 import { sampledFrameSteps } from './visual-research.mjs';
 import { validVisualDescription, visualTextClipLimit } from './visual-text-pack.mjs';
 import { sceneTranscriptStepName } from './workflow-transcripts.mjs';
-import { scoreWrittenSoundWindows, writtenSoundSeconds, writtenSoundTimingAgrees } from './written-sound.mjs';
+import { scoreWrittenSoundWindows, writtenSoundMinimum, writtenSoundRate, writtenSoundSeconds, writtenSoundTimingAgrees, writtenSoundWindow } from './written-sound.mjs';
 
 const videoTypes = /\.(?:mp4|webm)$/iu;
 
@@ -98,6 +98,21 @@ export function rankWrittenSceneSounds(evidence) {
   }));
 }
 
+export function writtenSceneSpeechSamples(frame, recording) {
+  if (!sampledMoment(frame) || !recording?.item || frame.clip.id !== recording.item.id || frame.clip.link !== recording.item.link ||
+      frame.stream !== recording.rendition || !(recording.samples instanceof Float32Array) ||
+      !writtenSoundTimingAgrees(recording.duration, frame.duration)) return null;
+  const { soundStart, soundEnd } = frame;
+  if (!Number.isFinite(soundStart) || !Number.isFinite(soundEnd) || soundStart < 0 || soundEnd > writtenSoundSeconds ||
+      frame.timestamp < soundStart || frame.timestamp >= soundEnd) return null;
+  const first = Math.round(soundStart * writtenSoundRate);
+  const last = Math.round(soundEnd * writtenSoundRate);
+  const length = last - first;
+  if (length < writtenSoundMinimum * writtenSoundRate || length > writtenSoundWindow * writtenSoundRate ||
+      last > recording.samples.length) return null;
+  return recording.samples.slice(first, last);
+}
+
 export function writtenSceneReview(frame, origin) {
   if (!sampledMoment(frame) || !SITE_ORIGINS.includes(origin)) return null;
   const { clip, timestamp, stream } = frame;
@@ -122,7 +137,7 @@ export function writtenSceneReview(frame, origin) {
   if (words) {
     const transcript = { $type: 'transcription', name: words, input: { mediaUrl: stream, returnTimeStamps: true } };
     plans.push({ ...plan, id: 'writtenscenewords', title: 'Describe the frame and check for speech',
-      work: 'Describes the frame and shows transcript excerpts timed entirely inside this sound sample. Civitai transcribes the full public clip.',
+      work: 'Describes the frame and transcribes the full public clip. See sample excerpts when Civitai supplies timing, or the full-clip transcript when times are unavailable.',
       body: { tier: 'paid', steps: [transcript, ...steps] },
       stepEvidence: { ...stepEvidence, [words]: { sourceLink: clip.link } } });
   }

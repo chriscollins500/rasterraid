@@ -1,7 +1,7 @@
 import { createSoundDecoder, decodeExactPublicSound } from './sound-analysis.mjs';
 import { soundCandidates, spokenClipResearch, spokenFrameAvailable } from './sound-research.mjs';
-import { requestSoundWorker, startSoundWorker } from './sound-worker-client.mjs';
-import { speechClipLimit, speechDownloadBytes, speechSecondsLimit } from './spoken-artifacts.mjs';
+import { speechClipLimit, speechSecondsLimit } from './spoken-artifacts.mjs';
+import { openSpokenReader } from './spoken-reading.mjs';
 import { speechRate } from './spoken-regions.mjs';
 import { subjectWasmAvailable } from './subject-artifacts.mjs';
 import { transcriptTokens } from './workflow-transcripts.mjs';
@@ -172,7 +172,7 @@ export function configureSpokenSearch(document, onReview) {
     checked = 0;
     clearPlayer();
     paint();
-    let worker;
+    let reader;
     try {
       const decode = createSoundDecoder(window);
       const budget = { remaining: 24 * 1024 * 1024 };
@@ -183,20 +183,14 @@ export function configureSpokenSearch(document, onReview) {
         try { audio = await decodeExactPublicSound(item.stream, decode, signal, budget); }
         catch { signal.throwIfAborted(); }
         if (audio) {
-          if (!worker) {
+          if (!reader) {
             status.textContent = 'Getting the English speech model…';
-            worker = startSoundWorker(window, new URL('./spoken-worker.mjs', import.meta.url));
-            const response = await requestSoundWorker(worker, { type: 'load' }, signal, 75_000, {
-              progress(update) {
-                if (active === run) status.textContent = 'Getting the speech model · ' + Math.floor(100 * update.loaded / speechDownloadBytes) + '%';
-              },
+            reader = await openSpokenReader(window, signal, percent => {
+              if (active === run) status.textContent = 'Getting the speech model · ' + percent + '%';
             });
-            if (response.type !== 'ready') throw new Error('The speech model could not read this audio.');
             status.textContent = 'Checking the recording for speech…';
           }
-          const pcm = samplesFrom(audio);
-          const { type, cues } = await requestSoundWorker(worker, { type: 'read', samples: pcm }, signal, 20_000, { transfer: [pcm.buffer] });
-          if (type !== 'cues' || !Array.isArray(cues)) throw new Error('The speech model could not read this audio.');
+          const cues = await reader.read(samplesFrom(audio));
           signal.throwIfAborted();
           rows.push({ item, cues });
         }
@@ -207,7 +201,7 @@ export function configureSpokenSearch(document, onReview) {
       if (active === run && !signal.aborted) status.textContent = error.message;
       if (!signal.aborted) return;
     } finally {
-      worker?.terminate();
+      reader?.close();
       if (active === run) {
         const focused = document.activeElement === stop;
         active = null;

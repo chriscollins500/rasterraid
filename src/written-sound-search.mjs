@@ -10,7 +10,7 @@ export function supportsWrittenSound(window) {
     typeof window.DecompressionStream === 'function' && Boolean(window.crypto?.subtle) && subjectWasmAvailable();
 }
 
-export async function readWrittenSounds(window, clips, brief, { signal, onProgress, maximumDuration = Infinity }) {
+export async function readWrittenSounds(window, clips, brief, { signal, onProgress, maximumDuration = Infinity, retainSamples = false }) {
   const recordings = [];
   let decoded = 0;
   let checked = 0;
@@ -46,14 +46,15 @@ export async function readWrittenSounds(window, clips, brief, { signal, onProgre
         if (opened.type !== 'ready') throw new Error('The sound model is unavailable. Try again.');
       }
       onProgress('Checking the sound in clip ' + (index + 1) + ' of ' + clips.length + '…');
-      const reply = await requestSoundWorker(worker, { type: 'read', samples }, signal, 30_000, { transfer: [samples.buffer] });
+      const reply = await requestSoundWorker(worker, { type: 'read', samples, retainSamples }, signal, 30_000, { transfer: [samples.buffer] });
       signal.throwIfAborted();
       if (reply.type !== 'checked' || !validWrittenSoundWindows(reply.windows, brief, sampleLength)) {
         throw new Error('Sound matching stopped while reading a clip.');
       }
       if (!reply.windows.length) silent++;
       checked += reply.windows.length;
-      recordings.push({ item, rendition: preview.stream, duration, checked: reply.windows });
+      const retained = retainSamples && reply.samples instanceof Float32Array && reply.samples.length === sampleLength ? reply.samples : null;
+      recordings.push({ item, rendition: preview.stream, duration, checked: reply.windows, ...(retained && { samples: retained }) });
     }
   } catch (error) {
     if (!signal.aborted) {
