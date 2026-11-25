@@ -4,6 +4,7 @@ import { createWorkflowSimulationClient } from '../mock/client.mjs';
 import { createWorkflowSimulation } from '../mock/workflows.mjs';
 import { appEstimateBody, expandedQuoteOptions } from '../src/quotes.mjs';
 import { spokenClipResearch } from '../src/sound-research.mjs';
+import { speechArtifacts } from '../src/spoken-artifacts.mjs';
 import { speechRate, spokenRegions } from '../src/spoken-regions.mjs';
 import { spokenWordHits } from '../src/spoken-view.js';
 import { createWorkflowSession } from '../src/workflow-session.mjs';
@@ -56,7 +57,8 @@ test('only trusted dedicated-worker events can start a speech model download', a
   }
   assert.equal(downloads.mock.callCount(), 0);
   await listener(direct);
-  assert.equal(downloads.mock.callCount(), 4);
+  assert.deepEqual(downloads.mock.calls.map(call => call.arguments[0]).sort(),
+    Object.values(speechArtifacts).map(file => file.url).sort());
 });
 
 const origin = 'https://civitai.com';
