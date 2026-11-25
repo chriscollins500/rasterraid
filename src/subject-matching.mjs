@@ -123,10 +123,18 @@ function matchInWorker(worker, prepared, signal, onProgress) {
         for (const row of rows) row.rgba.fill(0);
         return;
       }
+      let source;
       try {
         ids = new Set(pictures.sample.map(row => row.id));
-        worker.postMessage(pictures, rows.map(row => row.rgba.buffer));
+        const transfers = rows.map(row => row.rgba.buffer);
+        if (pictures.modelPack) {
+          // Open the file in the frame that owns it. WebKit cannot read a Blob cloned into this worker.
+          source = pictures.modelPack.stream();
+          transfers.push(source);
+        }
+        worker.postMessage({ ...pictures, modelPack: source }, transfers);
       } catch {
+        if (source && !source.locked) void source.cancel().catch(() => {});
         for (const row of rows) if (row.rgba.byteLength) row.rgba.fill(0);
         failed();
       }
@@ -181,6 +189,9 @@ export function createSubjectMatcher(document) {
           : references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
             !references.some(row => row.polarity === 'prefer'))) {
       throw new Error('Choose a subject and a bounded sample.');
+    }
+    if (visual && modelPack != null && (!(modelPack instanceof Blob) || modelPack.size !== visualPackBytes)) {
+      throw new DOMException('The visual model pack could not be verified or loaded.', 'NotReadableError');
     }
     const attempt = active = new AbortController();
     const deadline = AbortSignal.any([signal, attempt.signal, AbortSignal.timeout(visual ? 120_000 : 85_000)]);

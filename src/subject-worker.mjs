@@ -117,7 +117,7 @@ function validateComparison(data) {
   const { description, references, sample, modelPack } = data ?? {};
   const visual = description !== undefined;
   const validReference = visual ? validVisualDescription(description) && references?.length === 0 &&
-      (modelPack == null || modelPack instanceof Blob && modelPack.size === visualPackBytes)
+      (modelPack == null || modelPack instanceof ReadableStream)
     : references?.some?.(row => row?.polarity === 'prefer') && references.length <= subjectReferenceLimit &&
       references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity));
   if (!Array.isArray(references) || !validReference ||
@@ -203,6 +203,7 @@ self.addEventListener('message', async event => {
   } catch {
     reply = { phase: 'failed' };
   } finally {
+    if (data?.modelPack instanceof ReadableStream && !data.modelPack.locked) void data.modelPack.cancel().catch(() => {});
     for (const rows of [data?.references, data?.sample]) if (Array.isArray(rows)) {
       for (const row of rows) if (row?.rgba instanceof Uint8ClampedArray) row.rgba.fill(0);
     }

@@ -17,10 +17,9 @@ async function downloadModelPack() {
 }
 
 export async function readVisualTextModel(pack, onProgress) {
-  if (pack && (!(pack instanceof Blob) || pack.size !== visualPackBytes)) throw new Error('Unexpected visual model pack.');
   if (pack) onProgress('model-check');
   else onProgress('model-download', 0);
-  const source = pack ? pack.stream() : await downloadModelPack();
+  const source = pack ?? await downloadModelPack();
   return unpackModel(source, visualPackMagic, visualPackParts, pack ? undefined : loaded => onProgress('model-download', loaded));
 }
 
