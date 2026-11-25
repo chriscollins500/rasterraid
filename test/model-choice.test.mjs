@@ -75,6 +75,8 @@ test('same-file ranking abstains for changed license, incomplete provenance, or 
   assert.deepEqual(versions(rankDistinctModelFiles([lead, repeat, choice], 2)), [1, 3, 2]);
   for (const different of [
     { nameMatch: 2 }, { base: 'Flux.1 D' }, { version: 'v1.1' }, { downloadAccess: 'paid' },
+    { files: [{ fileType: 'Model', sha256: hashes[5] }] },
+    { files: [...repeat.files, { fileType: 'VAE', sha256: hashes[2] }] }, { creator: 'OtherCreator' },
     { completeFileHashes: false }, { usage: { creditOptional: false, commercial: ['Image', 'Rent'] } },
     { generationListed: false }, { publiclyListed: false },
   ]) {
