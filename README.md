@@ -52,4 +52,25 @@ node site/build.mjs
 node site/build.mjs --check
 ```
 
+### Visual model pack
+
+**Match by appearance** in Gallery images loads the signed release’s compact text weights on demand. The browser verifies each part of the pack before running the comparison. A viewer can also select the pack from the GitHub release. The model is adapted from Google’s SigLIP 2 Base Patch16-224 and the pinned ONNX Community Q4 export. RasterRaid separates the token table, quantizes its ordinary rows to 4 bits, and preserves 64 special rows at full precision. [Model and Apache 2.0 license](https://huggingface.co/google/siglip2-base-patch16-224) · [Pinned ONNX source](https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/tree/ba1f3b0843f24bc5417d38e19c37b287d719b2f4)
+
+Use Node 26.13.0. Place the verified parts named in `src/visual-text-pack.mjs` in `.tmp/visual-model-parts/`. The packaging command writes `.tmp/rasterraid-visual-model-v1.rrvision`. [Visual pack release](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.8)
+
+```sh
+node scripts/package-visual-model.mjs
+```
+
+### Stage both model packs
+
+**Find a sound by description** loads the optional CLAP2 XXS audio and text pack. The 0.0.11 release includes its SHA-256 and license. [Upstream model](https://huggingface.co/laion/clap2-xxs-audioxl-s1B/tree/8ffad49f4134b11df3d80c21aceb556f3dfcc511) · [Audio pack release](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.11)
+
+Put both release files in `.tmp/rasterraid-model-release/`. Leave `.tmp/rasterraid-pages/` available for a fresh run. The staging command checks both digests and copies the generated site and verified packs.
+
+```sh
+node scripts/stage-pages.mjs
+```
+
+
 [Contributing](CONTRIBUTING.md) · [Report a vulnerability](SECURITY.md) · [Get help](https://chriscollins500.github.io/rasterraid/support/)
