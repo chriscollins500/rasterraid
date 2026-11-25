@@ -25,7 +25,7 @@ async function readPreview(cover, signal) {
   return response.blob();
 }
 
-async function previewPixels(document, { id, cover, file, region }, signal, visual) {
+async function previewPixels(document, { id, cover, file, region }, signal, visual, sceneReference = false) {
   signal.throwIfAborted();
   if (file && !(file instanceof Blob)) throw new Error('The local reference could not be read.');
   const previewSignal = file ? signal : AbortSignal.any([signal, AbortSignal.timeout(5500)]);
@@ -46,13 +46,18 @@ async function previewPixels(document, { id, cover, file, region }, signal, visu
     previewSignal.throwIfAborted();
     const canvas = document.createElement('canvas');
     if (visual) {
-      const { width, height } = image;
-      if (!width || !height || width * height > 4_000_000) throw new Error('The preview is too large to compare.');
+      const original = { width: image.width, height: image.height };
+      if (!original.width || !original.height || !sceneReference && original.width * original.height > 4_000_000) {
+        throw new Error('The preview is too large to compare.');
+      }
+      const scale = sceneReference ? Math.min(1, 1600 / Math.max(original.width, original.height)) : 1;
+      const width = Math.max(1, Math.round(original.width * scale));
+      const height = Math.max(1, Math.round(original.height * scale));
       canvas.width = width;
       canvas.height = height;
       const drawing = canvas.getContext('2d', { alpha: false });
       if (!drawing) throw new Error('This browser cannot compare pictures locally.');
-      drawing.drawImage(image, 0, 0);
+      drawing.drawImage(image, 0, 0, width, height);
       return { id, rgba: resizePreview(drawing.getImageData(0, 0, width, height).data, width, height, subjectSide) };
     }
     canvas.width = canvas.height = subjectSide;
@@ -151,27 +156,27 @@ function matchInWorker(worker, prepared, signal, onProgress, textPreparation) {
   });
 }
 
-async function preparePictures(document, references, sample, signal, description) {
+async function preparePictures(document, references, sample, signal, description, clipFrames = false) {
   const visual = description !== undefined;
   const pictures = await Promise.allSettled([
-    ...references.map(item => previewPixels(document, item, signal, false)),
-    ...sample.map(item => previewPixels(document, item, signal, visual)),
+    ...references.map(item => previewPixels(document, item, signal, clipFrames && !item.region, clipFrames)),
+    ...(clipFrames ? sample : sample.map(item => previewPixels(document, item, signal, visual))),
   ]);
   const anchors = pictures.slice(0, references.length);
   const candidates = pictures.slice(references.length).flatMap(row => row.status === 'fulfilled' ? [row.value] : []);
   try {
     signal.throwIfAborted();
-    if (anchors.some(row => row.status === 'rejected')) throw new Error('A selected reference preview could not be read.');
-    if (candidates.length < (visual ? 2 : 1)) throw new Error('The related previews could not be read.');
+    if (anchors.some(row => row.status === 'rejected')) throw new DOMException('A selected reference preview could not be read.', 'DataError');
+    if (candidates.length < (visual && !clipFrames ? 2 : 1)) throw new Error('The related previews could not be read.');
     return { references: anchors.map(({ value }, index) => ({ rgba: value.rgba, polarity: references[index].polarity })),
-      sample: candidates, ...(visual && { description }) };
+      sample: candidates, ...(visual && { description }), ...(clipFrames && { clipFrames }) };
   } catch (error) {
     for (const row of pictures) row.value?.rgba.fill(0);
     throw error;
   }
 }
 
-async function prepareClipPictures(document, clips, signal, description, onProgress, soundRecordings) {
+async function prepareClipPictures(document, references, clips, signal, description, onProgress, soundRecordings) {
   const frames = [];
   const sample = [];
   const parallelClips = 2;
@@ -200,10 +205,11 @@ async function prepareClipPictures(document, clips, signal, description, onProgr
     if (soundRecordings) throw new Error('No frames were available for the checked sound excerpts.');
     const posterClips = clips.filter(clip => clip.cover).map(clip => ({ ...clip, kind: 'Video poster' }));
     if (posterClips.length < 2) throw new Error('The loaded clips could not be sampled.');
-    const comparison = await preparePictures(document, [], posterClips, signal, description);
+    const comparison = await preparePictures(document, references, posterClips, signal, description);
     return { comparison, posterClips };
   }
-  return { frames, comparison: { references: [], sample, description, clipFrames: true } };
+  const comparison = await preparePictures(document, references, sample, signal, description, true);
+  return { frames, comparison };
 }
 
 export function createSubjectMatcher(document) {
@@ -232,7 +238,6 @@ export function createSubjectMatcher(document) {
     if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual && !clipFrames ? 2 : 1) ||
         sample.length > (clipFrames ? visualTextClipLimit : withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
         soundRecordings && (!clipFrames || !(soundRecordings instanceof Map) || sample.length > writtenSoundClipLimit) ||
-        clipFrames && (!visual || withReferences) ||
         visual && !validVisualDescription(description) ||
         withReferences && (references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
           !references.some(row => row.polarity === 'prefer'))) {
@@ -248,7 +253,7 @@ export function createSubjectMatcher(document) {
       deadline.throwIfAborted();
       worker ??= startWorker();
       const prepared = clipFrames
-        ? prepareClipPictures(document, sample, deadline, description, onProgress, soundRecordings)
+        ? prepareClipPictures(document, references, sample, deadline, description, onProgress, soundRecordings)
         : preparePictures(document, references, sample, deadline, description).then(comparison => ({ comparison }));
       if (soundRecordings) {
         await prepared;

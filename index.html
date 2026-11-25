@@ -576,9 +576,16 @@
             <h3 id="gallery-appearance-title">Match by appearance</h3>
           </div>
           <label class="written-scene-query" id="written-scene-query-label" for="written-scene-query" hidden>
-            Describe the scene
+            <span id="written-scene-query-prompt">Describe the scene</span>
             <input id="written-scene-query" type="search" maxlength="160" placeholder="A motorcycle riding away on a wet road" spellcheck="true" autocomplete="off">
           </label>
+          <details id="scene-picture-choice" hidden>
+            <summary>Use a reference picture</summary>
+            <label class="written-scene-query" for="scene-picture-file">Picture on this device
+              <input id="scene-picture-file" type="file" accept="image/avif,image/jpeg,image/png,image/webp">
+            </label>
+            <button id="scene-picture-remove" class="text-button" type="button" hidden>Remove picture</button>
+          </details>
           <label class="written-scene-query" id="written-scene-sound-label" for="written-scene-sound" hidden>
             Sound in the same moment (optional)
             <input id="written-scene-sound" type="search" maxlength="160" placeholder="Rain falling without thunder" spellcheck="true" autocomplete="off">

@@ -89,6 +89,27 @@ test('joined written cues favor the same interval and reject a different renditi
   assert.equal(writtenSceneReview({ ...ranked[0], soundEnd: 5 }, origin).plans.length, 1);
 });
 
+test('words refine the pictured subject in the same frame and preserve the chosen sound window', () => {
+  const separated = video(31);
+  const same = video(32);
+  const frames = [
+    { id: 1, clip: separated, stream: clipAnalysisUrl(separated.stream), timestamp: 2.5, duration: 10 },
+    { id: 2, clip: separated, stream: clipAnalysisUrl(separated.stream), timestamp: 7.5, duration: 10 },
+    { id: 3, clip: same, stream: clipAnalysisUrl(same.stream), timestamp: 7.5, duration: 10 },
+  ];
+  const matches = [{ id: 1, score: .99, textScore: .10 }, { id: 2, score: .10, textScore: .99 },
+    { id: 3, score: .85, textScore: .85 }];
+  assert.deepEqual(rankWrittenScenes({ frames, matches }).map(({ clip }) => clip.id), [32, 31]);
+  const recordings = [separated, same].map(item => ({ item, rendition: clipAnalysisUrl(item.stream), duration: 10,
+    checked: [{ start: 0, end: 5, scores: [.99] }, { start: 5, end: 10, scores: [.72] }] }));
+  const evidence = writtenSceneSoundEvidence({ frames, matches }, recordings, writtenSoundBrief('running water'));
+  assert.deepEqual(evidence.map(row => row.textScore), [.10, .99, .85]);
+  const ranked = rankWrittenSceneSounds(evidence);
+  assert.equal(ranked[0].clip.id, 32);
+  assert.equal(ranked[0].timestamp, 7.5);
+  assert.equal(ranked[0].soundStart, 5);
+});
+
 test('scene speech reads the selected audio interval from the same rendition', () => {
   const clip = video(24);
   const wave = new Float32Array(writtenSoundRate * 15);
