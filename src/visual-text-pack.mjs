@@ -1,4 +1,8 @@
 export const visualTextCandidateLimit = 8;
+export const visualTextClipLimit = 6;
+export const visualTextClipProbes = Object.freeze([.10, 7 / 30, 11 / 30, .50, 19 / 30, 23 / 30, .90]);
+export const visualTextFramesPerClip = 4;
+export const visualTextFrameLimit = visualTextClipLimit * visualTextFramesPerClip;
 export const visualTextLengthLimit = 160;
 export const visualPackName = 'rasterraid-visual-model-v1.rrvision';
 export const visualPackUrl = 'https://chriscollins500.github.io/rasterraid/models/' + visualPackName;

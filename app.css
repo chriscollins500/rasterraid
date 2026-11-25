@@ -485,6 +485,12 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .appearance-pack summary { color: var(--text); }
 .appearance-pack-fields { display: grid; justify-items: start; gap: 6px; margin-top: 8px; }
 .appearance-pack-fields input { min-width: 0; max-width: 100%; }
+.written-scene-query { display: grid; gap: 6px; max-width: 38rem; color: var(--text); }
+.written-scene-query input { min-width: 0; width: 100%; }
+.written-scene-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.subject-comparison .written-scene-matches { grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); }
+.subject-comparison #gallery-appearance-matches.written-scene-matches { max-width: 400px; }
+.subject-comparison .written-scene-matches li a { display: inline; border: 0; padding: 0; text-decoration: underline; overflow-wrap: anywhere; }
 .subject-reference-choice { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px; color: var(--text); }
 .subject-reference-choice select { min-width: 0; max-width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--control-border);
   border-radius: 7px; padding: 5px 8px; }

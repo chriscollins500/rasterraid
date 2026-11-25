@@ -2,7 +2,7 @@ import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectRefe
   subjectWasmAvailable } from './subject-artifacts.mjs';
 import { subjectScore } from './subject-score.mjs';
 import { sha256Hex, verifiedModelBytes } from './model-bytes.mjs';
-import { validVisualDescription, visualPackBytes, visualTextCandidateLimit } from './visual-text-pack.mjs';
+import { validVisualDescription, visualPackBytes, visualTextCandidateLimit, visualTextFrameLimit } from './visual-text-pack.mjs';
 
 const pixels = subjectSide * subjectSide;
 const dimensions = 768;
@@ -114,20 +114,20 @@ const validPixels = row => row?.rgba instanceof Uint8ClampedArray && row.rgba.le
 const cosine = (reference, values) => reference.reduce((sum, value, index) => sum + value * values[index], 0);
 
 function validateComparison(data) {
-  const { description, references, sample, modelPack } = data ?? {};
+  const { description, references, sample, modelPack, clipFrames = false } = data ?? {};
   const visual = description !== undefined;
   const withReferences = !visual || references?.length > 0;
-  if (!Array.isArray(references) ||
+  if (!Array.isArray(references) || typeof clipFrames !== 'boolean' || clipFrames && (!visual || withReferences) ||
       visual && (!validVisualDescription(description) || modelPack != null && !(modelPack instanceof ReadableStream)) ||
       withReferences && (references.length > subjectReferenceLimit || !references.some(row => row?.polarity === 'prefer') ||
         !references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity))) ||
-      !Array.isArray(sample) || sample.length < (visual ? 2 : 1) ||
-      sample.length > (withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
+      !Array.isArray(sample) || sample.length < (visual && !clipFrames ? 2 : 1) ||
+      sample.length > (clipFrames ? visualTextFrameLimit : withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
       !sample.every(row => validPixels(row) && Number.isSafeInteger(row.id) && row.id > 0) ||
       new Set(sample.map(row => row.id)).size !== sample.length) throw new Error('Invalid comparison inputs.');
 }
 
-async function compare({ description, references, sample }, runtime, textRuntime) {
+async function compare({ description, references, sample, clipFrames }, runtime, textRuntime) {
   const { provider } = runtime;
   const anchorCount = references.length + Number(description !== undefined);
   const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: anchorCount + sample.length });
@@ -148,7 +148,7 @@ async function compare({ description, references, sample }, runtime, textRuntime
     const matches = [];
     let reusedPreviews = 0;
     for (const { id, rgba } of sample) {
-      const { values, reused } = await previewVector(runtime, id, rgba);
+      const { values, reused } = await previewVector(runtime, clipFrames ? 'frame-' + id : id, rgba);
       const textScore = words && cosine(words, values);
       const score = references.length ? subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values))) : textScore;
       if (reused) reusedPreviews++;

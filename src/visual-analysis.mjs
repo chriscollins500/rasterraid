@@ -2,6 +2,7 @@ import { clipAnalysisUrl } from './catalog.mjs';
 import { soundMaximumSeconds, soundWindowSeconds, soundWindowStarts } from './sound-analysis.mjs';
 import { describeMotion, motionPlaneSize, motionSamplePositions } from './video-motion.mjs';
 import { proposePictureRegions, regionSignature, regionTable } from './visual-region-search.mjs';
+import { visualTextClipProbes, visualTextFramesPerClip } from './visual-text-pack.mjs';
 
 const size = 64;
 const cellGrid = 4;
@@ -439,6 +440,47 @@ async function samplePublicMedia(document, url, signal, maximumDuration, read) {
 export function samplePublicClip(document, url, signal, score, { alignSound = false } = {}) {
   return samplePublicMedia(document, url, signal, alignSound ? soundMaximumSeconds : 60,
     (video, end, stream) => sampleClipFrames(video, document, stream, end, score, alignSound));
+}
+
+export function sampleWrittenClip(document, url, signal) {
+  return samplePublicMedia(document, url, signal, 60, async (video, deadline, stream) => {
+    const frames = [];
+    const swatch = document.createElement('canvas');
+    swatch.width = swatch.height = 12;
+    const drawing = swatch.getContext('2d', { alpha: false });
+    if (!drawing) return frames;
+    try {
+      for (const [probe, fraction] of visualTextClipProbes.entries()) {
+        await seekFrame(video, video.duration * fraction, deadline);
+        const preview = clipPoster(video, document);
+        if (!preview) continue;
+        drawing.drawImage(preview, 0, 0, swatch.width, swatch.height);
+        const colors = drawing.getImageData(0, 0, swatch.width, swatch.height).data;
+        frames.push({ probe, preview, stream, timestamp: video.currentTime, duration: video.duration, colors });
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      if (!frames.length) throw error;
+    }
+    return selectWrittenClipFrames(frames).map(({ colors, ...frame }) => frame);
+  });
+}
+
+export function selectWrittenClipFrames(frames) {
+  if (frames.length <= visualTextFramesPerClip) return frames;
+  const middle = frames.find(frame => frame.probe === 3) ?? frames[Math.floor(frames.length / 2)];
+  const anchors = [frames[0], middle, frames.at(-1)];
+  let unusual;
+  let novelty = -1;
+  for (const frame of frames) {
+    if (anchors.includes(frame)) continue;
+    const distance = Math.min(...anchors.map(anchor => frame.colors.reduce((sum, color, i) => sum + Math.abs(color - anchor.colors[i]), 0)));
+    if (distance > novelty) {
+      unusual = frame;
+      novelty = distance;
+    }
+  }
+  return [...anchors, unusual].sort((first, last) => first.probe - last.probe);
 }
 
 async function sampleMotionWindows(video, document, signal, stream, withAppearance = false) {

@@ -574,13 +574,23 @@
         <section id="gallery-appearance" class="report-overview subject-comparison" aria-labelledby="gallery-appearance-title" hidden>
           <div class="report-heading">
             <h3 id="gallery-appearance-title">Match by appearance</h3>
+          </div>
+          <label class="written-scene-query" id="written-scene-query-label" for="written-scene-query" hidden>
+            Describe the scene
+            <input id="written-scene-query" type="search" maxlength="160" placeholder="A motorcycle riding away on a wet road" spellcheck="true" autocomplete="off">
+          </label>
+          <p id="gallery-appearance-help"></p>
+          <div class="written-scene-actions">
             <button class="chip" id="gallery-appearance-start" type="button" aria-describedby="gallery-appearance-help">Compare pictures</button>
             <button class="text-button" id="gallery-appearance-stop" type="button" hidden>Stop picture comparison</button>
           </div>
-          <p id="gallery-appearance-help"></p>
           <p id="gallery-appearance-status" role="status"></p>
           <progress id="gallery-appearance-progress" aria-label="On-device model download" value="0" hidden></progress>
           <ol id="gallery-appearance-matches" role="list" aria-label="Appearance match order"></ol>
+          <details id="written-scene-more" hidden>
+            <summary id="written-scene-more-label">More clips</summary>
+            <ol id="written-scene-extra" role="list" class="written-scene-matches" start="2" aria-label="Other sampled scenes"></ol>
+          </details>
           <details id="gallery-appearance-pack" class="appearance-pack">
             <summary>Use a saved model pack</summary>
             <div class="appearance-pack-fields">
