@@ -51,7 +51,7 @@ function suggestPictureComparison(items, versionId) {
 export function releasePictureComparisonText({ shared, different, unreported }) {
   return 'Both pictures record this exact release. Matching settings include ' + shared.join(', ') +
     '. Different values appear for ' + different.join(', ') + '.' +
-    (unreported.length ? ' One picture leaves ' + unreported.join(', ') + ' unreported.' : '') +
+    (unreported.length ? ' Only one side reports a comparable value for ' + unreported.join(', ') + '.' : '') +
     ' Published metadata can omit other settings.';
 }
 

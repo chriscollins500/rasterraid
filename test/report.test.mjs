@@ -77,6 +77,7 @@ test('a release suggests a stronger picture pair using the existing gallery read
     assert.doesNotMatch(JSON.stringify(comparison), /raw-picture-prompt-sentinel/u);
     const markdown = reportMarkdown(result.report);
     assert.match(markdown, /Pictures to compare[\s\S]+Different values appear for Seed[\s\S]+Picture #501[\s\S]+Picture #507/u);
+    assert.match(markdown, /Only one side reports a comparable value for CLIP skip/u);
     assert.doesNotMatch(markdown.split('### Pictures to compare')[1].split('\n## ')[0], /raw-picture-prompt-sentinel/u);
     assert.doesNotMatch(markdown, /Picture #509/u);
   }
