@@ -3,6 +3,8 @@ import { spokenRegions, speechRate } from './spoken-regions.mjs';
 const binary = new TextDecoder('utf-8', { fatal: true });
 const words = new TextDecoder('utf-8');
 const encoderStride = 384;
+const voiceFrame = 512;
+const voiceContext = 64;
 
 function tokenTable(bytes) {
   const table = [];
@@ -18,19 +20,59 @@ function tokenTable(bytes) {
 const ones = length => new BigInt64Array(length).fill(1n);
 const asText = (tokens, table) => tokens.map(token => words.decode(table[token], { stream: true })).join('') + words.decode();
 
-export async function ortSpeech(ort, { encoder, decoder, tokens }) {
+function hasVoice(scores, from, through) {
+  let active = 0;
+  const first = Math.floor(from / voiceFrame);
+  const last = Math.min(scores.length, Math.ceil(through / voiceFrame));
+  for (let index = first; index < last; index++) {
+    active = scores[index] >= .5 ? active + 1 : 0;
+    if (active * voiceFrame >= .25 * speechRate) return true;
+  }
+  return false;
+}
+
+async function voiceScores(ort, session, samples) {
+  const count = Math.ceil(samples.length / voiceFrame);
+  const width = voiceContext + voiceFrame;
+  const frames = new Float32Array(count * width);
+  for (let index = 0; index < count; index++) {
+    const start = index * voiceFrame - voiceContext;
+    frames.set(samples.subarray(Math.max(0, start), start + width), index * width + Math.max(0, -start));
+  }
+  const input = new ort.Tensor('float32', frames, [count, width]);
+  const state = new ort.Tensor('float32', new Float32Array(128), [1, 1, 128]);
+  try {
+    const { speech_probs: probabilities } = await session.run({ input, h: state, c: state }, ['speech_probs']);
+    try {
+      const values = await probabilities.getData();
+      if (values.length !== count || !values.every(score => Number.isFinite(score) && score >= 0 && score <= 1)) {
+        throw new Error('Unexpected speech detector output.');
+      }
+      return values.slice();
+    } finally { probabilities.dispose(); }
+  } finally { input.dispose(); state.dispose(); }
+}
+
+export async function ortSpeech(ort, { encoder, decoder, tokens, vad }) {
   const vocabulary = tokenTable(tokens);
   const config = { executionProviders: ['wasm'], graphOptimizationLevel: 'all' };
   const input = await ort.InferenceSession.create(encoder, config);
   let output;
-  try { output = await ort.InferenceSession.create(decoder, config); }
-  catch (error) { await input.release(); throw error; }
+  let detector;
+  try {
+    output = await ort.InferenceSession.create(decoder, config);
+    if (vad) detector = await ort.InferenceSession.create(vad, config);
+  } catch (error) {
+    await Promise.allSettled([input, output].filter(Boolean).map(session => session.release()));
+    throw error;
+  }
   const tensor = (type, data, shape) => new ort.Tensor(type, data, shape);
   const stateKeys = output.inputNames.filter(name => /^past_key_values\.\d+\.(?:encoder|decoder)\.(?:key|value)$/u.test(name));
   const decoderOutputs = ['logits', ...output.outputNames.filter(name => name.includes('.decoder.'))];
   const initial = tensor('float32', new Float32Array(0), [1, 8, 0, 36]);
   if (stateKeys.length !== 24 || decoderOutputs.length !== 13 || !input.outputNames.includes('last_hidden_state')) {
-    await Promise.allSettled([input.release(), output.release()]);
+    initial.dispose();
+    await Promise.allSettled([input, output, detector].filter(Boolean).map(session => session.release()));
     throw new Error('Unexpected speech model inputs or outputs.');
   }
 
@@ -79,12 +121,15 @@ export async function ortSpeech(ort, { encoder, decoder, tokens }) {
   return {
     async analyze(samples) {
       const result = [];
-      for (const { start, from, through } of spokenRegions(samples)) {
+      const regions = spokenRegions(samples);
+      const scores = detector && regions.length ? await voiceScores(ort, detector, samples) : null;
+      for (const { start, from, through } of regions) {
+        if (scores && !hasVoice(scores, from, through)) continue;
         const text = await decode(samples.subarray(from, through));
         if (text) result.push({ start: start / speechRate, end: through / speechRate, text });
       }
       return result;
     },
-    async close() { initial.dispose(); await Promise.all([input.release(), output.release()]); },
+    async close() { initial.dispose(); await Promise.all([input, output, detector].filter(Boolean).map(session => session.release())); },
   };
 }
