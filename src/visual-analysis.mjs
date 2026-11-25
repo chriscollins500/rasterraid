@@ -3,6 +3,7 @@ import { soundMaximumSeconds, soundWindowSeconds, soundWindowStarts } from './so
 import { describeMotion, motionPlaneSize, motionSamplePositions } from './video-motion.mjs';
 import { proposePictureRegions, regionSignature, regionTable } from './visual-region-search.mjs';
 import { visualTextClipProbes, visualTextFramesPerClip } from './visual-text-pack.mjs';
+import { writtenSoundSeconds, writtenSoundTimingAgrees, writtenSoundWindow } from './written-sound.mjs';
 
 const size = 64;
 const cellGrid = 4;
@@ -463,6 +464,32 @@ export function sampleWrittenClip(document, url, signal) {
       if (!frames.length) throw error;
     }
     return selectWrittenClipFrames(frames).map(({ colors, ...frame }) => frame);
+  });
+}
+
+export async function sampleWrittenSoundFrames(document, url, recording, signal) {
+  const preview = clipAnalysisUrl(url);
+  if (!preview || !recording || recording.rendition !== url && recording.rendition !== preview ||
+      !Array.isArray(recording.checked) || recording.checked.length > writtenSoundSeconds / writtenSoundWindow) return [];
+  const deadline = AbortSignal.any([signal, AbortSignal.timeout(8500)]);
+  return readClip(document, recording.rendition, deadline, 'metadata', 60, async (video, end, stream) => {
+    const duration = video.duration;
+    if (!writtenSoundTimingAgrees(recording.duration, duration)) return [];
+    const frames = [];
+    try {
+      for (const window of recording.checked) {
+        const timestamp = (window.start + window.end) / 2;
+        if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp >= Math.min(duration, writtenSoundSeconds)) continue;
+        await seekFrame(video, timestamp, end);
+        if (video.currentTime < window.start || video.currentTime >= window.end) continue;
+        const preview = clipPoster(video, document);
+        if (preview) frames.push({ preview, stream, timestamp: video.currentTime, duration });
+      }
+    } catch (error) {
+      signal.throwIfAborted();
+      if (!frames.length) throw error;
+    }
+    return frames;
   });
 }
 

@@ -8,6 +8,10 @@ export const writtenSoundBudget = 24 * 1024 * 1024;
 export const writtenSoundQueryLimit = 160;
 const audiblePeak = .0002;
 
+export function writtenSoundTimingAgrees(audioSeconds, videoSeconds) {
+  return Number.isFinite(audioSeconds) && Number.isFinite(videoSeconds) && Math.abs(audioSeconds - videoSeconds) <= .25;
+}
+
 function cleanCue(value) {
   return typeof value === 'string' ? value.trim().replace(/\s+/gu, ' ') : '';
 }
@@ -89,12 +93,16 @@ function combinedScores(windows, required) {
   });
 }
 
-export function rankWrittenSoundMatches(recordings, brief) {
+export function scoreWrittenSoundWindows(recordings, brief) {
   const windows = recordings.flatMap(({ item, rendition, checked }) => checked.map(window => ({ ...window, item, rendition })));
   if (!windows.length || !validWrittenSoundBrief(brief)) return [];
   const scores = brief.required.length === 1 && !brief.avoid.length
     ? windows.map(({ scores: values }) => values[0]) : combinedScores(windows, brief.required.length);
-  const order = windows.map((window, index) => ({ ...window, score: scores[index] })).sort((a, b) => b.score - a.score);
+  return windows.map((window, index) => ({ ...window, score: scores[index] }));
+}
+
+export function rankWrittenSoundMatches(recordings, brief) {
+  const order = scoreWrittenSoundWindows(recordings, brief).sort((a, b) => b.score - a.score);
   const unique = new Map();
   for (const match of order) if (!unique.has(match.item.link)) unique.set(match.item.link, match);
   return [...unique.values()];

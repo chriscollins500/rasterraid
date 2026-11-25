@@ -1,10 +1,6 @@
-import { createSoundDecoder, decodePublicSoundSource } from './sound-analysis.mjs';
 import { soundCandidates, spokenClipResearch } from './sound-research.mjs';
-import { requestSoundWorker, startSoundWorker } from './sound-worker-client.mjs';
-import { subjectWasmAvailable } from './subject-artifacts.mjs';
-import { audioDownloadBytes } from './written-sound-artifacts.mjs';
-import { hasAudibleSound, rankWrittenSoundMatches, validWrittenSoundWindows, writtenSoundBrief,
-  writtenSoundBudget, writtenSoundClipLimit, writtenSoundRate, writtenSoundSamples } from './written-sound.mjs';
+import { rankWrittenSoundMatches, writtenSoundBrief, writtenSoundClipLimit } from './written-sound.mjs';
+import { readWrittenSounds, supportsWrittenSound } from './written-sound-search.mjs';
 import { element, sourceLink } from './view.js';
 
 const clipTime = seconds => Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
@@ -25,9 +21,7 @@ export function configureWrittenSoundSearch(document, onReview) {
   const status = byId('written-sound-status');
   const matches = byId('written-sound-results');
   const media = byId('written-sound-player');
-  const supported = typeof window.Worker === 'function' &&
-    typeof (window.OfflineAudioContext ?? window.webkitOfflineAudioContext) === 'function' &&
-    typeof window.DecompressionStream === 'function' && Boolean(window.crypto?.subtle) && subjectWasmAvailable();
+  const supported = supportsWrittenSound(window);
   byId('written-sound-unavailable').hidden = supported;
   controls.hidden = !supported;
   const fields = [description, together, avoid];
@@ -136,75 +130,27 @@ export function configureWrittenSoundSearch(document, onReview) {
     const run = { controller: new AbortController(), clips: available };
     active = run;
     const { signal } = run.controller;
-    const recordings = [];
-    let decoded = 0;
-    let checked = 0;
-    let silent = 0;
-    let worker;
-    let failure;
     clearMatches();
     clearReview();
     updateControls();
-    try {
-      const decode = createSoundDecoder(window, writtenSoundRate);
-      const budget = { remaining: writtenSoundBudget };
-      for (const [index, item] of run.clips.entries()) {
-        signal.throwIfAborted();
-        status.textContent = 'Reading clip ' + (index + 1) + ' of ' + run.clips.length + '…';
-        let preview;
-        try { preview = await decodePublicSoundSource(item.stream, decode, signal, budget); }
-        catch { signal.throwIfAborted(); continue; }
-        decoded++;
-        const samples = writtenSoundSamples(preview.audio);
-        if (!samples || !hasAudibleSound(samples)) { silent++; continue; }
-        const sampleLength = samples.length;
-        if (!worker) {
-          status.textContent = 'Getting the sound model…';
-          worker = startSoundWorker(window, new URL('./written-sound-worker.mjs', import.meta.url));
-          const opened = await requestSoundWorker(worker, { type: 'load', brief: search }, signal, 90_000, {
-            progress(data) {
-              if (active === run && Number.isFinite(data.loaded) && data.loaded >= 0 && data.loaded <= audioDownloadBytes) {
-                status.textContent = 'Getting the sound model · ' + Math.floor(100 * data.loaded / audioDownloadBytes) + '%';
-              }
-            },
-          });
-          if (opened.type === 'length') throw new RangeError('Shorten each description and try again.');
-          if (opened.type !== 'ready') throw new Error('The sound model is unavailable. Try again.');
-        }
-        status.textContent = 'Checking the sound in clip ' + (index + 1) + ' of ' + run.clips.length + '…';
-        const reply = await requestSoundWorker(worker, { type: 'read', samples }, signal, 30_000, { transfer: [samples.buffer] });
-        signal.throwIfAborted();
-        if (reply.type !== 'checked' || !validWrittenSoundWindows(reply.windows, search, sampleLength)) {
-          throw new Error('Sound matching stopped while reading a clip.');
-        }
-        if (!reply.windows.length) silent++;
-        checked += reply.windows.length;
-        recordings.push({ item, rendition: preview.stream, checked: reply.windows });
-      }
-    } catch (error) {
-      if (!signal.aborted) {
-        failure = error instanceof RangeError ? error.message :
-          (worker && checked ? 'Sound matching stopped early.' : 'Sound matching is unavailable. Try again.');
-      }
-    } finally {
-      worker?.terminate();
-      if (active === run) {
-        const restoreFocus = document.activeElement === stop;
-        active = undefined;
-        const hits = rankWrittenSoundMatches(recordings, search);
-        paintMatches(hits);
-        const coverage = checked
-          ? 'Compared ' + checked + (checked === 1 ? ' excerpt' : ' excerpts') + ' from ' + hits.length + ' of ' + run.clips.length + ' clips.'
-          : signal.aborted || failure ? '' : decoded ? 'No audible excerpts in the clips read.' : 'These sound previews could not be read.';
-        const unavailable = decoded < run.clips.length && !signal.aborted && !failure && checked ?
-          ' Some previews could not be read.' : '';
-        const quiet = silent && checked && !failure && !signal.aborted ?
-          ' ' + silent + (silent === 1 ? ' clip had no audible excerpt.' : ' clips had no audible excerpts.') : '';
-        status.textContent = [signal.aborted ? 'Stopped.' : failure, coverage].filter(Boolean).join(' ') + unavailable + quiet;
-        updateControls();
-        if (restoreFocus && !start.disabled) start.focus({ preventScroll: true });
-      }
-    }
+    const { recordings, decoded, checked, silent, failure } = await readWrittenSounds(window, run.clips, search, { signal,
+      onProgress(message) { if (active === run) status.textContent = message; },
+    });
+    if (active !== run) return;
+    const restoreFocus = document.activeElement === stop;
+    active = undefined;
+    const hits = rankWrittenSoundMatches(recordings, search);
+    paintMatches(hits);
+    const coverage = checked
+      ? 'Compared ' + checked + (checked === 1 ? ' excerpt' : ' excerpts') + ' from ' + hits.length + ' of ' + run.clips.length + ' clips.'
+      : signal.aborted || failure ? '' : decoded ? 'No audible excerpts in the clips read.' : 'These sound previews could not be read.';
+    const unavailable = decoded < run.clips.length && !signal.aborted && !failure && checked ?
+      ' Some previews could not be read.' : '';
+    const quiet = silent && checked && !failure && !signal.aborted ?
+      ' ' + silent + (silent === 1 ? ' clip had no audible excerpt.' : ' clips had no audible excerpts.') : '';
+    status.textContent = [signal.aborted ? 'Stopped.' : failure, coverage].filter(Boolean).join(' ') + unavailable + quiet;
+    updateControls();
+    if (restoreFocus && !start.disabled) start.focus({ preventScroll: true });
   }
 
   function edit() {

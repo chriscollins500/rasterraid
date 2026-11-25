@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { clipAnalysisUrl } from '../src/catalog.mjs';
 import { selectWrittenClipFrames } from '../src/visual-analysis.mjs';
-import { rankWrittenScenes, writtenSceneReview, writtenSceneSample } from '../src/written-scenes.mjs';
+import { rankWrittenScenes, rankWrittenSceneSounds, writtenSceneReview, writtenSceneSample, writtenSceneSoundEvidence } from '../src/written-scenes.mjs';
+import { writtenSoundBrief } from '../src/written-sound.mjs';
 
 const origin = 'https://civitai.red';
 const video = id => ({ id, video: true, link: origin + '/images/' + id, browsingLevel: 1, postId: id, title: 'Clip ' + id,
@@ -54,4 +55,27 @@ test('sampled frame quote carries its exact public source and never includes the
   assert.doesNotMatch(JSON.stringify(plan), /private search/u);
   assert.equal(writtenSceneReview(frame, 'https://civitai.com'), null);
   assert.equal(writtenSceneReview({ ...frame, stream: video(20).stream }, origin), null);
+});
+
+test('joined written cues favor the same interval and reject a different rendition or timeline', () => {
+  const split = video(101);
+  const aligned = video(102);
+  const other = video(103);
+  const shifted = video(104);
+  const last = video(105);
+  const frame = (id, clip, timestamp, stream = clipAnalysisUrl(clip.stream)) => ({ id, clip, timestamp, stream, duration: 15 });
+  const frames = [frame(1, split, 2.5), frame(2, split, 7.5), frame(3, aligned, 5),
+    frame(4, other, 7.5, other.stream), frame(5, shifted, 7.5), frame(6, last, 10)];
+  const matches = [.99, .1, .8, 1, 1, 1].map((score, index) => ({ id: index + 1, score }));
+  const audio = (item, scores, duration = 15) => ({ item, rendition: clipAnalysisUrl(item.stream), duration,
+    checked: scores.map((score, slot) => ({ start: slot * 5, end: (slot + 1) * 5, scores: [score] })) });
+  const recordings = [audio(split, [.1, .99]), audio(aligned, [.3, .85]), audio(other, [1, 1]), audio(shifted, [1, 1], 16), audio(last, [1, 1])];
+  const evidence = writtenSceneSoundEvidence({ frames, matches }, recordings, writtenSoundBrief('dog barking'));
+  assert.deepEqual(evidence.map(row => [row.clip.id, row.timestamp, row.soundStart, row.soundEnd]), [
+    [101, 2.5, 0, 5], [101, 7.5, 5, 10], [102, 5, 5, 10],
+  ]);
+  const ranked = rankWrittenSceneSounds(evidence);
+  assert.deepEqual(ranked.map(row => row.clip.id), [102, 101]);
+  assert.equal(ranked[0].soundScore, .85);
+  assert.equal(writtenSceneReview(ranked[0], origin).plans[0].body.steps[0].input.startTime, 5);
 });

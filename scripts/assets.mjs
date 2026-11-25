@@ -100,6 +100,7 @@ export const previewFiles = Object.freeze({
   '/src/sound-analysis.mjs': 'text/javascript; charset=utf-8',
   '/src/sound-worker-client.mjs': 'text/javascript; charset=utf-8',
   '/src/written-sound.mjs': 'text/javascript; charset=utf-8',
+  '/src/written-sound-search.mjs': 'text/javascript; charset=utf-8',
   '/src/written-sound-artifacts.mjs': 'text/javascript; charset=utf-8',
   '/src/written-sound-features.mjs': 'text/javascript; charset=utf-8',
   '/src/written-sound-worker.mjs': 'text/javascript; charset=utf-8',
