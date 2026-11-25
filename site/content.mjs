@@ -3,6 +3,7 @@ export const site = {
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
   version: '0.0.4',
+  developerVersion: '0.0.6',
   checked: '2026-11-24',
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
@@ -105,9 +106,9 @@ ${sectionHeading('search-a-brief', 'Search from a few words')}
 <div class="examples"><p>Try <code>DreamShaper 8</code>, <code>pictures of ginger cats in a rainy window</code>, or <code>guides for ComfyUI workflows</code>.</p></div>
 ${sectionHeading('search-a-picture', 'Search from a picture or clip')}
 <p>Choose <strong>Add a picture</strong> or paste a public Civitai media link. In the visual comparison, focus on the whole picture or a selected detail. Choose the palette, lighting, layout or texture you want to match or avoid. Eligible clip results open close to the matched moment.</p>
-<p>In the 0.0.5 developer prerelease, <strong>Find the same subject → Compare on this device</strong> compares up to six eligible public previews. The first comparison downloads about 78–81 MB of model files. It uses 0 Buzz, and a picture from your device stays in your browser.</p>
+<p>In the ${site.developerVersion} developer prerelease, <strong>Find the same subject → Compare on this device</strong> compares up to six eligible public previews. Combine up to four references and choose which subjects to match or avoid. The first comparison downloads about 78–81 MB of model files. It uses 0 Buzz, and pictures from your device stay in your browser.</p>
 ${sectionHeading('search-a-link', 'Follow an exact link')}
-<p>Paste a Civitai model, picture, clip, post, article or collection link. An exact model version gives you its own examples and file details. <strong>Check recorded settings</strong> shows the references Civitai recorded for a picture or clip. Two media links can open a side-by-side settings comparison.</p>
+<p>Paste a Civitai model, picture, clip, post, article or collection link. An exact model version gives you its own examples and file details. A Civitai model download link can identify an exact version or file in the catalog. <strong>Check recorded settings</strong> shows the references Civitai recorded for a picture or clip. Two media links can open a side-by-side settings comparison.</p>
 ${sectionHeading('compare-and-report', 'Compare, refine and report')}
 <p>Choose <strong>Compare</strong> on up to three model releases, then <strong>Compare free</strong>. See their base-model families, published file details and sample pictures together. <strong>Build a free report</strong> combines selected sources, such as model releases, media and articles, and links to the evidence. Choose <strong>Copy report</strong> for a Markdown version.</p>
 <p><a href="{{root}}workspace/">Save your search or picks</a> · <a href="{{root}}deep-search/">Get live Deep Search quotes</a></p>` },
@@ -135,12 +136,12 @@ ${sectionHeading('recover', 'Recover a result or receipt')}
   { slug: 'workspace', name: 'Workspace', title: 'Keep the work you want to reuse', description: 'Save searches, exact model picks, report comparisons and local setup checks in RasterRaid’s Workspace.', body: `
 ${sectionHeading('save', 'Save a search or shortlist')}
 <p>Open <strong>Workspace</strong>, enter a name and choose <strong>Save current search</strong> or <strong>Save model picks</strong>. Reopening a shortlist checks access again and keeps eligible exact version and file identities. Recent public searches can also be reopened in the current tab.</p>
-<p>In current source builds, signed-in viewers can choose <strong>Find my public work</strong> to see recent pictures, clips, audio and verified posts. Enter a topic to filter this sample by published titles, descriptions or tags. Open your Civitai profile to browse older uploads.</p>
+<p>In the ${site.developerVersion} developer prerelease, signed-in viewers can choose <strong>Find my public work</strong> to see recent pictures, clips, audio and verified posts. Enter a topic to filter this sample by published titles, descriptions or tags. Open your Civitai profile to browse older uploads.</p>
 ${sectionHeading('files', 'Check models and workflows from your setup')}
 <p>Under <strong>Files &amp; setup</strong>, choose an existing ComfyUI workflow or select model files to verify their full SHA-256 checksums. RasterRaid can read supported CiviScribe sidecars and Civitai Metadata Studio exports. Matches link to the exact Civitai version or file. Several listings can share a checksum, so RasterRaid shows the matches for you to review.</p>
 <p>From an eligible public picture or clip, choose <strong>Check recorded settings → Compare with my setup</strong> to compare its recorded references with your local profile.</p>
 ${sectionHeading('reports', 'Keep or compare a report')}
-<p>Save a free report for comparison with a fresh search. For a completed Deep Search run, <strong>Save report file</strong> keeps the captured notes, sources and available prices. Open it from <strong>Deep Search history</strong> in its original Civitai account and site.</p>
+<p>Save a free report for comparison with a fresh search. Reopen ordinary saved catalog searches to see changes in the checked results. For a completed Deep Search run, <strong>Save report file</strong> keeps the captured notes, sources and available prices. Open it from <strong>Deep Search history</strong> in its original Civitai account and site.</p>
 ${sectionHeading('backup', 'Back up, restore or personalize')}
 <p>Use <strong>Back up and restore</strong> to export, import or selectively merge saved searches and shortlists. In <strong>Settings</strong>, opt into preferences for model and media ranking or restore standard ranking. The search menu lets you reorder or hide shortcuts.</p>
 <p><a href="{{root}}privacy/#storage">Read about storage and exports</a></p>` },
@@ -156,10 +157,11 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
 <p><a href="https://developer.civitai.com/apps/guide/storage.md#user-controls">Civitai’s storage controls</a> · <a href="{{root}}support/">Get help with RasterRaid</a></p>` },
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Civitai review</p><h2>Developer previews on both domains</h2><p>Civitai lists RasterRaid 0.0.4 as pending review. The app author can open the developer previews on both domains. The public run page requires Civitai approval and deployment.</p>${previewLinks}</aside>
-${sectionHeading('candidate', '0.0.5 developer prerelease')}
-<ul><li>Guests can find eligible public pictures, clips, and playable audio and follow the source links.</li><li><strong>Retry search</strong> preserves the previous search when a catalog request fails before all results arrive.</li><li><strong>Find the same subject</strong> compares public previews on your device using WebGPU or WebAssembly. The app checks each preview again before reusing its analysis.</li></ul>
-<p>The signed developer-frame tests covered Chrome, Firefox, and WebKit on both domains and spent 0 Buzz.</p>
-<div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v0.0.5">0.0.5 download and verification <span aria-hidden="true">↗</span></a></div>
+${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
+<ul><li>Deep Search verifies inline citations against the run’s sources and shows what broader estimates add.</li><li>Combine multiple subject references on your device or use a Civitai download link to identify a model file.</li><li>Compare changes in saved searches, find your recent public work, and check graphics memory guidance during a workflow upgrade.</li></ul>
+<p>Developer-frame tests covered Chrome, Firefox, and WebKit on both domains and spent 0 Buzz. GitHub rebuilt the source ZIP and attested its provenance and runtime software inventory.</p>
+<div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
+<p><a href="${site.repository}/releases/tag/v0.0.5">Earlier 0.0.5 prerelease</a> with guest media search, partial search recovery and the first on-device subject comparison.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
 <ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>
