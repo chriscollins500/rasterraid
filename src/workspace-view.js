@@ -1,6 +1,6 @@
 import { appPrivateRecord, tabPrivateRecord } from './workflow-journal.mjs';
 import { checkWorkflowFiles, checkWorkspaceAsset, checkWorkspaceSetup, recentSearchLabel, recentWorkspaceSearches,
-  saveWorkspaceEntry, updateReportCheckpoint, versionReferences, workspaceDocument, workspaceFilters } from './workspace.mjs';
+  saveWorkspaceEntry, updateSearchCheckpoint, versionReferences, workspaceDocument, workspaceFilters } from './workspace.mjs';
 import { captureReportCheckpoint } from './report-checkpoint.mjs';
 import { element, sourceLink } from './view.js';
 import { environmentProfile, inspectWorkflowGraph, maximumWorkflowBytes, workflowAssetLabel, workflowInspectionLabel } from './workflow-profile.mjs';
@@ -110,7 +110,8 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
       searches: publicResults && !current.result.report?.localTrace && !current.result.visualComposition ? workspaceFilters(current.filters) : null,
       shortlists: publicResults ? versionReferences(current.result.candidates.filter(candidate => current.chosen.has(candidate.id))) : [],
       checkpoint: publicResults && current.context.browsingLevel === viewer.browsingLevel
-        ? captureReportCheckpoint(current.result, current.context, current.result.reportCheckedAt) : null,
+        ? current.result.report ? captureReportCheckpoint(current.result, current.context, current.result.reportCheckedAt)
+          : current.result.catalogCheckpoint : null,
     };
   }
 
@@ -118,7 +119,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     const selected = choices();
     saveSearch.closest('.workspace-save').hidden = !selected.searches && !selected.shortlists.length;
     saveSearch.disabled = !ready || busy || !selected.searches;
-    saveSearch.textContent = selected.checkpoint ? 'Save report for comparison' : 'Save current search';
+    saveSearch.textContent = selected.checkpoint && selected.searches?.scope === 'report' ? 'Save report for comparison' : 'Save current search';
     saveList.disabled = !ready || busy || !selected.shortlists.length;
     profileSave.disabled = !ready || busy;
     profileApply.disabled = !family.value.trim();
@@ -157,7 +158,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
         open.setAttribute('aria-label', 'Open ' + entry.name);
         open.addEventListener('click', () => {
           dialog.close();
-          if (type === 'searches') openSearch(entry.filters, undefined, entry.checkpoint ? entry : undefined);
+          if (type === 'searches') openSearch(entry.filters, undefined, entry);
           else openShortlist(entry);
         });
         const remove = element('button', 'Remove', 'chip');
@@ -167,6 +168,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
         remove.addEventListener('click', () => { void change(value => ({ ...value, [type]: value[type].filter(item => item.id !== entry.id) })); });
         row.append(open, remove);
         if (entry.checkpoint) row.append(element('small', entry.checkpoint.references.length + ' saved sources', 'workspace-report-summary'));
+        if (entry.catalogCheckpoint) row.append(element('small', entry.catalogCheckpoint.references.length + ' saved results', 'workspace-report-summary'));
         list.append(row);
       }
       area.append(list);
@@ -643,9 +645,9 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     void openWorkspace({ published: { owner, inspected, source } });
   }, openExampleCheck(owner, setup) {
     void openWorkspace({ example: { owner, setup } });
-  }, refreshReport(entry, checkpoint, owner) {
+  }, refreshSearch(entry, checkpoint, owner) {
     const viewer = getContext();
     if (viewer?.origin !== owner.origin || viewer.viewerUserId !== owner.viewerUserId || viewer.browsingLevel !== owner.browsingLevel) return false;
-    return change(current => updateReportCheckpoint(current, entry, checkpoint));
+    return change(current => updateSearchCheckpoint(current, entry, checkpoint));
   } };
 }

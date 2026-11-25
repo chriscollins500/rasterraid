@@ -11,7 +11,8 @@ const countLabel = (count, one, many = one + 's') => count + ' ' + (count === 1 
 function itemSummary(group, item) {
   if (group === 'searches') return [recentSearchLabel(item.filters), item.filters.query,
     item.filters.baseModel, item.filters.selectedMediaTag && 'Tag #' + item.filters.selectedMediaTag.id,
-    item.checkpoint && countLabel(item.checkpoint.references.length, 'saved source')].filter(Boolean).join(' · ');
+    item.checkpoint && countLabel(item.checkpoint.references.length, 'saved source'),
+    item.catalogCheckpoint && countLabel(item.catalogCheckpoint.references.length, 'saved result')].filter(Boolean).join(' · ');
   const pins = item.versions.reduce((count, entry) => count + (entry.filePins?.length ?? 0), 0);
   return [countLabel(item.versions.length, 'saved version'), pins && countLabel(pins, 'exact file')].filter(Boolean).join(' · ');
 }

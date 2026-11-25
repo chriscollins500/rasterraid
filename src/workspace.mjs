@@ -2,7 +2,7 @@ import { catalogRead, civitaiAir, numericId, SITE_ORIGINS, text } from './catalo
 import { galleryBaseModels, galleryCreator, galleryCreatorPattern, gallerySourceFilters, gallerySourceIds, galleryTagIds, isGalleryScope,
   isVisualGalleryScope, tagRecord } from './gallery.mjs';
 import { reportSettings, reportSources } from './report.mjs';
-import { readReportCheckpoint } from './report-checkpoint.mjs';
+import { readCatalogCheckpoint, readReportCheckpoint } from './report-checkpoint.mjs';
 import { releaseMediaSources } from './release-trail.mjs';
 import { discover, modelUsage, readModelFileHistory, readRecordedVersions, readSavedModelVersions, searchTarget } from './search.mjs';
 import { comparePublishedRelease, isModelFile, listedCreatorTerms, publishedName, releaseSetupIssue } from './release-compatibility.mjs';
@@ -145,8 +145,12 @@ export function workspaceDocument(value) {
     searches: normalizeEntries(value?.searches, row => {
       const filters = workspaceFilters(row.filters);
       if (!filters) return null;
-      const checkpoint = filters.scope === 'report' ? readReportCheckpoint(row.checkpoint) : null;
-      return checkpoint ? { filters, checkpoint } : { filters };
+      if (filters.scope === 'report') {
+        const checkpoint = readReportCheckpoint(row.checkpoint);
+        return checkpoint ? { filters, checkpoint } : { filters };
+      }
+      const catalogCheckpoint = readCatalogCheckpoint(row.catalogCheckpoint);
+      return catalogCheckpoint ? { filters, catalogCheckpoint } : { filters };
     }),
     shortlists: normalizeEntries(value?.shortlists, row => {
       const versions = versionReferences(row.versions);
@@ -185,8 +189,9 @@ export function readWorkspaceBackup(input) {
       throw new Error('A shortlist contains incomplete version or file references.');
     }
   }
-  if (value.searches.some((row, i) => Object.hasOwn(row, 'checkpoint') && !saved.searches[i].checkpoint)) {
-    throw new Error('A report checkpoint contains invalid source references.');
+  if (value.searches.some((row, i) => ['checkpoint', 'catalogCheckpoint'].some(key =>
+    Object.hasOwn(row, key) && !saved.searches[i][key]))) {
+    throw new Error('A saved comparison checkpoint contains invalid source references.');
   }
   return { searches: saved.searches, shortlists: saved.shortlists };
 }
@@ -230,7 +235,8 @@ export function mergeWorkspaceBackup(current, backup, makeId = () => crypto.rand
 
 export function saveWorkspaceEntry(workspace, type, name, value, id = crypto.randomUUID(), checkpoint) {
   if (!['searches', 'shortlists'].includes(type) || !text(name, 100) || !uuid.test(id)) throw new TypeError('Enter a name to save this item.');
-  const entry = type === 'searches' ? { id, name, filters: value, checkpoint } : { id, name, versions: value };
+  const entry = type === 'searches' ? { id, name, filters: value, [value?.scope === 'report' ? 'checkpoint' : 'catalogCheckpoint']: checkpoint }
+    : { id, name, versions: value };
   const validated = workspaceDocument({ [type]: [entry] })[type][0];
   if (!validated) throw new Error('Choose an eligible public search or exact model versions to save.');
   const others = workspace[type].filter(item => item.id !== id);
@@ -238,15 +244,18 @@ export function saveWorkspaceEntry(workspace, type, name, value, id = crypto.ran
   return { ...workspace, [type]: [validated, ...others] };
 }
 
-export function updateReportCheckpoint(workspace, expected, next) {
+export function updateSearchCheckpoint(workspace, expected, next) {
   const entry = workspace.searches.find(row => row.id === expected.id);
-  const checkpoint = readReportCheckpoint(next);
-  if (!entry?.checkpoint || JSON.stringify(entry.checkpoint) !== JSON.stringify(expected.checkpoint) || !checkpoint ||
-      entry.checkpoint.origin !== checkpoint.origin || entry.checkpoint.browsingLevel !== checkpoint.browsingLevel ||
-      checkpoint.checkedAt <= entry.checkpoint.checkedAt) {
-    throw new Error('Reopen the latest saved report to update its checkpoint.');
+  const report = entry?.filters.scope === 'report';
+  const key = report ? 'checkpoint' : 'catalogCheckpoint';
+  const prior = entry?.[key];
+  const checkpoint = report ? readReportCheckpoint(next) : readCatalogCheckpoint(next);
+  if (!entry || (report && !prior) || JSON.stringify(prior) !== JSON.stringify(expected[key]) || !checkpoint ||
+      JSON.stringify(entry.filters) !== JSON.stringify(expected.filters) ||
+      (prior && (prior.origin !== checkpoint.origin || prior.browsingLevel !== checkpoint.browsingLevel || checkpoint.checkedAt <= prior.checkedAt))) {
+    throw new Error('Reopen the latest saved ' + (report ? 'report' : 'search') + ' to update its checkpoint.');
   }
-  return { ...workspace, searches: workspace.searches.map(row => row === entry ? { ...row, checkpoint } : row) };
+  return { ...workspace, searches: workspace.searches.map(row => row === entry ? { ...row, [key]: checkpoint } : row) };
 }
 
 export async function reopenShortlist(context, versions, options = {}) {

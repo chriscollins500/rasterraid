@@ -201,6 +201,7 @@ function modelVersions(model) {
       files: Array.isArray(version.files) ? version.files.map(publicFile).filter(Boolean).slice(0, 24) : [],
       publishedAt: typeof version.publishedAt === 'string' && Number.isFinite(Date.parse(version.publishedAt)) ? version.publishedAt : null,
       availability: text(version.availability, 40),
+      publiclyListed: isPublished(model) && isPublished(version) && model.mode !== 'TakenDown',
       generationListed: typeof version.supportsGeneration === 'boolean' ? version.supportsGeneration : null,
       ...modelVersionDownload(version),
       ...(model[saleListing] && { listingOnSale: true }),

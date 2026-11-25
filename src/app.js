@@ -19,7 +19,7 @@ import { discoverReport } from './report.mjs';
 import { catalogSearchFailure, createReportRecovery } from './report-recovery.mjs';
 import { reportResearchPlans } from './report-research.mjs';
 import { renderReport, renderReportChanges } from './report-view.js';
-import { reviewReportCheckpoint } from './report-checkpoint.mjs';
+import { captureCatalogCheckpoint, reviewCatalogCheckpoint, reviewReportCheckpoint } from './report-checkpoint.mjs';
 import { appRunTransport } from './workflow-client.mjs';
 import { appWorkflowJournal, localWorkflowJournal } from './workflow-journal.mjs';
 import { installWorkflowRun } from './workflow-view.js';
@@ -372,7 +372,7 @@ const sceneMatch = configureSceneMatch(document, visualReferences, soundMatch, r
 function refreshScenes() {
   sceneMatch.show(search?.phase === 'complete' ? search.result : null, search?.context);
 }
-function rerunSearch(filters, trigger = searchButton, savedReport) {
+function rerunSearch(filters, trigger = searchButton, savedSearch) {
   if (!context || activeSearch) return false;
   const branch = [reportThisSearch, exploreGalleryRelease].includes(trigger) ? resultBranch(filters.scope) : undefined;
   selectedMediaTag = isGalleryScope(filters.scope) ? tagRecord(filters.selectedMediaTag) ?? undefined : undefined;
@@ -380,7 +380,7 @@ function rerunSearch(filters, trigger = searchButton, savedReport) {
   scope.value = filters.scope;
   syncLibraryScope();
   filterControls.restore(filters);
-  void runSearch(trigger, { restored: filters, savedReport, branch });
+  void runSearch(trigger, { restored: filters, savedSearch, branch });
   return true;
 }
 
@@ -885,8 +885,8 @@ function renderSearch(result, filters, current, phase = 'complete') {
   paintVisualBrief(result.visualComposition, current);
   renderReport(byId('report-overview'), result.report, current, startExample,
     phase === 'complete' ? setup => workspace.openExampleCheck(current, setup) : undefined);
-  renderReportChanges(byId('report-changes'), result.reportComparison, current, checkpoint =>
-    workspace.refreshReport(result.savedReport, checkpoint, current), startExample);
+  renderReportChanges(byId('report-changes'), result.searchComparison, current, checkpoint =>
+    workspace.refreshSearch(result.savedSearch, checkpoint, current), startExample);
   visualReferences.show(phase === 'loading' ? null : result.report, current);
   soundMatch.show(phase === 'complete' ? result : null, groups, current);
 
@@ -1565,7 +1565,7 @@ form.addEventListener('submit', event => {
   void runSearch(event.submitter ?? searchButton);
 });
 
-async function runSearch(submitter = searchButton, { restored, visualCrop, savedReport, followInput = true, branch } = {}) {
+async function runSearch(submitter = searchButton, { restored, visualCrop, savedSearch, followInput = true, branch } = {}) {
   if (activeSearch || addingSearchPicture || !context || submitter.disabled) return;
   const applyFilters = submitter.id === 'apply-search-filters';
   const address = query.value.trim();
@@ -1651,18 +1651,18 @@ async function runSearch(submitter = searchButton, { restored, visualCrop, saved
     trigger.focus({ preventScroll: true });
   }
   clearReportRecovery();
-  if (!traceRecorded && !compose && !visualCrop && !savedReport?.checkpoint) {
+  if (!traceRecorded && !compose && !visualCrop && !savedSearch?.checkpoint) {
     reportRecovery = createReportRecovery(context, filters, preferences.forSearch(context)) ?? undefined;
   }
   await executeSearch(reportRecovery?.filters ?? filters, {
-    trigger, traceRecorded, compose, recordedReferences, editPairs, visualCrop, visualBrief, savedReport, recovery: reportRecovery, branch,
+    trigger, traceRecorded, compose, recordedReferences, editPairs, visualCrop, visualBrief, savedSearch, recovery: reportRecovery, branch,
   });
 }
 
-async function executeSearch(filters, { trigger, traceRecorded, compose, recordedReferences, editPairs, visualCrop, visualBrief, savedReport,
+async function executeSearch(filters, { trigger, traceRecorded, compose, recordedReferences, editPairs, visualCrop, visualBrief, savedSearch,
   recovery, continuing = false, branch }) {
   const retrying = trigger === retryButton;
-  const canRetry = !traceRecorded && !compose && !visualCrop && !savedReport && filters.scope !== 'report' &&
+  const canRetry = !traceRecorded && !compose && !visualCrop && filters.scope !== 'report' &&
     filters.scope !== 'ownedModels' && !libraryScopes.includes(filters.scope);
   if (!continuing && !retrying) {
     if (branch && branch.state === search && branch.state.context === context) {
@@ -1721,24 +1721,31 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       },
     });
     signal.throwIfAborted();
-    if (result.report) result.reportCheckedAt = new Date().toISOString();
+    const checkedAt = new Date().toISOString();
+    if (result.report) result.reportCheckedAt = checkedAt;
+    else result.catalogCheckpoint = captureCatalogCheckpoint(result, current, checkedAt);
+    if (savedSearch) result.savedSearch = savedSearch;
+    if (savedSearch && !savedSearch.catalogCheckpoint && result.catalogCheckpoint) {
+      result.searchComparison = { kind: 'search', status: 'baseline-ready', checkpoint: result.catalogCheckpoint };
+    }
     const retryFocused = retrying && document.activeElement === retryButton;
     renderSearch(result, filters, current);
     retryButton.hidden = !(canRetry && search.catalogFailure === 'retryable' && current === context);
     offerContinue = Boolean(attempt && (attempt.retryable || result.report?.rails.some(rail => rail.retryable)));
     if (attempt?.reused) searchStatus.textContent += ' · Reused ' + attempt.reused +
       (attempt.reused === 1 ? ' completed check.' : ' completed checks.');
-    if (result.report && savedReport?.checkpoint) {
+    const baseline = result.report ? savedSearch?.checkpoint : savedSearch?.catalogCheckpoint;
+    if (baseline) {
       checkingSaved = true;
       const summary = searchStatus.textContent;
-      searchStatus.textContent = 'Checking sources from the saved report…';
-      const comparison = await reviewReportCheckpoint(savedReport.checkpoint, result, current, { signal, checkedAt: result.reportCheckedAt });
+      searchStatus.textContent = result.report ? 'Checking sources from the saved report…' : 'Checking earlier results from the saved search…';
+      const review = result.report ? reviewReportCheckpoint : reviewCatalogCheckpoint;
+      const comparison = await review(baseline, result, current, { signal, checkedAt });
       signal.throwIfAborted();
       if (comparison && search?.result === result) {
-        result.reportComparison = comparison;
-        result.savedReport = savedReport;
+        result.searchComparison = comparison;
         renderReportChanges(byId('report-changes'), comparison, current,
-          checkpoint => workspace.refreshReport(savedReport, checkpoint, current), startExample);
+          checkpoint => workspace.refreshSearch(savedSearch, checkpoint, current), startExample);
         if (document.activeElement === byId('open-workspace') || document.activeElement === document.body) {
           byId('report-change-title')?.focus();
         }
@@ -1762,7 +1769,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
     }
     searchStatus.textContent = signal.reason === accessChange && context.connectionLost ? connectionNotice
       : signal.reason === accessChange || signal.reason === referenceChange || signal.reason === visualBriefChange
-      ? signal.reason.message : stopped ? 'Report paused.' : signal.aborted ? checkingSaved ? 'Stopped checking saved sources. The refreshed report is ready.' : 'Search cancelled.'
+      ? signal.reason.message : stopped ? 'Report paused.' : signal.aborted ? checkingSaved ? 'Stopped checking saved sources. The refreshed results are ready.' : 'Search cancelled.'
       : error.message || 'Search was interrupted. Try again.';
   } finally {
     if (searchTrail.at(-1) === branch && branch?.state === search) searchTrail.pop();
@@ -1816,7 +1823,7 @@ retryButton.addEventListener('click', async () => {
     (filterPanel.hidden ? searchButton : filterPanel.querySelector('summary')).focus();
     return;
   }
-  await executeSearch(prior.filters, { trigger: retryButton });
+  await executeSearch(prior.filters, { trigger: retryButton, savedSearch: prior.result.savedSearch });
 });
 
 continueButton.addEventListener('click', async () => {
