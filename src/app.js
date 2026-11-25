@@ -1415,6 +1415,10 @@ function syncLibraryScope() {
 }
 
 function startMediaTag(tag, group) {
+  if (search?.result.report?.publicWork) {
+    rerunSearch({ scope: 'report', reportType: 'publicWork', query: tag.name });
+    return;
+  }
   const target = isGalleryScope(group) ? group : search.result.gallery?.scope ?? 'gallery';
   followResult(tag.name, target, tag);
 }
@@ -1785,6 +1789,7 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
       searchStatus.textContent = summary;
     }
     if (compose || trigger === reportThisSearch || retryFocused && retryButton.hidden ||
+        filters.reportType === 'publicWork' && trigger === byId('open-workspace') ||
         fromResults && (!trigger.isConnected || trigger.hidden) && document.activeElement === document.body) resultsTitle.focus();
     workspace.remember(current, result, filters);
   } catch (error) {

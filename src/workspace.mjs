@@ -26,6 +26,7 @@ export const workspaceBackupMaximumBytes = 2 * 1024 * 1024;
 
 export function workspaceFilters(filters) {
   if (!searchScopes.has(filters?.scope) || filters.workspaceShortlist) return null;
+  if (filters.scope === 'report' && filters.reportType === 'publicWork') return null;
   const selected = {};
   for (const field of fields) {
     const value = Object.hasOwn(filters, field) ? filters[field] : undefined;

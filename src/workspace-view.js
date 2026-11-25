@@ -10,6 +10,7 @@ import { upgradePair, upgradeSources, upgradeVersionLink } from './upgrade-evide
 import { configureWorkspaceBackup } from './workspace-backup-view.js';
 import { configureLocalModelFiles } from './local-model-files-view.js';
 import { compareWorkspaceExample, workspaceExampleMarkdown, workspaceExampleNotes } from './workspace-example.mjs';
+import { canReadPublicWork } from './creator-trail.mjs';
 
 function fitRows(card) {
   const number = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
@@ -29,6 +30,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   const id = name => window.document.getElementById(name);
   const button = id('open-workspace');
   const dialog = id('saved-workspace');
+  const publicWork = id('workspace-public-work');
   const tabs = [...dialog.querySelectorAll('[role="tab"]')];
   const name = id('workspace-name');
   const message = id('workspace-status');
@@ -525,6 +527,9 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   saveSearch.addEventListener('click', () => save('searches'));
   saveList.addEventListener('click', () => save('shortlists'));
   id('workspace-close').addEventListener('click', () => dialog.close());
+  publicWork.addEventListener('click', () => {
+    if (canReadPublicWork(getContext()) && openSearch({ scope: 'report', reportType: 'publicWork', query: '' }, button)) dialog.close();
+  });
 
   function selectTab(active, focus = false) {
     for (const tab of tabs) {
@@ -597,6 +602,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
 
   function bind(context) {
     modelFiles.bind(context);
+    publicWork.parentElement.hidden = !canReadPublicWork(context);
     const persistent = Boolean(context?.hosted && context.signedIn && context.token &&
       context.storageMode !== 'local-preview' && context.scopes.includes('apps:storage'));
     const next = context ? [context.origin, context.viewerUserId ?? 'guest', persistent ? 'private' : 'tab'].join('#') : null;

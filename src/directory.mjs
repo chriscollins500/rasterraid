@@ -223,6 +223,13 @@ function userCard(row, origin, ceiling, tab) {
   };
 }
 
+export async function readPublicAccount(context, id, options) {
+  if (!validId(id)) return null;
+  const { data } = await catalogRead(context.origin, CATALOG.users, { ids: id }, options);
+  const matches = listItems(data).filter(row => row?.id === id);
+  return matches.length === 1 ? userCard(matches[0], context.origin, ceilingFor(context)) : null;
+}
+
 async function userPage(context, plan, offset, options) {
   const { origin } = context;
   const [index, site] = await Promise.allSettled([

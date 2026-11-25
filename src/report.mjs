@@ -13,7 +13,7 @@ import { foldSearchText } from './query-language.mjs';
 import { releaseSampleCoverage, traceReleaseMedia } from './release-trail.mjs';
 import { readReportMediaReferences, traceReportMediaModels } from './report-media-models.mjs';
 import { exampleModelFacts, exampleVersionLimit, unlinkedUseLabel, verifiedExampleSetup } from './gallery-setup.mjs';
-import { creatorBrief, creatorEdges, creatorReportSources, readCreatorTrail } from './creator-trail.mjs';
+import { creatorBrief, creatorEdges, creatorReportSources, publicWorkSources, readCreatorTrail, readPublicWork } from './creator-trail.mjs';
 import { exampleComparisonSources, examplePairIds, exampleSide, exampleVersionUse, readExampleComparison } from './example-comparison.mjs';
 import { maximumStorySources, readStoryProject, storyInput, storySources, storyStages } from './story-research.mjs';
 import { reportSourceFailure } from './report-recovery.mjs';
@@ -41,6 +41,7 @@ export const reportTypes = {
   opportunities: { title: 'Find project opportunities', sources: ['bounties', 'challenges', 'services', 'articles'] },
   stories: { title: 'Develop a story', sources: storySources },
   portfolio: { title: 'Review my releases', sources: ['ownedModels', 'gallery', 'posts'] },
+  publicWork: { title: 'My public work', sources: publicWorkSources, fixed: true },
 };
 export const maximumReportSources = 8;
 const sourcesPerBatch = 3;
@@ -357,7 +358,8 @@ async function checkReportSources(scopes, read, origin, signal, onCheckpoint) {
 
 function assemble(context, settings, target, interpreted, filters, rows, anchor, guideTrace, collectionTrail, releaseSample, mediaModels) {
   const { origin } = context;
-  if (!releaseSample && !['creator', 'examplePair'].includes(settings.type)) rows = linkMediaEvidence(rows, origin);
+  const creditedEvidence = ['creator', 'publicWork', 'examplePair'].includes(settings.type);
+  if (!releaseSample && !creditedEvidence) rows = linkMediaEvidence(rows, origin);
   const reference = anchorEvidence(anchor, origin);
   const downloadNote = downloadReferenceNote(anchor?.target, anchor?.candidates ?? []);
   const localTrace = anchor?.localTrace;
@@ -428,7 +430,7 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
     report: { title: settings.title, query: target.value, interpreted, rails, evidence, constraints,
       connections: connectionsFor(directCandidates, related, evidence, origin,
         [...(collectionTrail?.edges ?? []), ...(guideTrace?.edges ?? []), ...(mediaModels?.edges ?? []), ...rows.flatMap(row => row.edges ?? [])],
-        releaseSample || ['creator', 'examplePair'].includes(settings.type) ? 24 : collectionTrail ? 20 : 8 + (mediaModels?.edges.length ?? 0)),
+        releaseSample || creditedEvidence ? 24 : collectionTrail ? 20 : 8 + (mediaModels?.edges.length ?? 0)),
       anchor: reference.slice(0, 2),
       ...(anchor?.hashStatus && { hashStatus: anchor.hashStatus }),
       ...(downloadNote && { downloadNote }),
@@ -443,23 +445,34 @@ function assemble(context, settings, target, interpreted, filters, rows, anchor,
   };
 }
 
+function creatorReportRecords(settings, rows, origin) {
+  const profiles = rows.get('users').related.users;
+  return settings.sources.filter(scope => rows.has(scope)).map(scope => {
+    const result = rows.get(scope);
+    return { scope, result, items: evidenceFor(result, origin), edges: creatorEdges(scope, result, profiles) };
+  });
+}
+
 async function discoverCreatorReport(context, settings, filters, brief, options) {
   const { origin } = context;
   const input = creatorBrief(brief, origin, filters.modelAuthor);
   const modelFilters = Object.fromEntries(modelFields.filter(key => filters[key]).map(key => [key, filters[key]]));
   const { rows, summary } = await readCreatorTrail(context, settings.sources, input, modelFilters, options);
-  const profiles = rows.get('users').related.users;
-  const records = settings.sources.map(scope => {
-    const result = rows.get(scope);
-    return { scope, result, items: evidenceFor(result, origin), edges: creatorEdges(scope, result, profiles) };
-  });
   const interpreted = summary.profile ? ['@' + summary.profile.title, input.topic].filter(Boolean).join(' · ') : input.topic;
-  const result = assemble(context, settings, { kind: 'text', value: brief }, interpreted, modelFilters, records);
+  const result = assemble(context, settings, { kind: 'text', value: brief }, interpreted, modelFilters, creatorReportRecords(settings, rows, origin));
   if (summary.unavailable) result.report.rails = result.report.rails.filter(rail => rail.scope === 'users');
   const links = new Set(result.report.evidence.map(item => item.link));
   result.report.creator = { ...summary, ...(summary.leads && { leads: summary.leads.map(lead => ({ ...lead,
     examples: lead.examples.filter(item => links.has(item.link)),
   })) }) };
+  return result;
+}
+
+async function discoverPublicWorkReport(context, settings, brief, options) {
+  const { rows, summary } = await readPublicWork(context, brief, options);
+  const result = assemble(context, { ...settings, sources: settings.sources.filter(scope => rows.has(scope)) },
+    { kind: 'text', value: brief }, brief, {}, creatorReportRecords(settings, rows, context.origin));
+  result.report.publicWork = summary;
   return result;
 }
 
@@ -578,6 +591,10 @@ export async function discoverReport(context, filters, {
   const hasLocal = local.records.length > 0;
   if (references && !hasLocal) throw new Error('Choose a reference file with recorded Civitai versions or an exact model file hash.');
   const settings = reportSettings(filters.reportType, filters.reportSources);
+  if (settings.type === 'publicWork') {
+    if (references || upgrade) throw new Error('Use a topic or leave the search blank to find your public work.');
+    return discoverPublicWorkReport(context, settings, brief, { signal, fetcher, onPhase });
+  }
   if (filters.reportType === 'portfolio' && !references) {
     const fields = ['category', 'baseModel', 'resourceType', 'fileFormat', 'exclude', 'sort', 'supportsGeneration'];
     const ownerFilters = Object.fromEntries(fields.filter(name => filters[name]).map(name => [name, filters[name]]));
@@ -929,6 +946,14 @@ export function editReferenceSource(report, reference) {
 const markdownLine = value => String(value ?? '').replace(/\r?\n|\r/gu, ' ').replace(/[\\[\]\u0060*<>|]/gu, '\\$&');
 const markdownLink = item => '[' + markdownLine(item.title) + '](<' + item.link.replaceAll('|', '%7C') + '>)';
 
+export function publicWorkCoverage({ profile, counts, postsVerified, earlierUploads }) {
+  if (!profile) return 'Civitai couldn’t verify a public profile for the signed-in account.';
+  const labels = { gallery: 'picture', videos: 'clip', audio: 'audio upload', posts: 'verified post' };
+  const checked = Object.entries({ ...counts, posts: postsVerified }).map(([scope, count]) => count + ' ' + labels[scope] + (count === 1 ? '' : 's'));
+  return 'Checked ' + checked.join(' · ') + '. Shows up to five matches per source.' +
+    (earlierUploads ? ' Open your Civitai profile to browse earlier uploads.' : '');
+}
+
 export function reportMarkdown(report, graphicsMemory) {
   const lines = ['# ' + markdownLine(report.title), ''];
   if (report.query) lines.push('**Search** ' + markdownLine(report.query));
@@ -941,6 +966,10 @@ export function reportMarkdown(report, graphicsMemory) {
     lines.push('', '## Published release evidence', portfolioCoverage(report.portfolio),
       ...report.portfolio.releases.map(release => '- ' + markdownLink(release) + ' · ' +
         portfolioReleaseFacts(release, report.portfolio.checkPosts).map(markdownLine).join(' · ')));
+  }
+  if (report.publicWork) {
+    lines.push('', publicWorkCoverage(report.publicWork));
+    if (report.publicWork.profile) lines.push('- ' + markdownLink(report.publicWork.profile));
   }
   if (report.creator?.profile) {
     lines.push('', '## Verified public profile', '- ' + markdownLink(report.creator.profile),

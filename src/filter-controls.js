@@ -2,6 +2,7 @@ import { CATALOG, catalogRead, listItems } from './catalog.mjs';
 import { catalogOrders } from './catalog-orders.mjs';
 import { bountyTypeLabel } from './bounties.mjs';
 import { collectionTypeLabel } from './directory.mjs';
+import { canReadPublicWork } from './creator-trail.mjs';
 import { appCategoryLabel } from './app-store.mjs';
 import { aiServiceLabel } from './ai-services.mjs';
 import { filterOptions } from './filter-options.mjs';
@@ -206,6 +207,7 @@ export function createFilterControls(form, getContext) {
   const assists = [baseAssist, mediaBaseAssist, typeAssist, tagAssist, ...draftAssists, ...authorAssists];
   let pictureSearchReady = false;
   const ownerSearch = () => scope.value === 'ownedModels' || scope.value === 'report' && form.elements.reportType.value === 'portfolio';
+  const publicWorkSearch = () => scope.value === 'report' && form.elements.reportType.value === 'publicWork';
   const releaseReport = () => scope.value === 'report' && form.elements.reportType.value === 'release';
   const releaseGallerySearch = () => releaseReport() && reportControls.sources().some(source => releaseMediaSources.has(source));
   const showModelFilters = () => modelScopes.has(scope.value) || scope.value === 'report' &&
@@ -318,7 +320,7 @@ export function createFilterControls(form, getContext) {
   }
 
   function sync() {
-    reportControls.sync(scope.value === 'report');
+    reportControls.sync(scope.value === 'report', canReadPublicWork(getContext()));
     const modelSearch = showModelFilters();
     const bountySearch = scope.value === 'bounties';
     const releaseGallery = releaseGallerySearch();
@@ -410,6 +412,7 @@ export function createFilterControls(form, getContext) {
         : form.elements.reportType.value === 'creator' ? 'Describe the work or type @creator and an optional topic'
         : form.elements.reportType.value === 'examplePair' ? 'Two Civitai links or IDs'
         : form.elements.reportType.value === 'stories' ? 'Story idea or Civitai picture link'
+        : publicWorkSearch() ? 'Find a topic in your recent public work or leave blank'
         : ownerSearch() ? 'Search your releases or leave blank to review recent models'
         : 'Describe what you want to find or paste a public Civitai link',
     }[scope.value] ?? (mediaSearch ? 'Search by tag, @creator or Civitai link' : 'Search or paste a link');
@@ -523,7 +526,7 @@ export function createFilterControls(form, getContext) {
       period.disabled ? '' : period.value,
     ]);
     const priorModels = modelSnapshot();
-    if (scope.value === 'audio' || reportSources?.includes('audio') ||
+    if (scope.value === 'audio' || reportSources?.includes('audio') && !publicWorkSearch() ||
         useMediaFilters && (panel.open || priorBases || mediaBaseInput.value || priorPeriod) ||
         showModelFilters() && (panel.open || modelFacets.some(facet => facet.input.value || facet.selected.length) || sort.value || period.value)) await refresh();
     if (showModelFilters() && priorModels !== modelSnapshot()) {

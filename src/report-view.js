@@ -1,5 +1,5 @@
 import { editComparisonText, editPictureSummary, editReferenceLabel, editReferenceSource, guideTraceCoverage, localTraceCoverage, localTraceRows, maximumReportSources, reportConstraint, reportMarkdown, reportSourceStatus,
-  portfolioCoverage, portfolioReleaseFacts, referenceFileFacts, reportSources, reportTypes } from './report.mjs';
+  portfolioCoverage, portfolioReleaseFacts, publicWorkCoverage, referenceFileFacts, reportSources, reportTypes } from './report.mjs';
 import { hashLookupNote } from './search.mjs';
 import { pictureIntegrityText } from './reference-provenance.mjs';
 import { element, evidenceSource, sourceLink } from './view.js';
@@ -22,6 +22,7 @@ export function configureReportControls(form) {
     option.value = value;
     select.append(option);
   }
+  const publicWorkOption = select.querySelector('option[value="publicWork"]');
   for (const [scope, name] of Object.entries(reportSources)) {
     const label = element('label');
     const input = element('input');
@@ -71,7 +72,12 @@ export function configureReportControls(form) {
       for (const [scope, input] of fields) input.checked = saved.has(scope);
       update();
     },
-    sync(active) {
+    sync(active, publicWorkAvailable) {
+      publicWorkOption.hidden = publicWorkOption.disabled = !publicWorkAvailable;
+      if (!publicWorkAvailable && select.value === 'publicWork') {
+        select.value = 'style';
+        preset();
+      }
       setup.hidden = !active;
       fieldset.disabled = !active;
       select.disabled = !active;
@@ -486,6 +492,12 @@ export function renderReport(container, report, context, onLookup, { onCompareSe
   }
   if (report.constraints.length) {
     container.append(element('p', 'Model filters · ' + report.constraints.map(reportConstraint).join(' · ')));
+  }
+  if (report.publicWork) {
+    const panel = element('section', null, 'report-anchor');
+    panel.append(element('p', publicWorkCoverage(report.publicWork)));
+    if (report.publicWork.profile) panel.append(sourceLink(report.publicWork.profile.link, 'Open my Civitai profile ↗', context));
+    container.append(panel);
   }
   if (report.creator) {
     const { profile, topic, leads, unavailable } = report.creator;

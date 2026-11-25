@@ -59,7 +59,7 @@ function postCard(post, id, leads, context) {
   };
 }
 
-export async function hydratePosts(context, leads, query, options, excluded = new Set()) {
+export async function hydratePosts(context, leads, query, { authorId, ...options }, excluded = new Set()) {
   const byPost = new Map();
   for (const item of leads) {
     if (!item.postId || excluded.has(item.postId)) continue;
@@ -72,6 +72,7 @@ export async function hydratePosts(context, leads, query, options, excluded = ne
   for (let index = 0; index < groups.length; index += 4) {
     const rows = await Promise.allSettled(groups.slice(index, index + 4).map(async ([id, media]) => {
       const record = await read(context, '/api/v1/posts/' + id, {}, options);
+      if (authorId !== undefined && record?.user?.id !== authorId) return null;
       const card = postCard(record, id, media, context);
       return card?.previews.length ? card : null;
     }));
