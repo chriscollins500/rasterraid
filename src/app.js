@@ -883,8 +883,10 @@ function renderSearch(result, filters, current, phase = 'complete') {
     byId('quick-coverage-areas').textContent = areas.join(' · ') + (quick.status !== 'ready' ? '. Some additional areas were unavailable.' : '');
   } else byId('quick-coverage-areas').textContent = '';
   paintVisualBrief(result.visualComposition, current);
-  renderReport(byId('report-overview'), result.report, current, startExample,
-    phase === 'complete' ? setup => workspace.openExampleCheck(current, setup) : undefined);
+  renderReport(byId('report-overview'), result.report, current, startExample, {
+    onCompareSetup: phase === 'complete' ? setup => workspace.openExampleCheck(current, setup) : undefined,
+    graphicsMemory: result.report?.upgrade ? workspace.graphicsMemory() : null,
+  });
   renderReportChanges(byId('report-changes'), result.searchComparison, current, checkpoint =>
     workspace.refreshSearch(result.savedSearch, checkpoint, current), startExample);
   visualReferences.show(phase === 'loading' ? null : result.report, current);

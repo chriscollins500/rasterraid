@@ -7,7 +7,7 @@ import { modelChoiceFields, modelDownloadFilter, modelDownloadLabel, modelFilter
 import { discover, galleryModelSources, hashLookupNote, readRecordedVersions, searchTarget } from './search.mjs';
 import { describeReferenceEdits, editVerificationPriorities, pictureIntegrityText, recordedReferenceLimit, recordedReferencePlan, studioAuditReport,
   studioEditSession } from './reference-provenance.mjs';
-import { readUpgradeEvidence, upgradeFacts, upgradeForSearch, upgradeGuideLabel, upgradeGuides, upgradeStorageChange } from './upgrade-evidence.mjs';
+import { readUpgradeEvidence, upgradeFacts, upgradeForSearch, upgradeGuideLabel, upgradeGuides, upgradeMemoryComparison, upgradeStorageChange } from './upgrade-evidence.mjs';
 import { GROUPS, resultGroups } from './view.js';
 import { foldSearchText } from './query-language.mjs';
 import { releaseSampleCoverage, traceReleaseMedia } from './release-trail.mjs';
@@ -926,7 +926,7 @@ export function editReferenceSource(report, reference) {
 const markdownLine = value => String(value ?? '').replace(/\r?\n|\r/gu, ' ').replace(/[\\[\]\u0060*<>|]/gu, '\\$&');
 const markdownLink = item => '[' + markdownLine(item.title) + '](<' + item.link.replaceAll('|', '%7C') + '>)';
 
-export function reportMarkdown(report) {
+export function reportMarkdown(report, graphicsMemory) {
   const lines = ['# ' + markdownLine(report.title), ''];
   if (report.query) lines.push('**Search** ' + markdownLine(report.query));
   if (report.interpreted && report.interpreted !== report.query) lines.push('**Reference used for search** ' + markdownLine(report.interpreted));
@@ -1012,6 +1012,15 @@ export function reportMarkdown(report) {
     }
     const size = upgradeStorageChange(comparison);
     lines.push('', ...(size ? [size] : []), 'Generation access is the signed-out check. Loader behavior and memory use require a local test.');
+    const memory = upgradeMemoryComparison(comparison, graphicsMemory);
+    if (memory) {
+      lines.push('', '### Graphics memory', ...[memory.setup, memory.empty].filter(Boolean), '');
+      for (const source of memory.sources) {
+        lines.push('- ' + markdownLink(source));
+        for (const claim of source.claims) lines.push('  - ' + [claim.label, claim.difference, claim.note].filter(Boolean).map(markdownLine).join(' · '));
+      }
+      lines.push('', memory.note);
+    }
     if (comparison.termsLink) lines.push('', '### Creator’s listing terms',
       '- [Model listing](<' + comparison.termsLink + '>) · ' + comparison.usage.map(markdownLine).join(' · '));
     const notes = [comparison.previous, comparison.next].filter(release => release?.notes || release?.hardware);

@@ -49,6 +49,63 @@ const date = value => typeof value === 'string' && Number.isFinite(Date.parse(va
 const excerpt = value => plainArticleText(value, 500).split(/\s+/u).slice(0, 23).join(' ');
 const fileSize = value => Number.isFinite(value) && value > 0 ? value : null;
 
+const memoryTerm = '(?:vram|(?:gpu|graphics|video)\\s+memory)';
+const memoryAmount = '([1-9]\\d{0,3}(?:\\.\\d{1,2})?)\\s*(GB|GiB)\\b';
+const amountBeforeMemory = new RegExp('(?<![\\d.,])' + memoryAmount + '\\s+(?:of\\s+)?' + memoryTerm + '\\b', 'giu');
+const amountAfterMemory = new RegExp('\\b' + memoryTerm + '(?:\\s+(?:required|recommended|minimum))?\\s*[:=]\\s*' + memoryAmount, 'giu');
+const memoryMention = new RegExp('\\b' + memoryTerm + '\\b', 'iu');
+const memoryDetail = '(?:\\s+' + memoryTerm + ')?\\s*[:=]?$';
+const memoryMinimum = new RegExp('\\b(?:minimum(?:\\s+of)?|at least|requires?|needs?)(?:\\s+(?:is|a))?' + memoryDetail, 'iu');
+const memoryRecommendation = new RegExp('\\b(?:recommend(?:s|ed)?|recommendation)(?:\\s+(?:is|of))?' + memoryDetail, 'iu');
+const sentences = new Intl.Segmenter('en', { granularity: 'sentence' });
+
+function memoryClaim(note) {
+  const amounts = [...note.matchAll(amountBeforeMemory), ...note.matchAll(amountAfterMemory)];
+  if (amounts.length !== 1 || /\b(?:no|not|never|without|cannot|failed|out of memory)\b|n['’]t\b/iu.test(note)) return { note };
+  const [phrase, amount, unit] = amounts[0];
+  const before = note.slice(0, amounts[0].index);
+  const after = note.slice(amounts[0].index + phrase.length);
+  const subject = (before + phrase.slice(0, phrase.indexOf(amount))).trimEnd();
+  const kind = memoryMinimum.test(subject) || /^\s*(?:minimum|required)\b/iu.test(after) ? 'minimum'
+    : memoryRecommendation.test(subject) || /^\s*recommended\b/iu.test(after) ? 'recommended'
+      : /\b(?:tested|tests)\s+(?:on|with)\b/iu.test(before) ? 'tested' : '';
+  return kind ? { note, kind, amount: Number(amount), unit: unit.toLowerCase() === 'gib' ? 'GiB' : 'GB' } : { note };
+}
+
+export function creatorMemoryClaims(value) {
+  const source = text(value, 80_000);
+  const claims = new Map();
+  for (const part of source.split(/<\/(?:p|li|h[1-6]|tr)>|<br\b[^>]*>|\r?\n/iu)) {
+    const line = plainArticleText(part, 80_000).normalize('NFKC');
+    if (!memoryMention.test(line)) continue;
+    for (const { segment } of sentences.segment(line)) {
+      const note = segment.trim();
+      if (!memoryMention.test(note) || note.length > 480 || claims.has(note)) continue;
+      claims.set(note, memoryClaim(note));
+    }
+  }
+  return [...claims.values()].sort((first, second) => Number(Boolean(second.kind)) - Number(Boolean(first.kind))).slice(0, 4);
+}
+
+const memoryKinds = { minimum: 'Creator’s minimum', recommended: 'Creator’s recommendation', tested: 'Creator’s test figure' };
+const memoryLimitNote = 'Creator notes describe particular setups. Run the workflow locally to verify memory use.';
+
+export function upgradeMemoryComparison(comparison, graphicsMemory) {
+  const local = Number.isSafeInteger(graphicsMemory) && graphicsMemory > 0 && graphicsMemory <= 2048 ? graphicsMemory : null;
+  const sources = (comparison.memorySources ?? []).map(source => ({ ...source, claims: source.claims.map(claim => {
+    const label = claim.kind ? memoryKinds[claim.kind] + ' · ' + claim.amount + ' ' + claim.unit : 'Creator’s note';
+    if (local === null || claim.unit !== 'GB') return { ...claim, label };
+    const amount = Math.round((local - claim.amount) * 100) / 100;
+    const difference = amount === 0 ? 'Same stated capacity' : Math.abs(amount) + ' GB ' + (amount > 0 ? 'above' : 'below') + ' this figure';
+    return { ...claim, label, difference };
+  }) }));
+  if (!local && !sources.length) return null;
+  return { sources, setup: local ? 'Your setup lists ' + local + ' GB of graphics memory.' : '',
+    empty: sources.length ? '' : comparison.memoryChecked ? 'The checked creator notes contained no graphics memory figures.'
+      : 'Creator notes were unavailable for the graphics memory check.',
+    note: memoryLimitNote };
+}
+
 function releaseEvidence(model, publicVersion, permission, origin) {
   const file = model.selectedFile;
   const source = publicVersion?.description || model.releaseNotes || '';
@@ -101,7 +158,8 @@ export async function readUpgradeEvidence(context, pair, filters, {
   ]) : [];
   signal?.throwIfAborted();
   const publicVersions = listing?.id === modelId && Array.isArray(listing.modelVersions) ? listing.modelVersions : [];
-  const [previous, next] = models.map(model => model ? releaseEvidence(model, publicVersions.find(row => row.id === model.id),
+  const versionNotes = models.map(model => model && publicVersions.find(row => row.id === model.id));
+  const [previous, next] = models.map((model, index) => model ? releaseEvidence(model, versionNotes[index],
     gates && Object.hasOwn(gates, model.id) ? gates[model.id] : null, context.origin) : null);
   const [fromModel, toModel] = models;
   let fit = 'Both exact files are needed to assess the upgrade.';
@@ -115,12 +173,24 @@ export async function readUpgradeEvidence(context, pair, filters, {
     fit = reason || (matches ? 'Newer release with matching catalog details' : 'The release dates do not establish a newer release.');
   }
   const knownTerms = candidates.map(model => listedCreatorTerms(model.usage)).find(terms => terms.length) ?? [];
-  const publishedTerms = publicVersions.some(row => ids.includes(row.id)) ? listedCreatorTerms(modelUsage(listing)) : [];
+  const listed = versionNotes.some(Boolean);
+  const listingLink = new URL('/models/' + modelId, context.origin).href;
+  const publishedTerms = listed ? listedCreatorTerms(modelUsage(listing)) : [];
   const usage = publishedTerms.length ? publishedTerms : knownTerms;
   const deltaKB = previous?.file.sizeKB && next?.file.sizeKB ? next.file.sizeKB - previous.file.sizeKB : null;
+  const notes = [
+    ['Current release', previous?.link, versionNotes[0]?.description],
+    ['Proposed release', next?.link, versionNotes[1]?.description],
+    ['Model listing', listingLink, listed ? listing.description : ''],
+  ];
+  const memorySources = notes.flatMap(([title, link, description]) => {
+    const claims = link ? creatorMemoryClaims(description) : [];
+    return claims.length ? [{ title, link, claims }] : [];
+  });
   return { candidates, related: {}, flows, upgrade: {
     checkedAt, previous, next, deltaKB, fit, matches, usage,
-    termsLink: usage.length ? new URL('/models/' + modelId, context.origin).href : null,
+    termsLink: usage.length ? listingLink : null,
+    memoryChecked: notes.some(([, link, description]) => link && plainArticleText(description)), memorySources,
     guides: [], guidesChecked: 0, guidesUnavailable: 0,
   } };
 }

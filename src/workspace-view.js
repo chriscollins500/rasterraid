@@ -641,7 +641,9 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     if (dialog.open) draw();
   }
 
-  return { bind, remember, openPublishedAudit(owner, inspected, source) {
+  return { bind, remember, graphicsMemory() {
+    return runtime.value === 'comfyui' ? profile().vram : null;
+  }, openPublishedAudit(owner, inspected, source) {
     void openWorkspace({ published: { owner, inspected, source } });
   }, openExampleCheck(owner, setup) {
     void openWorkspace({ example: { owner, setup } });
