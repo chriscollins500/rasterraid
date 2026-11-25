@@ -34,7 +34,9 @@ function request(worker, message, timeout, signal, progress, transfer = []) {
     const abort = () => settle(guard.reason);
     guard.addEventListener('abort', abort, { once: true });
     worker.onerror = () => settle(new Error('This browser could not start the speech model.'));
-    worker.onmessage = ({ data }) => {
+    worker.onmessage = event => {
+      if (!event.isTrusted || event.origin !== '' || event.source !== null || event.ports.length !== 0) return;
+      const { data } = event;
       if (data.type === 'progress') progress(data);
       else settle(data.type === 'error' ? new Error('The speech model could not read this audio.') : data);
     };

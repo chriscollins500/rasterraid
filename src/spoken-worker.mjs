@@ -35,7 +35,10 @@ async function openModel() {
   return ortSpeech(ort, parts);
 }
 
-self.onmessage = async ({ data }) => {
+self.addEventListener('message', async event => {
+  // Dedicated worker messages arrive on the browser's implicit port.
+  if (!event.isTrusted || event.origin !== '' || event.source !== null || event.ports.length !== 0) return;
+  const { data } = event;
   if (busy) return;
   busy = true;
   try {
@@ -50,4 +53,4 @@ self.onmessage = async ({ data }) => {
   } catch {
     self.postMessage({ type: 'error' });
   } finally { busy = false; }
-};
+});

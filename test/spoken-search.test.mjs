@@ -30,3 +30,26 @@ test('spoken phrase matching returns the original excerpt and keeps silent gaps 
   assert.deepEqual(spokenWordHits(rows, 'voice a different'), []);
   assert.deepEqual(spokenWordHits(rows, 'one two three four five six seven eight nine ten eleven twelve thirteen'), []);
 });
+
+test('only trusted dedicated-worker events can start a speech model download', async t => {
+  const downloads = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected model download'); });
+  const previousSelf = globalThis.self;
+  let listener;
+  globalThis.self = {
+    addEventListener(name, handler) { if (name === 'message') listener = handler; },
+    set onmessage(handler) { listener = handler; },
+    postMessage() {},
+  };
+  t.after(() => {
+    if (previousSelf === undefined) delete globalThis.self;
+    else globalThis.self = previousSelf;
+  });
+  await import('../src/spoken-worker.mjs');
+  const direct = { isTrusted: true, origin: '', source: null, ports: [], data: { type: 'load' } };
+  for (const changed of [{ isTrusted: false }, { origin: 'https://example.com' }, { source: {} }, { ports: [{}] }]) {
+    await listener({ ...direct, ...changed });
+  }
+  assert.equal(downloads.mock.callCount(), 0);
+  await listener(direct);
+  assert.equal(downloads.mock.callCount(), 4);
+});
