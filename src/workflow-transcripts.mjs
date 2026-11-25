@@ -13,6 +13,8 @@ function tokens(value) {
     [{ word: normalizeWord(part.segment), start: part.index, end: part.index + part.segment.length }] : []);
 }
 
+export { tokens as transcriptTokens };
+
 function cues(step) {
   if (step.status !== 'succeeded' || step.$type !== 'transcription') return [];
   if (step.transcriptScope === 'clip') return step.lines.slice(0, 1).map(line => ({ value: text(line, 8_000), time: null }));
