@@ -747,7 +747,11 @@ function renderSearch(result, filters, current, phase = 'complete') {
     result.exactPost || result.target.kind === 'comic' ? 'all' : resultScope);
   const filter = groups[preferred]?.length ? preferred : 'all';
   const focusedPick = previous && document.activeElement?.dataset?.pick;
-  const keepPicks = previous && (previous.phase !== 'loading' || previous.result.candidates.length);
+  const focusedModelLink = previous?.phase === 'loading'
+    ? document.activeElement?.closest('[data-version] h4 a, [data-version] .card-actions a') : null;
+  const focusedVersion = focusedModelLink?.closest('[data-version]').dataset.version;
+  const keepPicks = previous && (previous.picksEdited || !previous.result.exactTitleReady) &&
+    (previous.phase !== 'loading' || previous.result.candidates.length);
   const chosen = keepPicks ? previous.chosen : new Set(result.shortlisted.map(({ id }) => id));
   const catalogSelections = previous?.catalogSelections ?? new Map();
   search = { result, filters, groups, filter, context: current, chosen, picksEdited: Boolean(previous?.picksEdited || filters.workspaceShortlist),
@@ -1015,12 +1019,17 @@ function renderSearch(result, filters, current, phase = 'complete') {
   byId('gallery-native').replaceChildren(...nativeLinks);
   showResults(true);
   if (focusedPick) resultArea.querySelector('[data-pick="' + focusedPick + '"]')?.focus({ preventScroll: true });
+  else if (focusedVersion) {
+    const link = focusedModelLink.closest('h4') ? 'h4 a' : '.card-actions a';
+    (resultArea.querySelector('[data-version="' + focusedVersion + '"] ' + link) ?? resultsTitle).focus({ preventScroll: true });
+  }
   const count = populated.filter(([id]) => (id !== 'pictures' || resultScope === 'pictures') && id !== 'postMedia')
     .reduce((total, [id]) => total + groups[id].length, result.reference ? 1 : 0);
   const matchLabel = result.target.scene || result.target.motion ? result.primaryCount + (result.primaryCount === 1 ? ' related clip' : ' related clips')
     : services?.matches > count ? count + ' of ' + services.matches + ' matches shown'
     : count + (count === 1 ? ' match' : ' matches');
-  searchStatus.textContent = phase === 'loading' ? result.report ? 'Some report sources are ready. Searching the rest…'
+  searchStatus.textContent = phase === 'loading' ? result.exactTitleReady ? 'Exact title ready. Checking more matches…'
+    : result.report ? 'Some report sources are ready. Searching the rest…'
     : result.target.scene ? 'Related clips ready. Checking short scenes…'
     : result.target.motion ? 'Related clips ready. Checking movement…'
     : result.visualSearch || result.visualComposition ? 'Preview matches ready. Checking video frames…' : 'Ranked results ready. Loading pictures and related matches…' : pause
@@ -1800,6 +1809,9 @@ async function executeSearch(filters, { trigger, traceRecorded, compose, recorde
         if (ready.report.evidence.length) showLoading(ready);
       } }),
       onPhase: message => { searchStatus.textContent = message; },
+      onExactModel(match) {
+        if (!signal.aborted && !retrying) showLoading(match);
+      },
       onRanked(ranked) {
         if (signal.aborted) return;
         checkpoint = () => ranked;
