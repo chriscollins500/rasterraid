@@ -115,8 +115,9 @@ function pictureFrame(items, name, context, eager = false, loading = false) {
     link.href = item.link;
     link.setAttribute('aria-label', 'Open ' + (item.video ? 'video' : 'picture') + ' for ' + name + ' on Civitai');
     badge.textContent = item.badge ?? (item.video ? 'Video preview' : 'Example');
-    next.textContent = (index + 1) + '/' + pictures.length + ' ›';
-    next.setAttribute('aria-label', 'Next picture for ' + name + '. Showing ' + (index + 1) + ' of ' + pictures.length);
+    const count = (index + 1) + '/' + pictures.length;
+    next.textContent = count + ' ›';
+    next.setAttribute('aria-label', count + ' · Next picture for ' + name);
     image.hidden = false;
     fallback.hidden = true;
     image.src = item.preview;
