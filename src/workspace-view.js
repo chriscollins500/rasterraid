@@ -1,6 +1,6 @@
 import { appPrivateRecord, tabPrivateRecord } from './workflow-journal.mjs';
 import { checkWorkflowFiles, checkWorkspaceAsset, checkWorkspaceSetup, recentSearchLabel, recentWorkspaceSearches,
-  saveWorkspaceEntry, updateSearchCheckpoint, versionReferences, workspaceDocument, workspaceFilters } from './workspace.mjs';
+  saveWorkspaceEntry, updateSearchCheckpoint, versionReferences, workspaceDocument, workspaceFilters, writeWorkspaceChange } from './workspace.mjs';
 import { captureReportCheckpoint } from './report-checkpoint.mjs';
 import { element, sourceLink } from './view.js';
 import { environmentProfile, inspectWorkflowGraph, maximumWorkflowBytes, workflowAssetLabel, workflowInspectionLabel } from './workflow-profile.mjs';
@@ -34,6 +34,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   const tabs = [...dialog.querySelectorAll('[role="tab"]')];
   const name = id('workspace-name');
   const message = id('workspace-status');
+  const checkChange = id('workspace-check-change');
   const saveSearch = id('workspace-save-search');
   const saveList = id('workspace-save-shortlist');
   const runtime = id('workspace-runtime');
@@ -72,6 +73,9 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   let historyStore;
   let key;
   let state = workspaceDocument(null);
+  let snapshot;
+  let pendingChange;
+  let writingWorkspace;
   let recent = [];
   let ready = false;
   let busy = false;
@@ -119,11 +123,14 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
 
   function draw() {
     const selected = choices();
+    const canSave = ready && !busy && !pendingChange;
     saveSearch.closest('.workspace-save').hidden = !selected.searches && !selected.shortlists.length;
-    saveSearch.disabled = !ready || busy || !selected.searches;
+    saveSearch.disabled = !canSave || !selected.searches;
     saveSearch.textContent = selected.checkpoint && selected.searches?.scope === 'report' ? 'Save report for comparison' : 'Save current search';
-    saveList.disabled = !ready || busy || !selected.shortlists.length;
-    profileSave.disabled = !ready || busy;
+    saveList.disabled = !canSave || !selected.shortlists.length;
+    profileSave.disabled = !canSave;
+    checkChange.hidden = !pendingChange?.uncertain;
+    checkChange.disabled = busy || !ready;
     profileApply.disabled = !family.value.trim();
     clearAssets.disabled = !assets.length || busy;
     drawFileChecks();
@@ -131,7 +138,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     setupCheck.disabled = !selected.shortlists.length || Boolean(fitting) || busy;
     setupCheck.textContent = selected.shortlists.length ? 'Check ' + selected.shortlists.length + ' picked ' +
       (selected.shortlists.length === 1 ? 'version' : 'versions') : 'Check picked versions';
-    backup.setWorkspace(state, ready && !busy);
+    backup.setWorkspace(state, canSave);
     const recentArea = id('workspace-recent');
     clearRecent.hidden = !recent.length;
     const recentList = element('ul');
@@ -165,7 +172,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
         });
         const remove = element('button', 'Remove', 'chip');
         remove.type = 'button';
-        remove.disabled = busy;
+        remove.disabled = !canSave;
         remove.setAttribute('aria-label', 'Remove ' + entry.name);
         remove.addEventListener('click', () => { void change(value => ({ ...value, [type]: value[type].filter(item => item.id !== entry.id) })); });
         row.append(open, remove);
@@ -220,7 +227,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     auditCopy.disabled = Boolean(auditing);
     const versions = auditVersions();
     auditSave.hidden = !versions.length;
-    auditSave.disabled = active || busy || !ready;
+    auditSave.disabled = active || busy || !ready || Boolean(pendingChange);
     const complete = auditOffset >= assets.length;
     auditCheck.disabled = active || busy || !assets.length || auditRetryAt > Date.now();
     auditCheck.textContent = complete ? 'Recheck workflow files' : auditOffset ? 'Continue checking files' : 'Check workflow files';
@@ -331,6 +338,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   dialog.addEventListener('close', modelFiles.reset);
   dialog.addEventListener('close', () => {
     if (dialog.open) return;
+    openingWorkspace?.abort();
     openingWorkspace = undefined;
     clearExampleCheck();
     if (graphTrace?.source) setAssets(state.profile.assets);
@@ -482,34 +490,69 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     preview.addEventListener('close', () => { if (exampleExport === preview) exampleExport = undefined; }, { once: true });
   });
 
-  async function change(apply) {
-    if (!store || !ready || busy) return false;
+  async function savePendingChange() {
+    if (!store || !ready || busy || !pendingChange) return false;
     const original = store;
+    const change = pendingChange;
+    const controller = writingWorkspace = new AbortController();
+    const isCurrent = () => original === store && writingWorkspace === controller;
+    const checkingSave = window.document.activeElement === checkChange;
     busy = true;
     message.textContent = 'Updating your workspace…';
     draw();
     try {
-      let updated = apply(state);
-      try { await original.write(updated); }
-      catch (error) {
-        if (error.status !== 409) throw error;
-        updated = apply(workspaceDocument(await original.read()));
+      if (snapshot) {
+        const result = await writeWorkspaceChange(original, snapshot, change, { signal: controller.signal, onCheck() {
+          if (isCurrent()) message.textContent = 'Checking whether Civitai saved the change…';
+        } });
+        if (!isCurrent()) return false;
+        snapshot = result.snapshot;
+        state = workspaceDocument(snapshot.data);
+        if (result.outcome === 'check') {
+          message.textContent = 'Civitai’s confirmation is still pending. Check the save to continue.';
+          return false;
+        }
+        if (result.outcome === 'review') {
+          pendingChange = undefined;
+          message.textContent = 'Workspace changed elsewhere. Review the current items before saving again.';
+          return false;
+        }
+      } else {
+        const updated = change.apply(state);
         await original.write(updated);
-      }
-      if (original === store) {
+        if (!isCurrent()) return false;
         state = updated;
-        name.value = '';
-        message.textContent = 'Workspace updated.';
-        return true;
       }
+      pendingChange = undefined;
+      name.value = '';
+      message.textContent = 'Workspace updated.';
+      return true;
     } catch (error) {
-      if (original === store) message.textContent = error.status === 413 ? 'Civitai storage is full. Remove saved items or import a smaller selection.' :
-        error.message || 'The workspace could not be updated.';
+      if (isCurrent()) {
+        if (!change.uncertain) pendingChange = undefined;
+        message.textContent = error.status === 413 ? 'Civitai storage is full. Remove saved items or import a smaller selection.' :
+          error.message || 'The workspace could not be updated.';
+      }
     } finally {
-      if (original === store) { busy = false; draw(); }
+      if (isCurrent()) {
+        writingWorkspace = undefined;
+        busy = false;
+        draw();
+        if (checkingSave && dialog.open && [window.document.body, checkChange].includes(window.document.activeElement)) {
+          (checkChange.hidden ? id('workspace-tab-saved') : checkChange).focus();
+        }
+      }
     }
     return false;
   }
+
+  function change(apply) {
+    if (!store || !ready || busy || pendingChange) return false;
+    pendingChange = { id: crypto.randomUUID(), apply };
+    return savePendingChange();
+  }
+
+  checkChange.addEventListener('click', () => { void savePendingChange(); });
 
   function save(type) {
     if (!name.value.trim()) {
@@ -553,11 +596,18 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
 
   async function openWorkspace({ published, example } = {}) {
     if (!store || dialog.open) return;
+    if (pendingChange) {
+      const activeTab = id('workspace-tab-saved');
+      selectTab(activeTab);
+      dialog.showModal();
+      activeTab.focus();
+      return;
+    }
     const original = store;
-    const opening = {};
-    openingWorkspace = opening;
+    openingWorkspace?.abort();
+    const opening = openingWorkspace = new AbortController();
     clearExampleCheck();
-    const stillOpening = () => original === store && openingWorkspace === opening && dialog.open;
+    const stillOpening = () => original === store && openingWorkspace === opening && dialog.open && !opening.signal.aborted;
     message.textContent = 'Loading saved items…';
     ready = false;
     busy = true;
@@ -567,9 +617,11 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     dialog.showModal();
     activeTab.focus();
     try {
-      const saved = workspaceDocument(await original.read());
+      const stored = original.readSnapshot
+        ? await original.readSnapshot({ signal: opening.signal }) : { data: await original.read() };
       if (stillOpening()) {
-        state = saved;
+        snapshot = original.readSnapshot ? stored : undefined;
+        state = workspaceDocument(stored.data);
         loadProfile(state.profile);
         ready = true;
         message.textContent = '';
@@ -578,6 +630,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
       if (stillOpening()) message.textContent = error.message || 'The workspace is unavailable.';
     } finally {
       if (stillOpening()) {
+        openingWorkspace = undefined;
         busy = false;
         const viewer = getContext();
         const owner = (published ?? example)?.owner;
@@ -600,6 +653,17 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   }
   button.addEventListener('click', () => { void openWorkspace(); });
 
+  function resetWorkspaceWrite() {
+    openingWorkspace?.abort();
+    openingWorkspace = undefined;
+    writingWorkspace?.abort();
+    writingWorkspace = undefined;
+    pendingChange = undefined;
+    snapshot = undefined;
+    ready = false;
+    busy = false;
+  }
+
   function bind(context) {
     modelFiles.bind(context);
     publicWork.parentElement.hidden = !canReadPublicWork(context);
@@ -609,6 +673,10 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     const level = context?.browsingLevel;
     if (next === key) {
       if ((level & ceiling) !== ceiling) {
+        if (pendingChange || openingWorkspace) {
+          resetWorkspaceWrite();
+          if (dialog.open) dialog.close();
+        }
         backup.reset();
         clearExampleCheck();
         if (graphTrace?.source) setAssets(state.profile.assets);
@@ -622,6 +690,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     }
     key = next;
     ceiling = level;
+    resetWorkspaceWrite();
     backup.reset();
     clearExampleCheck();
     if (dialog.open) dialog.close();
@@ -632,8 +701,6 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     recent = recentWorkspaceSearches(historyStore?.read());
     button.disabled = !store;
     id('workspace-storage').textContent = persistent ? 'Saved in your private Civitai workspace.' : 'Saved in this preview session.';
-    ready = false;
-    busy = false;
     name.value = '';
     draw();
   }

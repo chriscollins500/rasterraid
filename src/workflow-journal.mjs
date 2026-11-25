@@ -41,27 +41,37 @@ export function appPrivateRecord(binding, getContext, key, { fetcher = fetch } =
   const call = privateStorage(binding, getContext, fetcher);
   const url = new URL('/api/v1/blocks/storage/prefs/' + key, binding.origin);
   let version;
-  async function request(next, signal) {
-    const body = next ? JSON.stringify({ data: next, ifVersion: version }) : undefined;
+  async function request(next, ifVersion, signal) {
+    const body = next ? JSON.stringify({ data: next, ifVersion }) : undefined;
     const { response, data } = await call(url, { body, signal });
     if (!next && response.status === 404 && data?.code === 'not_found') {
-      version = 0;
-      return null;
+      return { version: 0, data: null };
     }
     if (!response.ok || !Number.isSafeInteger(data?.version) || data.version < 1 || !data.data || typeof data.data !== 'object') {
       const error = new Error('Civitai could not update the private workspace.');
       error.status = response.status;
       throw error;
     }
-    version = data.version;
-    return data.data;
+    const createdAt = typeof data.createdAt === 'string' && data.createdAt.length <= 64 ? data.createdAt : undefined;
+    return { version: data.version, data: data.data, createdAt };
+  }
+  const readSnapshot = ({ signal } = {}) => request(undefined, undefined, signal);
+  async function read(options) {
+    const saved = await readSnapshot(options);
+    version = saved.version;
+    return saved.data;
   }
   return {
-    read: ({ signal } = {}) => request(undefined, signal),
+    read,
     async write(record, { signal } = {}) {
       signal?.throwIfAborted();
-      if (version === undefined) await request(undefined, signal);
-      await request(record, signal);
+      if (version === undefined) await read({ signal });
+      version = (await request(record, version, signal)).version;
+    },
+    readSnapshot,
+    writeSnapshot(record, { ifVersion, signal }) {
+      if (!Number.isSafeInteger(ifVersion) || ifVersion < 0) throw new TypeError('Read the workspace before saving.');
+      return request(record, ifVersion, signal);
     },
   };
 }

@@ -22,6 +22,7 @@ const maximumPins = 24;
 const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/u;
 const workspaceBackupSchema = 'rasterraid.saved-workspace';
 const workspaceLists = ['searches', 'shortlists'];
+const workspaceWriteLimit = 32;
 export const workspaceBackupMaximumBytes = 2 * 1024 * 1024;
 
 export function workspaceFilters(filters) {
@@ -162,6 +163,84 @@ export function workspaceDocument(value) {
       return versions.length ? { versions } : null;
     }),
   };
+}
+
+function workspaceWriteIds(snapshot) {
+  const record = snapshot.data?.workspaceWrites;
+  if (record?.version !== snapshot.version || !Array.isArray(record.ids) ||
+      record.ids.length > Math.min(workspaceWriteLimit, snapshot.version) ||
+      new Set(record.ids).size !== record.ids.length ||
+      !record.ids.every(id => typeof id === 'string' && uuid.test(id))) return [];
+  return record.ids;
+}
+
+function workspaceReplaced(before, after) {
+  return after.version < before.version || Boolean(before.createdAt && before.createdAt !== after.createdAt);
+}
+
+// Keep a stable action until the private document confirms its outcome.
+export async function writeWorkspaceChange(store, snapshot, change, { signal, onCheck } = {}) {
+  if (typeof change.id !== 'string' || !uuid.test(change.id)) throw new TypeError('A workspace change needs a valid ID.');
+  const result = outcome => ({ outcome, snapshot });
+  async function check() {
+    onCheck?.();
+    const before = snapshot;
+    try {
+      snapshot = await store.readSnapshot({ signal });
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (change.uncertain) return result('check');
+      throw error;
+    }
+    signal?.throwIfAborted();
+    const ids = workspaceWriteIds(snapshot);
+    if (workspaceReplaced(before, snapshot)) return result('review');
+    if (ids.includes(change.id)) return result('saved');
+    const previous = change.uncertain;
+    if (!previous) return undefined;
+    const stillSameDocument = previous.version === 0 ? snapshot.version === 0 :
+      Boolean(previous.createdAt && previous.createdAt === snapshot.createdAt);
+    if (!stillSameDocument || snapshot.version < previous.version) return result('review');
+    if (snapshot.version > previous.version) {
+      // Every revision since the original attempt must have a receipt before rebasing.
+      if (ids.length < snapshot.version - previous.version) return result('review');
+      change.uncertain = undefined;
+    }
+  }
+
+  if (change.uncertain) {
+    const recovered = await check();
+    if (recovered) return recovered;
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    signal?.throwIfAborted();
+    const expected = snapshot.version + 1;
+    if (!Number.isSafeInteger(expected)) return result('review');
+    if (workspaceWriteIds(snapshot).includes(change.id)) return result('saved');
+    const data = workspaceDocument(change.apply(workspaceDocument(snapshot.data)));
+    data.workspaceWrites = { version: expected, ids: [change.id, ...workspaceWriteIds(snapshot)].slice(0, workspaceWriteLimit) };
+    try {
+      const saved = await store.writeSnapshot(data, { ifVersion: snapshot.version, signal });
+      signal?.throwIfAborted();
+      if (saved.version === expected && workspaceWriteIds(saved)[0] === change.id) {
+        const replaced = workspaceReplaced(snapshot, saved);
+        snapshot = saved;
+        return result(replaced ? 'review' : 'saved');
+      }
+      change.uncertain ??= { version: snapshot.version, createdAt: snapshot.createdAt };
+    } catch (error) {
+      signal?.throwIfAborted();
+      const status = error?.status;
+      if (status !== 409) {
+        const refused = status >= 400 && status < 500 && status !== 408;
+        if (refused && !change.uncertain) throw error;
+        if (!refused) change.uncertain ??= { version: snapshot.version, createdAt: snapshot.createdAt };
+      }
+    }
+    const recovered = await check();
+    if (recovered) return recovered;
+  }
+  return result(change.uncertain ? 'check' : 'review');
 }
 
 export function workspaceBackup(value) {
