@@ -1,4 +1,4 @@
-import { articleCitations, articleCover, plainArticleText, publicArticle } from './article-sources.mjs';
+import { articleCitations, articleCover, articleHeadingId, plainArticleText, publicArticle } from './article-sources.mjs';
 import { CATALOG, catalogImagePreview, catalogRead, listItems, numericId, previewUrl, siteSearch, text, visibleRating } from './catalog.mjs';
 import { catalogOrder } from './catalog-orders.mjs';
 import { foldSearchText, translateCatalogTerms } from './query-language.mjs';
@@ -50,8 +50,11 @@ export function directoryReference(url) {
 }
 
 export function isDirectoryNavigation(url) {
-  if (url.hash) return false;
   const reference = directoryReference(url);
+  if (url.hash) {
+    if (url.search || reference?.kind !== 'article' || url.pathname !== '/articles/' + reference.id) return false;
+    try { return Boolean(articleHeadingId(decodeURIComponent(url.hash.slice(1)))); } catch { return false; }
+  }
   if (!url.search && reference && (reference.kind !== 'article' || url.pathname === '/articles/' + reference.id)) return true;
   const parameters = {
     '/articles': ['query', 'username', 'tags'], '/comics': [],
@@ -157,6 +160,13 @@ function articleMatches(row, plan) {
   return (!plan.official || row.isOfficial === true) &&
     (!plan.author || foldSearchText(text(row.user?.username, 80)) === foldSearchText(plan.author)) &&
     (!plan.tag || (Array.isArray(row.tags) && row.tags.some(tag => normalized(tag.name) === normalized(plan.tag))));
+}
+
+export async function readPublicArticle(context, id, { plan = {}, ...options } = {}) {
+  if (!validId(id)) return null;
+  const { data } = await catalogRead(context.origin, CATALOG.articles + '/' + id, {}, options);
+  const article = { ...data, nsfwLevel: level(data.nsfwLevel) };
+  return article.id === id && publicArticle(article, ceilingFor(context)) && articleMatches(article, plan) ? article : null;
 }
 
 async function articleTagId(context, tagName, options) {
@@ -481,8 +491,8 @@ export async function discoverDirectory(context, target, scope, filters, options
   try {
     if (target.kind === 'article') {
       result.nativeLink = new URL('/articles/' + target.id, origin).href;
-      const { data } = await catalogRead(origin, '/api/v1/articles/' + target.id, {}, options);
-      const card = data.id === target.id ? articleCard(data, origin, ceilingFor(context), { exact: true }) : null;
+      const data = await readPublicArticle(context, target.id, options);
+      const card = data ? articleCard(data, origin, ceilingFor(context), { exact: true }) : null;
       if (card) result.related.articles = [card];
       return result;
     }

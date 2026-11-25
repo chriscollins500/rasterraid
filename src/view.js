@@ -629,6 +629,7 @@ export function resultGroupOrder(result) {
 
 export function renderResults(area, result, groups, filter, {
   context, chosen, toggle, onTag, onMediaTag, onLookup, onVisualCrop, loadingDetails, feedback, mediaFeedback, onVisualReference, onHandoff, onWorkflow,
+  onArticlePassages,
   onShowResultType, catalogFailure,
 }) {
   area.replaceChildren();
@@ -688,14 +689,26 @@ export function renderResults(area, result, groups, filter, {
       ? [items[0], items.slice(1).find(item => item.preview || item.previews?.length) ?? items[1]].filter(Boolean)
       : onShowResultType ? items.slice(0, 3) : items;
     const showAll = !sample && shown.length < items.length && onShowResultType;
-    if (showAll || sample && onLookup) {
+    const canFindPassages = id === 'articles' && onArticlePassages;
+    if (showAll || sample && onLookup || canFindPassages) {
       const top = element('div', null, 'group-heading');
-      const more = element('button', showAll ? 'View all ' + items.length + ' ↗'
-        : id === 'gallery' ? 'Search the gallery' : 'Search more ' + title.toLowerCase(), 'chip');
-      more.type = 'button';
-      if (showAll) more.setAttribute('aria-label', 'View all ' + items.length + ' ' + title.toLowerCase());
-      more.addEventListener('click', () => showAll ? onShowResultType(id) : onLookup(sample.query, sample.scope, sample.tag));
-      top.append(heading, more);
+      top.append(heading);
+      if (showAll || sample && onLookup) {
+        const more = element('button', showAll ? 'View all ' + items.length + ' ↗'
+          : id === 'gallery' ? 'Search the gallery' : 'Search more ' + title.toLowerCase(), 'chip');
+        more.type = 'button';
+        if (showAll) more.setAttribute('aria-label', 'View all ' + items.length + ' ' + title.toLowerCase());
+        more.addEventListener('click', () => showAll ? onShowResultType(id) : onLookup(sample.query, sample.scope, sample.tag));
+        top.append(more);
+      }
+      if (canFindPassages) {
+        const find = element('button', items.length === 1 ? 'Find in article' : 'Find passages', 'chip');
+        find.type = 'button';
+        find.setAttribute('aria-haspopup', 'dialog');
+        find.setAttribute('aria-controls', 'article-passages');
+        find.addEventListener('click', () => onArticlePassages(find));
+        top.append(find);
+      }
       group.append(top, grid);
     } else group.append(heading, grid);
     for (const [index, item] of shown.entries()) {

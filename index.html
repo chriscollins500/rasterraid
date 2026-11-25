@@ -512,6 +512,24 @@
       </div>
     </dialog>
 
+    <dialog id="article-passages" class="button-layout article-passages" aria-labelledby="article-passages-title">
+      <div class="workspace-heading">
+        <h2 id="article-passages-title">Find passages</h2>
+        <button class="dialog-close" type="button" data-close-dialog aria-label="Close passage search"><span aria-hidden="true">×</span></button>
+      </div>
+      <form id="article-passage-form">
+        <label class="article-passage-field">Search within <select id="article-passage-sources"></select></label>
+        <div class="article-passage-field">
+          <label for="article-passage-query" id="article-passage-query-label">Words or question</label>
+          <input id="article-passage-query" type="search" maxlength="200" placeholder="e.g. minimum bid" spellcheck="true"
+            autocorrect="on" writingsuggestions="true" autocomplete="off" required autofocus>
+        </div>
+        <button type="button" class="primary" id="article-passage-submit">Find in text</button>
+      </form>
+      <p id="article-passage-status" role="status"></p>
+      <ol id="article-passage-results" aria-label="Matching article passages" role="list"></ol>
+    </dialog>
+
     <div class="workbench" id="workbench" hidden>
       <section class="results" aria-labelledby="results-title">
         <button class="text-button back-search" id="return-to-search" type="button" hidden></button>

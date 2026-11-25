@@ -362,7 +362,7 @@ export function watchHost(win, onContext) {
               !directory && !opportunity && !social && !library && !detail.test(target.pathname) && !listing.test(target.pathname))) return;
         win.parent.postMessage({
           type: 'NAVIGATE',
-          payload: { path: target.pathname + target.search + (leaderboard || commerce || social ? target.hash : ''), scope: 'site', target: 'new_tab' },
+          payload: { path: target.pathname + target.search + (leaderboard || commerce || social || directory ? target.hash : ''), scope: 'site', target: 'new_tab' },
         }, hostOrigin);
       },
     };

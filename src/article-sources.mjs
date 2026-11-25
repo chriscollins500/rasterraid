@@ -14,6 +14,9 @@ export const publicArticle = (article, ceiling) => numericId(article?.id) && art
 export const articleCover = (article, ceiling) => article.coverImageWithheld ? null
   : catalogImagePreview(article.coverImage, ceiling);
 
+export const articleHeadingId = value =>
+  typeof value === 'string' && /^[\p{L}\p{N}][\p{L}\p{N}\p{M}_.:!'()-]{0,139}$/u.test(value) ? value : null;
+
 export function* articleAnchors(content) {
   for (const [, href, inner] of text(content, 80_000).matchAll(/<a(?=\s)[^>]*?\shref\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/giu)) {
     yield { href: href.replace(/&amp;/gu, '&'), label: plainArticleText(inner, 130) };

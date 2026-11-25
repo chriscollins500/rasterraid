@@ -13,6 +13,7 @@ import { isGalleryScope, isVisualGalleryScope, readGalleryPage, readNativeGaller
 import { readPostPage } from './community.mjs';
 import { readBountyPage } from './bounties.mjs';
 import { directoryScopes, readDirectoryPage } from './directory.mjs';
+import { configureArticlePassages } from './article-passages-view.js';
 import { socialScopes } from './social-search.mjs';
 import { configureSearchButtons } from './button-layout.mjs';
 import { catalogResearch } from './catalog-research.mjs';
@@ -277,6 +278,7 @@ function clearReportRecovery() {
 
 function clearSearchResults(current) {
   clearReportRecovery();
+  articlePassages.close();
   showResearchPrices();
   search = undefined;
   subjectComparison.show(null, current);
@@ -303,6 +305,7 @@ function clearSearchResults(current) {
 }
 
 function setSearchBusy(busy, restore = searchButton) {
+  if (busy) articlePassages.close();
   filterReview.setBusy(busy);
   subjectComparison.setSearchBusy(busy);
   form.toggleAttribute('data-searching', busy);
@@ -424,6 +427,11 @@ const preferences = configurePreferences(window, {
   },
 });
 const workflowHistory = configureWorkflowHistory(document, { getContext: () => context, onLookup: startExample });
+const articlePassages = configureArticlePassages(document, {
+  getSearch: () => search,
+  getContext: () => context,
+  followGuide: link => followResult(link, 'report', undefined, 'guide'),
+});
 const workspace = configureWorkspace(window, {
   getContext: () => context,
   getSearch: () => search,
@@ -467,6 +475,7 @@ watchHost(window, update => {
       context.origin !== update.origin || update.connectionLost && !context.connectionLost)) subjectComparison.release();
   context = update;
   if (search?.context !== update) {
+    articlePassages.close();
     retryButton.hidden = true;
     filterReview.show(null);
   }
@@ -587,6 +596,8 @@ function renderGroup() {
     onTag(tag) { followResult('tag: ' + tag, 'models'); },
     onMediaTag: startMediaTag,
     onLookup: followResult,
+    onArticlePassages: search.phase === 'complete' && search.context === context && !search.context.connectionLost
+      ? trigger => articlePassages.open(search, trigger) : undefined,
     onVisualCrop: focusVisualSearch,
     onHandoff: search.phase === 'complete' && !search.result.library
       ? (model, file) => showModelHandoff(window, search.context, model, file) : undefined,
