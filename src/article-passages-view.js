@@ -112,6 +112,11 @@ export function configureArticlePassages(document, { getSearch, getContext, foll
     close();
     if (trigger?.isConnected) trigger.focus({ preventScroll: true });
   });
+  dialog.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return;
+    event.preventDefault();
+    dialog.close();
+  });
   input.addEventListener('input', clearResults);
   choice.addEventListener('change', clearResults);
   async function find() {
@@ -142,11 +147,12 @@ export function configureArticlePassages(document, { getSearch, getContext, foll
       if (signal.aborted || !isCurrent(current)) return;
       if (reading.sources.length === reading.requested) current.reading = { selection: selected, value: reading };
       const passages = rankArticlePassages(reading.sources, question);
-      const coverage = reading.sources.length + ' of ' + reading.requested + ' article texts read.';
+      const coverage = reading.requested === 1 && reading.sources.length === 1 ? ''
+        : ' Read ' + reading.sources.length + ' of ' + reading.requested + ' articles.';
       const detail = reading.paused ? ' Civitai paused further reads.' : '';
       const outcome = passages.length ? passages.length + (passages.length === 1 ? ' matching passage.' : ' matching passages.')
         : reading.sources.length ? 'No match in the text checked. Try a shorter phrase.' : 'Article text is unavailable.';
-      status.textContent = outcome + ' ' + coverage + detail;
+      status.textContent = outcome + coverage + detail;
       list.replaceChildren(...passages.map(row => passageCard(row, current.search.context, link => {
         if (isCurrent(current)) {
           close();

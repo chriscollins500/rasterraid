@@ -546,7 +546,7 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .article-passage blockquote { margin: 0; font-size: .88rem; color: var(--fg); }
 .article-passage mark { background: var(--accent); color: var(--accent-ink); border-radius: 2px; }
 .article-passage-actions { display: flex; gap: 4px 12px; align-items: center; flex-wrap: wrap; }
-.article-passage-actions a { display: inline-flex; align-items: center; min-height: 36px; font-size: .85rem; }
+.article-passage-actions a { display: inline-flex; gap: 3px; align-items: center; min-height: 36px; font-size: .85rem; }
 .model-handoff section button { margin-top: 7px; }
 .model-handoff .quote-status:empty { display: none; }
 .model-handoff textarea { min-height: 8rem; max-height: 28vh; }
