@@ -37,7 +37,7 @@ const ordered = record => Object.keys(record).sort().map(key => [key, record[key
 
 export function createReportRecovery(context, filters, preferences, { now = () => Date.now() } = {}) {
   const owner = viewKey(context);
-  if (!owner || filters.scope !== 'report' || filters.reportType === 'portfolio' || filters.upgradePair ||
+  if (!owner || filters.scope !== 'report' || ['portfolio', 'publicWork'].includes(filters.reportType) || filters.upgradePair ||
       filters.reportSources?.some(scope => libraryScopes.has(scope))) return null;
   const plan = structuredClone(filters);
   const profile = structuredClone(preferences);

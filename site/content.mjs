@@ -43,6 +43,7 @@ const coverageGroups = [
     ['Vault and downloads', 'Open on Civitai', 'Open the viewer’s native Vault and download history.'],
     ['Creation history', 'Requires sign-in', 'Use Civitai’s picture picker for selected creations or open the full generation history.'],
     ['My published models', 'Requires sign-in', 'Search releases under your own account and build a report with eligible pictures and posts.'],
+    ['My public work', 'Requires sign-in', 'Preview recent public pictures, clips, audio uploads and verified posts from your account.'],
     ['Notifications and messages', 'Open on Civitai', 'Open Civitai notifications or go to Civitai to use Chat.'],
     ['Deep Search history', 'Requires sign-in', 'Reopen eligible RasterRaid runs, copy receipts and load available notes.'],
   ]],
@@ -134,6 +135,7 @@ ${sectionHeading('recover', 'Recover a result or receipt')}
   { slug: 'workspace', name: 'Workspace', title: 'Keep the work you want to reuse', description: 'Save searches, exact model picks, report comparisons and local setup checks in RasterRaid’s Workspace.', body: `
 ${sectionHeading('save', 'Save a search or shortlist')}
 <p>Open <strong>Workspace</strong>, enter a name and choose <strong>Save current search</strong> or <strong>Save model picks</strong>. Reopening a shortlist checks access again and keeps eligible exact version and file identities. Recent public searches can also be reopened in the current tab.</p>
+<p>In current source builds, signed-in viewers can choose <strong>Find my public work</strong> to see recent pictures, clips, audio and verified posts. Enter a topic to filter this sample by published titles, descriptions or tags. Open your Civitai profile to browse older uploads.</p>
 ${sectionHeading('files', 'Check models and workflows from your setup')}
 <p>Under <strong>Files &amp; setup</strong>, choose an existing ComfyUI workflow or select model files to verify their full SHA-256 checksums. RasterRaid can read supported CiviScribe sidecars and Civitai Metadata Studio exports. Matches link to the exact Civitai version or file. Several listings can share a checksum, so RasterRaid shows the matches for you to review.</p>
 <p>From an eligible public picture or clip, choose <strong>Check recorded settings → Compare with my setup</strong> to compare its recorded references with your local profile.</p>

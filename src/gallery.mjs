@@ -258,13 +258,14 @@ async function readGalleryBatch(context, plan, { cursor, signal, fetcher, limit 
     ...params, type, cursor, tags: selectedTags.join(','), limit, withTags: true,
     ...(hasPublishedPrompt && { withMeta: true }),
     ...(appCatalog ? {} : { browsingLevel: ceiling }),
-  }, { token, signal, fetcher });
+  }, { token, signal, fetcher, privateRead: Boolean(params.userId) });
   const next = data.metadata?.nextCursor;
   return {
     items: listItems(data).flatMap(row => {
       const records = imageTags(row);
       const item = mediaCard(row, type, origin, ceiling, selectedTags, records);
       if (!item || creator && item.creator.toLowerCase() !== creator ||
+          params.userId && row.userId != null && row.userId !== params.userId ||
           baseModels.size && !baseModels.has(text(row.baseModel, 100)) ||
           hasPublishedPrompt && !text(publishedPrompt(row), 160)) return [];
       if (requiredTags.length) {

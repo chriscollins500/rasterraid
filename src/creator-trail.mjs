@@ -1,12 +1,17 @@
-import { numericId, text } from './catalog.mjs';
+import { numericId, SITE_ORIGINS, text } from './catalog.mjs';
 import { hydratePosts } from './community.mjs';
-import { directoryReference } from './directory.mjs';
+import { directoryReference, readPublicAccount } from './directory.mjs';
+import { readGalleryPage } from './gallery.mjs';
 import { modelCreatorName } from './model-access.mjs';
+import { searchTerms, translateCatalogTerms } from './query-language.mjs';
 
 export const creatorReportSources = ['users', 'models', 'gallery', 'videos', 'articles', 'posts', 'collections', 'comics'];
+const publicMediaTypes = { gallery: 'image', videos: 'video', audio: 'audio' };
+export const publicWorkSources = ['users', ...Object.keys(publicMediaTypes), 'posts'];
 const roleLabels = {
   models: 'Civitai credits this account with the model', gallery: 'This account uploaded the picture',
-  videos: 'This account uploaded the clip', articles: 'Civitai lists this account as the article author',
+  videos: 'This account uploaded the clip', audio: 'This account uploaded the audio',
+  articles: 'Civitai lists this account as the article author',
   posts: 'This account published the post', collections: 'This account curates the collection',
   comics: 'Civitai lists this account as the comic creator',
 };
@@ -14,6 +19,13 @@ const authorKey = value => modelCreatorName(value).toLowerCase();
 const perSource = 5;
 const leadLimit = 5;
 const postLimit = 4;
+const publicWorkMediaLimit = 24;
+const publicWorkPostLimit = 8;
+
+export function canReadPublicWork(context) {
+  return Boolean(context?.hosted && context.signedIn && !context.connectionLost && context.token &&
+    SITE_ORIGINS.includes(context.origin) && numericId(context.viewerUserId));
+}
 
 export function creatorBrief(value, origin, selected) {
   const brief = text(value, 500);
@@ -57,6 +69,87 @@ function filterFor(scope, topic, creator, modelFilters) {
   return { query: topic, ...(creator && authorField && { [authorField]: creator }) };
 }
 
+function samplePostMedia(media, mediaLimit, postLimit) {
+  const samples = new Map();
+  for (let index = 0; index < mediaLimit; index++) {
+    for (const items of media) {
+      const item = items[index];
+      if (!numericId(item?.postId) || item.postId > 2_147_483_647) continue;
+      if (samples.size < postLimit && !samples.has(item.postId)) samples.set(item.postId, []);
+      samples.get(item.postId)?.push(item);
+    }
+  }
+  return samples;
+}
+
+const workTerms = value => searchTerms(translateCatalogTerms(value ?? '')?.brief ?? value);
+
+function matchingWork(items, topic, fields) {
+  if (!topic) return items;
+  const wanted = workTerms(topic);
+  if (!wanted.length) return [];
+  return items.flatMap(item => {
+    const title = new Set(workTerms(item.title));
+    const details = new Set(fields(item).flatMap(workTerms));
+    if (!wanted.every(word => title.has(word) || details.has(word))) return [];
+    return [{ item, titleMatches: wanted.filter(word => title.has(word)).length }];
+  }).sort((a, b) => b.titleMatches - a.titleMatches).map(row => row.item);
+}
+
+export async function readPublicWork(context, topic, { signal, fetcher, onPhase }) {
+  if (!canReadPublicWork(context)) throw new Error('Sign in on Civitai to find your public work.');
+  const id = context.viewerUserId;
+  const options = { signal, fetcher };
+  onPhase('Checking your public Civitai profile…');
+  const account = await readPublicAccount(context, id, { ...options, privateRead: true });
+  signal?.throwIfAborted();
+  const profile = account ? { ...account, lookup: null } : null;
+  const rows = new Map([['users', scopedResult('users', { nativeLink: profile?.link, flows: [] }, profile ? [profile] : [])]]);
+  if (!profile) return { rows, summary: { profile: null } };
+
+  onPhase('Finding your recent public pictures, clips, and audio…');
+  const mediaTypes = Object.entries(publicMediaTypes);
+  const checked = await Promise.allSettled(mediaTypes.map(async ([, type]) => {
+    const page = await readGalleryPage(context, { type, userId: id, username: profile.title, tags: [], withMeta: true, sort: 'Newest' },
+      { ...options, limit: publicWorkMediaLimit });
+    return { ...page, matches: matchingWork(page.items, topic, item => [item.prompt, ...item.tags.map(tag => tag.name)]) };
+  }));
+  signal?.throwIfAborted();
+  const media = [];
+  const counts = {};
+  const matchedIds = new Set();
+  for (const [index, outcome] of checked.entries()) {
+    const [scope] = mediaTypes[index];
+    const nativeLink = profile.link + ({ gallery: '/images', videos: '/videos' }[scope] ?? '');
+    if (outcome.status === 'rejected') {
+      rows.set(scope, scopedResult(scope, { nativeLink, flows: [{ status: outcome.reason?.status ?? null }] }, []));
+      continue;
+    }
+    const { items, matches } = outcome.value;
+    counts[scope] = items.length;
+    rows.set(scope, scopedResult(scope, { nativeLink, flows: [] }, matches));
+    const matched = new Set(matches.map(item => item.id));
+    for (const id of matched) matchedIds.add(id);
+    media.push([...matches, ...items.filter(item => !matched.has(item.id))]);
+  }
+
+  const postMedia = samplePostMedia(media, publicWorkMediaLimit, publicWorkPostLimit);
+  if (postMedia.size) onPhase('Verifying your published posts and their previews…');
+  const posts = await hydratePosts(context, [...postMedia.values()].flat(), '', { ...options, authorId: id });
+  const credited = posts.items.filter(item => authorKey(item.creator) === authorKey(profile.title));
+  const verifiedMedia = new Set(credited.flatMap(post => post.previews.map(preview => preview.id)));
+  for (const [scope] of mediaTypes) {
+    const items = rows.get(scope).related[scope];
+    rows.get(scope).related[scope] = items.map(item => !item.postId || verifiedMedia.has(item.id) ? item : { ...item, postId: null });
+  }
+  const postMatches = matchingWork(credited, topic, item => [item.summary, ...item.tags.map(tag => tag.name)]);
+  const directPosts = new Set(postMatches.map(item => item.id));
+  postMatches.push(...credited.filter(item => !directPosts.has(item.id) && item.previews.some(preview => matchedIds.has(preview.id))));
+  rows.set('posts', scopedResult('posts', { nativeLink: profile.link + '/posts', flows: posts.partial ? [{ status: null }] : [] }, postMatches));
+  return { rows, summary: { profile, counts, postsVerified: credited.length,
+    earlierUploads: checked.some(outcome => outcome.status === 'fulfilled' && outcome.value.nextCursor) } };
+}
+
 export async function readCreatorTrail(context, scopes, input, modelFilters, { discoverSource, signal, fetcher, onPhase }) {
   const options = { signal, fetcher };
   async function search(scope, choices) {
@@ -97,16 +190,8 @@ export async function readCreatorTrail(context, scopes, input, modelFilters, { d
     }));
     for (const { scope, result, items } of checked) if (scopes.includes(scope)) rows.set(scope, scopedResult(scope, result, items));
     if (scopes.includes('posts')) {
-      const samples = new Map();
-      const media = checked.filter(({ scope }) => ['gallery', 'videos'].includes(scope));
-      for (let index = 0; index < perSource; index++) {
-        for (const { items } of media) {
-          const item = items[index];
-          if (!numericId(item?.postId) || item.postId > 2_147_483_647) continue;
-          if (samples.size < postLimit && !samples.has(item.postId)) samples.set(item.postId, []);
-          samples.get(item.postId)?.push(item);
-        }
-      }
+      const media = checked.filter(({ scope }) => ['gallery', 'videos'].includes(scope)).map(({ items }) => items);
+      const samples = samplePostMedia(media, perSource, postLimit);
       if (samples.size) onPhase('Verifying public posts from the selected pictures and clips…');
       const posts = await hydratePosts(context, [...samples.values()].flat(), topic, options);
       rows.set('posts', scopedResult('posts', { nativeLink: card.link + '/posts', flows: posts.partial ? [{ status: null }] : [] },
