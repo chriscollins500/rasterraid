@@ -1,5 +1,5 @@
 import { createSoundDecoder, decodeExactPublicSound } from './sound-analysis.mjs';
-import { soundCandidates } from './sound-research.mjs';
+import { soundCandidates, spokenClipResearch, spokenFrameAvailable } from './sound-research.mjs';
 import { speechClipLimit, speechDownloadBytes, speechSecondsLimit } from './spoken-artifacts.mjs';
 import { speechRate } from './spoken-regions.mjs';
 import { subjectWasmAvailable } from './subject-artifacts.mjs';
@@ -55,7 +55,7 @@ function samplesFrom(audio) {
   return mono;
 }
 
-export function configureSpokenSearch(document) {
+export function configureSpokenSearch(document, onReview) {
   const window = document.defaultView;
   const byId = id => document.getElementById(id);
   const panel = byId('spoken-search');
@@ -70,9 +70,32 @@ export function configureSpokenSearch(document) {
   let available = [];
   let rows = [];
   let active;
+  let review;
   let checked = 0;
   const supported = typeof window.Worker === 'function' && typeof (window.OfflineAudioContext ?? window.webkitOfflineAudioContext) === 'function' &&
     Boolean(window.crypto?.subtle) && subjectWasmAvailable();
+
+  function clearReview(notify = true) {
+    if (!review) return;
+    review = undefined;
+    if (notify) onReview(current, false);
+  }
+
+  function selectReview(item, seconds) {
+    const selection = { link: item.link, stream: item.stream, seconds };
+    if (context.connectionLost || !spokenClipResearch(available, selection, context.origin)) return;
+    review = selection;
+    onReview(current, true);
+  }
+
+  function researchButton(label, item) {
+    const button = element('button', label, 'chip');
+    button.type = 'button';
+    button.setAttribute('aria-label', label + ' · ' + item.title);
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-controls', 'deep-search');
+    return button;
+  }
 
   function paint() {
     const query = field.value.trim();
@@ -116,11 +139,25 @@ export function configureSpokenSearch(document) {
         player.tabIndex = 0;
         player.setAttribute('aria-label', hit.item.title);
         media.replaceChildren(player);
+        if (spokenFrameAvailable(hit.item)) {
+          const frame = researchButton('Review at playback position', hit.item);
+          frame.disabled = true;
+          player.addEventListener('loadedmetadata', () => { frame.disabled = !Number.isFinite(player.duration); }, { once: true });
+          frame.addEventListener('click', () => {
+            player.pause();
+            selectReview(hit.item, Math.min(player.currentTime, player.duration - .001));
+          });
+          media.append(frame);
+        }
         void player.play().catch(() => {});
         player.focus();
       });
+      const investigate = researchButton('Research this clip', hit.item);
+      investigate.addEventListener('click', () => selectReview(hit.item, hit.start));
       content.append(excerpt);
-      row.append(content, play);
+      const actions = element('div', null, 'spoken-actions');
+      actions.append(play, investigate);
+      row.append(content, actions);
       list.append(row);
     }
     results.append(list);
@@ -141,6 +178,7 @@ export function configureSpokenSearch(document) {
     rows = [];
     checked = 0;
     clearPlayer();
+    clearReview(false);
     status.textContent = '';
     field.value = '';
     panel.open = false;
@@ -148,6 +186,7 @@ export function configureSpokenSearch(document) {
 
   async function find() {
     if (start.disabled) return;
+    clearReview();
     const run = new AbortController();
     active = run;
     const samples = available;
@@ -202,8 +241,12 @@ export function configureSpokenSearch(document) {
 
   start.addEventListener('click', () => { void find(); });
   stop.addEventListener('click', () => active?.abort());
-  field.addEventListener('input', event => { if (!event.isComposing) paint(); });
-  field.addEventListener('compositionend', paint);
+  function editQuery() {
+    clearReview();
+    paint();
+  }
+  field.addEventListener('input', event => { if (!event.isComposing) editQuery(); });
+  field.addEventListener('compositionend', editQuery);
   field.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing) return;
     event.preventDefault();
@@ -211,6 +254,8 @@ export function configureSpokenSearch(document) {
   });
 
   return {
+    clearReview,
+    reviewFor(result) { return review && result === current ? spokenClipResearch(available, review, context.origin) : null; },
     show(result, groups, nextContext) {
       const next = supported && result && ['audio', 'videos'].includes(result.gallery?.scope)
         ? soundCandidates(result, groups, nextContext.origin).slice(0, speechClipLimit) : [];

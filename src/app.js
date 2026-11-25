@@ -201,6 +201,11 @@ function setResearchOpen(open) {
   }
 }
 
+function openResearchWithQuotes() {
+  setResearchOpen(true);
+  if (search.context.signedIn && search.context.scopes.includes(QUOTE_SCOPE)) quoteButton.click();
+}
+
 function showResearchPrices(prices = [], expiresAt) {
   clearTimeout(quoteExpiry);
   const quotes = search?.quotes ?? [];
@@ -354,17 +359,16 @@ const localSubjectMatcher = createSubjectMatcher(document);
 const subjectComparison = configureSubjectComparison(document, renderResearch, localSubjectMatcher);
 const galleryAppearance = configureGalleryAppearance(document, localSubjectMatcher, (result, open) => {
   if (search?.result !== result || activeSearch) return;
+  if (open) spokenSearch.clearReview(false);
   renderResearch();
-  if (open) {
-    setResearchOpen(true);
-    if (search.context.signedIn && search.context.scopes.includes(QUOTE_SCOPE)) quoteButton.click();
-  }
+  if (open) openResearchWithQuotes();
 });
 const visualReferences = configureLocalReferences(document, report => {
   if (search?.result.report !== report || !report) return;
   if (visualReferences.researchSelection(report).length) {
     soundMatch.clearSelection(false);
     sceneMatch.clearSelection(false);
+    spokenSearch.clearReview(false);
   }
   renderResearch();
 }, ready => {
@@ -395,15 +399,27 @@ const soundMatch = configureSoundMatch(document, result => {
   if (soundMatch.selected(result).picks.length) {
     visualReferences.clearResearchSelection(false);
     sceneMatch.clearSelection(false);
+    spokenSearch.clearReview(false);
   }
   renderResearch();
 }, refreshScenes);
-const spokenSearch = configureSpokenSearch(document);
+const spokenSearch = configureSpokenSearch(document, (result, open) => {
+  if (search?.result !== result || activeSearch) return;
+  if (open) {
+    visualReferences.clearResearchSelection(false);
+    soundMatch.clearSelection(false);
+    sceneMatch.clearSelection(false);
+    galleryAppearance.clearReview(false);
+  }
+  renderResearch();
+  if (open) openResearchWithQuotes();
+});
 const sceneMatch = configureSceneMatch(document, visualReferences, soundMatch, result => {
   if (search?.result !== result || !result) return;
   if (sceneMatch.selected(result).length) {
     visualReferences.clearResearchSelection(false);
     soundMatch.clearSelection(false);
+    spokenSearch.clearReview(false);
   }
   renderResearch();
 });
@@ -1181,7 +1197,8 @@ function renderResearch() {
   const sound = soundResearch(soundSelection.available, soundSelection.picks, search.context.origin);
   const scenes = sceneResearch(selectedReport, search.context.origin, sceneMatch.selected(search.result));
   const writtenScene = galleryAppearance.reviewFor(search.result);
-  const local = scenes ?? visual ?? sound ?? writtenScene;
+  const spoken = spokenSearch.reviewFor(search.result);
+  const local = spoken ?? scenes ?? visual ?? sound ?? writtenScene;
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const subjectOrder = subjectComparison.orderFor(search.result);
@@ -1214,6 +1231,7 @@ function renderResearch() {
   byId('quote-actions').hidden = mockPreview || (!visualMode && !(modelMode ? picked : local?.picks ?? report?.evidence ?? catalog.picks).length);
   byId('research-intro').textContent = legacyMock ? 'Local simulation · Compare the base model recorded for each pick. 0 Buzz used.' : modelMode
     ? 'See prices for different ways to compare your picks. Civitai charges in Buzz credits.'
+    : spoken ? 'Review this public clip. Deep Search uses the recording you selected. Your search words stay in this tab.'
     : writtenScene ? 'Get a live quote for describing this frame. Your search description stays in this tab.'
     : scenes ? 'Price a closer look at the selected public scenes. Your reference files stay in your browser.'
       : visual ? 'Price a closer look at your selected public media and video times. Local reference files stay in your browser.'
@@ -1230,12 +1248,13 @@ function renderResearch() {
   }
   if (local) {
     const label = scenes ? scenePickLimit + ' public scenes' : sound ? soundPickLimit + ' public recordings' : visualPickLimit + ' visual matches';
-    if (!writtenScene) picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
+    if (!writtenScene && !spoken) picks.append(element('p', local.picks.length + ' of ' + label + ' selected'));
     const list = element('ul', null, 'pick-list catalog-pick-summary visual-pick-summary');
     for (const [index, item] of local.picks.entries()) {
       const itemRow = element('li');
       itemRow.append(sourceLink(item.link, item.title, search.context));
-      const description = scenes ? 'Frame near ' + sceneTime(item.seconds) + ' · Sound ' + sceneTime(item.start) + '–' + sceneTime(item.end)
+      const description = spoken ? spoken.hasFrame ? 'Full clip · Frame near ' + sceneTime(item.seconds) : 'Full recording'
+        : scenes ? 'Frame near ' + sceneTime(item.seconds) + ' · Sound ' + sceneTime(item.start) + '–' + sceneTime(item.end)
         : sound ? 'Audio near ' + item.seconds + ' s' :
         [item.kind === 'clip' ? 'Frame near ' + item.seconds + ' s' : item.kind === 'poster' ? 'Video poster' : 'Public picture',
           index === 0 && local.picks.length > 1 && 'Similarity reference'].filter(Boolean).join(' · ');
@@ -1245,13 +1264,24 @@ function renderResearch() {
     const clear = element('button', report ? 'Use full report' : 'Use regular comparison', 'chip');
     clear.type = 'button';
     clear.addEventListener('click', () => {
-      if (scenes) sceneMatch.clearSelection();
+      if (spoken) spokenSearch.clearReview();
+      else if (scenes) sceneMatch.clearSelection();
       else if (sound) soundMatch.clearSelection();
       else if (writtenScene) galleryAppearance.clearReview();
       else visualReferences.clearResearchSelection();
       (byId('quote-actions').hidden ? researchTitle : quoteButton).focus({ preventScroll: true });
     });
-    picks.append(list, clear);
+    picks.append(list);
+    if (spoken?.picks[0].video) {
+      const settings = element('button', 'Check recorded settings', 'chip');
+      settings.type = 'button';
+      settings.addEventListener('click', () => {
+        setResearchOpen(false);
+        followResult(spoken.picks[0].link, 'report', undefined, 'trace');
+      });
+      picks.append(settings);
+    }
+    picks.append(clear);
   } else if (report) {
     const sources = report.rails.filter(rail => rail.count).map(rail => rail.label);
     if (sources.length) picks.append(element('p', sources.join(' · ')));
