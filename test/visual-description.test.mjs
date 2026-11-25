@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
-import { galleryDescriptionSample } from '../src/visual-research.mjs';
+import { galleryDescriptionSample, galleryVisualDescription } from '../src/visual-research.mjs';
+import { pairedSubjectOrder } from '../src/subject-view.js';
 import { sha256Hex, unpackModel } from '../src/model-bytes.mjs';
 
 const origin = 'https://civitai.red';
@@ -22,6 +23,17 @@ test('appearance compares eight displayed eligible pictures and preserves the di
   assert.equal(galleryDescriptionSample({ ...result, library: {} }, displayed, context), null);
   assert.equal(galleryDescriptionSample(result, displayed, { ...context, connectionLost: true }), null);
   assert.equal(galleryDescriptionSample(result, [picture(1), picture(2)], { ...context, browsingLevel: 1 }), null);
+});
+
+test('a reference brief retains its multilingual positive words and separate rank orders', () => {
+  assert.equal(galleryVisualDescription(result), '虹のある湖');
+  assert.equal(galleryVisualDescription({ ...result, target: { kind: 'similarMedia' } }), '');
+  assert.equal(galleryVisualDescription({ ...result, gallery: { query: 'a'.repeat(161) } }), '');
+  const bySubject = [{ id: 3, score: .85, textScore: .33 }, { id: 2, score: .66, textScore: .41 }, { id: 1, score: .16, textScore: .41 }];
+  const show = rows => rows.map(({ id, ranks }) => [id, ranks.words, ranks.references]);
+  assert.deepEqual(show(pairedSubjectOrder(bySubject, 'words')), [[1, 1, 3], [2, 2, 2], [3, 3, 1]]);
+  assert.deepEqual(show(pairedSubjectOrder(bySubject, 'references')), [[3, 3, 1], [2, 2, 2], [1, 1, 3]]);
+  assert.deepEqual(bySubject.map(row => row.id), [3, 2, 1], 'display ordering must not reorder the subject shortlist');
 });
 
 const magic = 'RRVISUAL1\n';

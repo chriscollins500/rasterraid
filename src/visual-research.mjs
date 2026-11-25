@@ -35,13 +35,17 @@ function publicGalleryPreview(item, origin) {
     catalogMatches: matches.slice(0, 4).map(value => text(value, 120)).filter(Boolean) };
 }
 
+export function galleryVisualDescription(result) {
+  if (!['text', 'tag'].includes(result?.target?.kind)) return '';
+  const query = result.gallery?.query;
+  return validVisualDescription(query) ? query.split(/\s+without\s+/iu, 1)[0].trim() : '';
+}
+
 export function galleryDescriptionSample(result, displayed, context) {
   const { origin, browsingLevel, connectionLost } = context ?? {};
   if (!SITE_ORIGINS.includes(origin) || connectionLost || result?.gallery?.scope !== 'gallery' ||
-      result.library || result.visualComposition || !['text', 'tag'].includes(result.target?.kind)) return null;
-  const query = result.gallery.query;
-  if (!validVisualDescription(query)) return null;
-  const description = query.split(/\s+without\s+/iu, 1)[0].trim();
+      result.library || result.visualComposition) return null;
+  const description = galleryVisualDescription(result);
   if (!description) return null;
   const seenIds = new Set();
   const seenCovers = new Set();

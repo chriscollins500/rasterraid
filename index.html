@@ -604,10 +604,29 @@
             <legend>Choose what each picture contributes</legend>
             <div id="subject-cue-items"></div>
           </fieldset>
+          <label class="subject-reference-choice" id="subject-words-choice" hidden>
+            <input type="checkbox" id="subject-include-words" /> Compare with my search words too
+          </label>
           <p id="subject-help">Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.</p>
           <p id="subject-status" role="status"></p>
           <progress id="subject-download" aria-label="On-device model download" value="0" hidden></progress>
+          <label class="subject-reference-choice" id="subject-order-choice" hidden>
+            Order matches by
+            <select id="subject-order">
+              <option value="words">Search words</option>
+              <option value="references">Reference subjects</option>
+            </select>
+          </label>
           <ol id="subject-results" role="list" aria-label="Subject match order"></ol>
+          <details id="subject-model-setup" class="appearance-pack" hidden>
+            <summary>Use a saved model pack</summary>
+            <div class="appearance-pack-fields">
+              <label for="subject-model-file">RasterRaid model pack</label>
+              <input id="subject-model-file" type="file" accept=".rrvision" />
+              <label for="subject-model-link">Model pack download link</label>
+              <input id="subject-model-link" type="url" readonly />
+            </div>
+          </details>
           <button class="text-button" id="subject-deep-search" type="button" aria-haspopup="dialog" aria-controls="deep-search" data-open-research hidden>See Deep Search options</button>
         </section>
         <div class="gallery-tags" id="gallery-model-choices" role="group" aria-label="Matching model releases" hidden></div>
