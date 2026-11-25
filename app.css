@@ -478,6 +478,7 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .story-reference-preview { display: block; width: 92px; height: 66px; object-fit: cover; border-radius: 5px; margin-block: 2px 4px; }
 .story-plan > button { justify-self: start; }
 .report-source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr)); gap: 9px; }
+.subject-comparison { grid-template-columns: minmax(0, 1fr); }
 .subject-comparison ol { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 126px), 1fr)); gap: 8px;
   list-style: none; margin: 9px 0; padding: 0; }
 .subject-comparison ol:empty { display: none; }
@@ -485,7 +486,7 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .appearance-pack-fields { display: grid; justify-items: start; gap: 6px; margin-top: 8px; }
 .appearance-pack-fields input { min-width: 0; max-width: 100%; }
 .subject-reference-choice { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px; color: var(--text); }
-.subject-reference-choice select { max-width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--control-border);
+.subject-reference-choice select { min-width: 0; max-width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--control-border);
   border-radius: 7px; padding: 5px 8px; }
 .subject-cues { margin-block: 10px 6px; padding: 8px; min-inline-size: 0; border: 1px solid var(--border); border-radius: 8px; }
 .subject-cues legend { padding-inline: 5px; color: var(--text); }

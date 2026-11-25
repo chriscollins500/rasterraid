@@ -81,6 +81,7 @@ function startWorker() {
 function matchInWorker(worker, prepared, signal, onProgress) {
   return new Promise((resolve, reject) => {
     let ids;
+    let paired = false;
     let settled = false;
     const finish = (callback, value) => {
       if (settled) return;
@@ -109,7 +110,7 @@ function matchInWorker(worker, prepared, signal, onProgress) {
       } else if (data?.phase === 'model-pack-unavailable') {
         finish(reject, new DOMException('The visual model pack could not be verified or loaded.', 'NotReadableError'));
       } else if (data?.phase === 'complete' && ids && Array.isArray(data.matches) && data.matches.length === ids.size &&
-          data.matches.every(row => Number.isFinite(row?.score) && ids.delete(row.id))) {
+          data.matches.every(row => Number.isFinite(row?.score) && (!paired || Number.isFinite(row.textScore)) && ids.delete(row.id))) {
         finish(resolve, data.matches);
       } else failed();
     };
@@ -126,13 +127,14 @@ function matchInWorker(worker, prepared, signal, onProgress) {
       let source;
       try {
         ids = new Set(pictures.sample.map(row => row.id));
+        paired = pictures.description !== undefined && pictures.references.length > 0;
         const transfers = rows.map(row => row.rgba.buffer);
         if (pictures.modelPack) {
           // Open the file in the frame that owns it. WebKit cannot read a Blob cloned into this worker.
           source = pictures.modelPack.stream();
           transfers.push(source);
         }
-        worker.postMessage({ ...pictures, modelPack: source }, transfers);
+        worker.postMessage(source ? { ...pictures, modelPack: source } : pictures, transfers);
       } catch {
         if (source && !source.locked) void source.cancel().catch(() => {});
         for (const row of rows) if (row.rgba.byteLength) row.rgba.fill(0);
@@ -147,7 +149,10 @@ function matchInWorker(worker, prepared, signal, onProgress) {
 
 async function preparePictures(document, references, sample, signal, description, modelPack) {
   const visual = description !== undefined;
-  const pictures = await Promise.allSettled([...references, ...sample].map(item => previewPixels(document, item, signal, visual)));
+  const pictures = await Promise.allSettled([
+    ...references.map(item => previewPixels(document, item, signal, false)),
+    ...sample.map(item => previewPixels(document, item, signal, visual)),
+  ]);
   const anchors = pictures.slice(0, references.length);
   const candidates = pictures.slice(references.length).flatMap(row => row.status === 'fulfilled' ? [row.value] : []);
   try {
@@ -182,12 +187,13 @@ export function createSubjectMatcher(document) {
 
   async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample, description, modelPack }, { signal, onProgress }) {
     const visual = description !== undefined;
+    const withReferences = !visual || references?.length > 0;
     if (active || !(visual ? visualTextMatchAvailable() : subjectMatchAvailable())) throw new Error('Subject matching is unavailable right now.');
     if (!Array.isArray(references) || !Array.isArray(sample) || sample.length < (visual ? 2 : 1) ||
-        sample.length > (visual ? visualTextCandidateLimit : subjectCandidateLimit) ||
-        (visual ? !validVisualDescription(description) || references.length > 0
-          : references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
-            !references.some(row => row.polarity === 'prefer'))) {
+        sample.length > (withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
+        visual && !validVisualDescription(description) ||
+        withReferences && (references.length > subjectReferenceLimit || !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) ||
+          !references.some(row => row.polarity === 'prefer'))) {
       throw new Error('Choose a subject and a bounded sample.');
     }
     if (visual && modelPack != null && (!(modelPack instanceof Blob) || modelPack.size !== visualPackBytes)) {

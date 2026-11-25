@@ -116,44 +116,48 @@ const cosine = (reference, values) => reference.reduce((sum, value, index) => su
 function validateComparison(data) {
   const { description, references, sample, modelPack } = data ?? {};
   const visual = description !== undefined;
-  const validReference = visual ? validVisualDescription(description) && references?.length === 0 &&
-      (modelPack == null || modelPack instanceof ReadableStream)
-    : references?.some?.(row => row?.polarity === 'prefer') && references.length <= subjectReferenceLimit &&
-      references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity));
-  if (!Array.isArray(references) || !validReference ||
-      !Array.isArray(sample) || sample.length < (visual ? 2 : 1) || sample.length > (visual ? visualTextCandidateLimit : subjectCandidateLimit) ||
+  const withReferences = !visual || references?.length > 0;
+  if (!Array.isArray(references) ||
+      visual && (!validVisualDescription(description) || modelPack != null && !(modelPack instanceof ReadableStream)) ||
+      withReferences && (references.length > subjectReferenceLimit || !references.some(row => row?.polarity === 'prefer') ||
+        !references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity))) ||
+      !Array.isArray(sample) || sample.length < (visual ? 2 : 1) ||
+      sample.length > (withReferences ? subjectCandidateLimit : visualTextCandidateLimit) ||
       !sample.every(row => validPixels(row) && Number.isSafeInteger(row.id) && row.id > 0) ||
       new Set(sample.map(row => row.id)).size !== sample.length) throw new Error('Invalid comparison inputs.');
 }
 
 async function compare({ description, references, sample }, runtime, textRuntime) {
   const { provider } = runtime;
-  const anchorCount = description ? 1 : references.length;
+  const anchorCount = references.length + Number(description !== undefined);
   const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: anchorCount + sample.length });
   reportCount(0);
   const preferred = [];
   const avoided = [];
+  let words;
   try {
     if (description) {
-      preferred.push(await textRuntime.encode(textRuntime.model, description));
+      words = await textRuntime.encode(textRuntime.model, description);
       if (provider === 'wasm') reportCount(1);
     }
     for (const { rgba, polarity } of references) {
       const vector = await pictureVector(runtime, rgba);
       (polarity === 'avoid' ? avoided : preferred).push(vector);
-      if (provider === 'wasm') reportCount(preferred.length + avoided.length);
+      if (provider === 'wasm') reportCount(preferred.length + avoided.length + Number(Boolean(words)));
     }
     const matches = [];
     let reusedPreviews = 0;
     for (const { id, rgba } of sample) {
       const { values, reused } = await previewVector(runtime, id, rgba);
-      const score = subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values)));
+      const textScore = words && cosine(words, values);
+      const score = references.length ? subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values))) : textScore;
       if (reused) reusedPreviews++;
-      matches.push({ id, score });
+      matches.push({ id, score, ...(words && references.length && { textScore }) });
       if (provider === 'wasm') reportCount(anchorCount + matches.length);
     }
     return { phase: 'complete', reusedPreviews, matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
+    words?.fill(0);
     for (const vector of [...preferred, ...avoided]) vector.fill(0);
   }
 }
