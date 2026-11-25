@@ -448,6 +448,7 @@ export function renderReport(container, report, context, onLookup, { onCompareSe
   container.append(header);
   const hashNote = hashLookupNote(report.hashStatus);
   if (hashNote) container.append(element('p', hashNote));
+  if (report.downloadNote) container.append(element('p', report.downloadNote));
   if (report.releaseLookup) {
     const { choices, query } = report.releaseLookup;
     const panel = element('section', null, 'report-anchor');
