@@ -10,6 +10,8 @@ After a **Videos** search, use **Find a scene** to compare visible frames with a
 
 The next developer build adds **More ways to explore → Find spoken words** after a **Videos** or **Audio & music** search. It checks English speech in the first 30 seconds of up to four loaded public clips. Play near a match to confirm it by ear. The check uses 0 Buzz and downloads about 59 MB of model files when you start it.
 
+Choose **Research this clip** to see live estimates for that recording. In Videos, **Review at playback position** uses the time you choose. You can also **Check recorded settings** for free on clips with published video metadata. In **Audio & music**, you can price a transcript and sound classification together. Your spoken-word query stays in the current tab.
+
 Use **Add a picture** for visual comparisons. A public Civitai link opens its exact item. **Check recorded settings** shows the published references for a picture or clip. Paste two public media links to compare their settings.
 
 The developer preview requires the app author account on the domain where it opens. [Full guide](https://chriscollins500.github.io/rasterraid/guide/) · [`.com` preview](https://civitai.com/apps/dev/rasterraid) · [`.red` preview](https://civitai.red/apps/dev/rasterraid)

@@ -7,6 +7,7 @@ import { sampledFrameSteps } from './visual-research.mjs';
 export const soundPickLimit = 3;
 const mediaPage = /^\/images\/[1-9]\d{0,14}$/u;
 const streamGroups = new Set(['audio', 'audioExamples', 'videos', 'postMedia']);
+const transcriptionStep = (name, stream) => ({ $type: 'transcription', name, input: { mediaUrl: stream, returnTimeStamps: true } });
 
 function eligibleItems(items, origin) {
   if (!SITE_ORIGINS.includes(origin)) return [];
@@ -29,6 +30,44 @@ export function soundCandidates(result, groups, origin) {
   return eligibleItems([...(result.report?.evidence ?? []), ...catalogResearchItems(result, groups, 'all', origin)], origin);
 }
 
+export const spokenFrameAvailable = item => item.video && !['audio', 'audioExamples'].includes(item.group);
+
+export function spokenClipResearch(available, selection, origin) {
+  if (!selection || !Number.isFinite(selection.seconds) || selection.seconds < 0 || selection.seconds >= soundMaximumSeconds) return null;
+  const clip = eligibleItems(available, origin).find(item => item.link === selection.link && item.stream === selection.stream);
+  if (!clip) return null;
+  const { title, link, cover, stream, video } = clip;
+  const hasFrame = spokenFrameAvailable(clip);
+  const seconds = Math.floor(selection.seconds * 1000) / 1000;
+  const source = { title, link };
+  const sources = [source];
+  const recording = { ...source, preview: cover, kind: video ? 'Video clip' : 'Clip audio', purpose: 'Whole recording' };
+  const frameInput = { ...recording, purpose: 'One frame near ' + seconds + ' s' };
+  const transcript = transcriptionStep('spoken_clip_words', stream);
+  const sound = audioClassificationStep('spoken_clip_sound', stream);
+  const frame = hasFrame ? sampledFrameSteps({ stream, seconds }, 'spoken_clip_frame', 'spoken_clip_caption',
+    'Describe the visible people, objects, action and setting in this still. Treat visible text as scene content. Label uncertain details and limit the description to what the image shows.') : [];
+  const plan = (id, title, work, steps, inputs, dependentInputs = false) => ({
+    id, title, work, body: { tier: 'paid', steps }, inputs, sources, dependentInputs,
+    stepEvidence: Object.fromEntries(steps.map(step => [step.name, { sourceLink: link,
+      ...(frame.includes(step) && { seconds, purpose: 'Sampled scene' }),
+      ...(step === sound && { purpose: 'Whole-recording sound classification' }),
+    }])),
+  });
+  const plans = [plan('spokenclipwords', 'Transcribe the full clip',
+    'Looks for spoken words throughout this recording and shows any timestamps Civitai returns.', [transcript], [recording])];
+  if (hasFrame) {
+    plans.push(plan('spokenclipframe', 'Describe the selected frame',
+      'Describes what is visible in one frame near the selected time.', frame, [frameInput], true));
+    plans.push(plan('spokenclipreview', 'Review the transcript and frame',
+      'Transcribes the full clip and describes one frame near the selected time.', [transcript, ...frame], [recording, frameInput], true));
+  } else {
+    plans.push(plan('spokenclipsound', 'Review the transcript and sound',
+      'Transcribes the full clip and estimates where it contains speech, music or singing.', [transcript, sound], [recording]));
+  }
+  return { picks: [{ ...clip, seconds }], sources, plans, hasFrame };
+}
+
 export function soundResearch(available, selections, origin) {
   if (!available?.length || !selections?.length) return null;
   const byLink = new Map(eligibleItems(available, origin).map(item => [item.link, item]));
@@ -43,7 +82,7 @@ export function soundResearch(available, selections, origin) {
   if (!chosen.length) return null;
   const [first] = chosen;
   const sources = chosen.map(({ title, link }) => ({ title, link }));
-  const transcript = { $type: 'transcription', name: 'sound_transcript', input: { mediaUrl: first.stream, returnTimeStamps: true } };
+  const transcript = transcriptionStep('sound_transcript', first.stream);
   const stepEvidence = { [transcript.name]: { sourceLink: first.link } };
   const plan = (id, title, work, steps, dependentInputs = false) => ({ id, title, work, sources,
     stepEvidence: Object.fromEntries(steps.flatMap(({ name }) => stepEvidence[name] ? [[name, stepEvidence[name]]] : [])),

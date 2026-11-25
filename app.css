@@ -232,7 +232,9 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 #spoken-results ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 #spoken-results li { display: grid; justify-items: start; gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; overflow-wrap: anywhere; }
 #spoken-results mark { background: var(--accent); color: var(--accent-ink); border-radius: 2px; }
+.spoken-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 #spoken-player :is(audio, video) { display: block; width: 100%; max-width: 520px; max-height: 320px; }
+#spoken-player button { margin-top: 6px; }
 .sound-references { border: 0; padding: 0; min-width: 0; }
 .sound-reference-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px; margin-block: 6px; align-items: center; }
 .sound-reference-row strong { flex: 1 1 10rem; min-width: 0; color: var(--fg); overflow-wrap: anywhere; font-size: .85rem; }

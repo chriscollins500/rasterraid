@@ -54,11 +54,11 @@ export function configureGalleryAppearance(document, matcher, onReview) {
     playing = undefined;
   }
 
-  function clearReview() {
+  function clearReview(notify = true) {
     if (!review) return;
     const { result } = review;
     review = undefined;
-    onReview(result, false);
+    if (notify) onReview(result, false);
   }
 
   function clear(message = '') {
