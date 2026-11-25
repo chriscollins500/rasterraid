@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.7 developer prerelease adds checks for restrictive model and media filters, exact model evidence across gallery posts, and a way to verify the deployed build. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.7](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.7) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.9 developer prerelease checks received Deep Search results, finds scenes in loaded videos, and searches completed transcripts. Civitai is reviewing the earlier 0.0.4 build for both domains. [Download and verify 0.0.9](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.9) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 

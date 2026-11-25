@@ -3,7 +3,7 @@ export const site = {
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
   version: '0.0.4',
-  developerVersion: '0.0.8',
+  developerVersion: '0.0.9',
   checked: '2026-11-24',
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
@@ -138,8 +138,8 @@ ${sectionHeading('estimate', 'Read a live estimate')}
 ${sectionHeading('recover', 'Recover a result or receipt')}
 <p>Open <strong>Workspace → Deep Search history</strong> to find a RasterRaid run by status or workflow ID. <strong>Copy receipt</strong> keeps the available estimate, fee and reported cost. If a reply was interrupted, use <strong>Find original run</strong> first. That lookup uses 0 Buzz. A separately confirmed retry uses the original operation ID.</p>
 <p>If another tab is confirming a run, RasterRaid loads its saved receipt when it detects the change. Use <strong>Check saved run</strong> to refresh the receipt if storage was temporarily unavailable. Checking the saved run uses 0 Buzz.</p>
-<p>The next developer build checks the received results against the exact request. <strong>Result check</strong> shows missing results and notes Civitai returned together. Use <strong>Check for results</strong> in history to read the original run again at 0 Buzz.</p>
-<p>In the next developer build, <strong>Find spoken words</strong> searches the completed transcripts available in the open workspace. Load eligible transcripts or view a completed run, then enter a phrase. Each match shows the excerpt, any returned time, and its recorded source when available. Search words stay in the browser.</p>
+<p><strong>Result check</strong> compares received results with the approved request and shows missing results and notes Civitai returned together. Use <strong>Check for results</strong> in history to read the original run again at 0 Buzz.</p>
+<p><strong>Find spoken words</strong> searches completed transcripts available in the open workspace. Load eligible transcripts or view a completed run, then enter a phrase. Each match shows the excerpt, any returned time, and its recorded source when available. Search words stay in the browser.</p>
 <p><a href="{{root}}privacy/">See what the app stores</a> · <a href="https://developer.civitai.com/apps/guide/workflows.md">Civitai workflow reference</a></p>` },
   { slug: 'workspace', name: 'Workspace', title: 'Keep the work you want to reuse', description: 'Save searches, exact model picks, report comparisons and local setup checks in RasterRaid’s Workspace.', body: `
 ${sectionHeading('save', 'Save a search or shortlist')}
@@ -166,10 +166,10 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
 <aside class="callout release-state"><p class="eyebrow">${site.version} · Civitai review</p><h2>Developer previews on both domains</h2><p>Civitai lists RasterRaid 0.0.4 as pending review. The app author can open the developer previews on both domains. The public run page requires Civitai approval and deployment.</p>${previewLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
-<ul><li>Match up to eight loaded gallery pictures against your search words on your device.</li><li>Find matching passages in eligible Civitai articles and open their source sections.</li><li>Filter models by their creator’s declared usage settings and open the exact version license where available.</li></ul>
-<p>The GitHub release includes the Civitai source archive, the runtime inventory, and the appearance model pack.</p>
+<ul><li>Check received Deep Search results against the original request, reopen delayed outputs, and search completed transcripts for spoken words.</li><li>Find a written scene description in loaded clips and open the matching time where supported.</li><li>Open an exact model title while related results load, see distinct file choices, and compare the ranks for written search words and reference subjects.</li></ul>
+<p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub independently rebuilt and signed the archive. Browser fixtures covered both domains, and both signed developer entries matched the 122 asset files.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
-<p><a href="${site.repository}/releases/tag/v0.0.7">0.0.7 prerelease</a> with filter checks and verified model records across distinct posts. <a href="${site.repository}/releases/tag/v0.0.6">0.0.6 prerelease</a> with combined subject references and verified Deep Search citations. <a href="${site.repository}/releases/tag/v0.0.5">0.0.5 prerelease</a> with guest media search and partial search recovery.</p>
+<p>The <a href="${site.repository}/releases/tag/v0.0.8">0.0.8 prerelease</a> has the pinned appearance model pack, article passage search, and creator usage filters. <a href="${site.repository}/releases">Browse earlier releases</a>.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
 <ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>
