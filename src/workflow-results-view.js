@@ -5,6 +5,7 @@ import { isWorkflowId, workflowIdBelongsToViewer } from './workflow-client.mjs';
 import { runFinished, workflowDelivery } from './workflow-session.mjs';
 import { workflowReportFile } from './workflow-report-file.mjs';
 import { workflowNoteParts, workflowSourceLookup } from './workflow-citations.mjs';
+import { isSceneTranscript, sceneTranscriptLabel } from './workflow-transcripts.mjs';
 
 const labels = {
   compare_evidence: 'Model comparison', verify_constraints: 'Compatibility check',
@@ -22,6 +23,8 @@ const transcriptNotes = {
   repetitive: 'Repeated transcript · Check the source recording',
   silent: 'Civitai reported that the clip has no audio track.',
   empty: 'Civitai returned no recognizable words.',
+  'empty-window': 'Civitai returned no transcript excerpts timed entirely inside this sample.',
+  'untimed-window': 'Civitai returned no usable transcript timestamps for this sample.',
 };
 
 const messages = {
@@ -42,6 +45,7 @@ const deliveryLabels = {
 };
 
 function stepTitle(name, type) {
+  if (isSceneTranscript({ name, $type: type })) return sceneTranscriptLabel(name);
   if (type === 'composeMedia') return 'Soundtrack extraction';
   if (type === 'audioClassification') return 'Music, singing and speech estimates';
   if (Object.hasOwn(labels, name)) return labels[name];

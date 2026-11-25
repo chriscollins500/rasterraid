@@ -77,5 +77,13 @@ test('joined written cues favor the same interval and reject a different renditi
   const ranked = rankWrittenSceneSounds(evidence);
   assert.deepEqual(ranked.map(row => row.clip.id), [102, 101]);
   assert.equal(ranked[0].soundScore, .85);
-  assert.equal(writtenSceneReview(ranked[0], origin).plans[0].body.steps[0].input.startTime, 5);
+  const [framePlan, speechPlan] = writtenSceneReview(ranked[0], origin).plans;
+  assert.equal(framePlan.body.steps[0].input.startTime, 5);
+  const [speech, ...framesAgain] = speechPlan.body.steps;
+  assert.deepEqual(speech, { $type: 'transcription', name: 'scene_words_5000_10000',
+    input: { mediaUrl: framePlan.body.steps[0].input.videoUrl, returnTimeStamps: true } });
+  assert.deepEqual(framesAgain, framePlan.body.steps);
+  assert.equal(speechPlan.stepEvidence[speech.name].sourceLink, aligned.link);
+  assert.equal(writtenSceneReview({ ...ranked[0], soundStart: '5' }, origin).plans.length, 1);
+  assert.equal(writtenSceneReview({ ...ranked[0], soundEnd: 5 }, origin).plans.length, 1);
 });

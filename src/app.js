@@ -1246,7 +1246,7 @@ function renderResearch() {
   byId('research-intro').textContent = legacyMock ? 'Local simulation · Compare the base model recorded for each pick. 0 Buzz used.' : modelMode
     ? 'See prices for different ways to compare your picks. Civitai charges in Buzz credits.'
     : clip ? 'Review this public clip. Deep Search uses the recording you selected. Your search words stay in this tab.'
-    : writtenScene ? 'Get a live quote for describing this frame. Your search description stays in this tab.'
+    : writtenScene ? 'Review the selected moment. Your search descriptions stay in this tab.'
     : scenes ? 'Price a closer look at the selected public scenes. Your reference files stay in your browser.'
       : visual ? 'Price a closer look at your selected public media and video times. Local reference files stay in your browser.'
       : sound ? 'Price a closer look at the selected public recordings. Local sound references stay in your browser.'

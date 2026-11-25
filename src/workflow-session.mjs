@@ -4,6 +4,7 @@ import { isWorkflowId, WORKFLOW_REQUEST_TIMEOUT_MS } from './workflow-client.mjs
 import { researchMatches } from './research-matches.mjs';
 import { aiServiceLink, aiServiceReference } from './ai-services.mjs';
 import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryConflict, workflowRecoveryStep } from './workflow-recovery.mjs';
+import { isSceneTranscript, sceneTranscriptEvidence } from './workflow-transcripts.mjs';
 
 // The App bridge retains an idempotency claim for ten minutes. Leave time
 // for the status check and in-flight request before that claim can expire.
@@ -212,7 +213,8 @@ function acceptStep(reported, previous, registered, defaultStatus) {
   }
   if (previous && runFinished(previous.status) && !runFinished(reported.status)) return previous;
   if (registered.$type === 'transcription') {
-    const available = reported.output ? transcriptEvidence(reported.output) : null;
+    const available = !reported.output ? null : isSceneTranscript(registered)
+      ? sceneTranscriptEvidence(reported.output, registered.name) : transcriptEvidence(reported.output);
     const scope = available?.scope ?? previous?.transcriptScope;
     return { ...registered, status: reported.status, lines: available?.lines ?? previous?.lines ?? [],
       ...(scope && { transcriptScope: scope }) };
@@ -230,7 +232,8 @@ export function researchOutput(snapshot, run, previous = { steps: [], cost: null
   const steps = run.steps.map(registered => acceptStep(rows.find(step => step?.name === registered.name),
     withheldNow && registered.$type === 'chatCompletion' ? undefined : previous.steps.find(step => step.name === registered.name),
     registered, runFinished(run.status) ? 'unknown' : 'pending'));
-  const topLevelText = snapshotOutputs(snapshot.textOutputs);
+  const scopedTranscript = run.steps.some(isSceneTranscript);
+  const topLevelText = scopedTranscript ? [] : snapshotOutputs(snapshot.textOutputs);
   const chats = steps.filter(step => step.$type === 'chatCompletion');
   const soleChat = chats.length === 1 && chats[0];
   if (!withheldNow && topLevelText.length && soleChat && !soleChat.lines.length && !undeliveredStates.has(soleChat.status)) {
@@ -238,7 +241,7 @@ export function researchOutput(snapshot, run, previous = { steps: [], cost: null
     if (soleChat.status === 'unknown' && run.status === 'succeeded') soleChat.status = 'succeeded';
   }
   const assigned = new Set(chats.flatMap(step => step.lines));
-  const notes = topLevelText.length || withheldNow ? topLevelText : previous.text ?? [];
+  const notes = topLevelText.length || withheldNow || scopedTranscript ? topLevelText : previous.text ?? [];
   const reported = snapshot.cost?.total;
   const allChatsReturned = chats.length > 0 && chats.every(step => step.status === 'succeeded' && step.lines.length);
   const withheld = withheldNow || (!allChatsReturned && previous.withheld);
@@ -262,6 +265,7 @@ export function workflowDelivery(run, snapshot) {
     if (result?.status === 'succeeded') {
       if (result.transcriptScope === 'silent') state = 'no-audio';
       else if (result.transcriptScope === 'empty') state = 'no-words';
+      else if (result.transcriptScope === 'empty-window') state = 'no-words-in-window';
       else if (result.transcriptScope === 'repetitive') state = 'repetitive';
       else if (result.lines.length) state = 'received';
       else if (step.$type === 'chatCompletion') unnamedChats.push(step.name);
@@ -286,7 +290,7 @@ export function workflowDelivery(run, snapshot) {
     }
   }
   if (!items.length) return null;
-  const resolved = items.filter(item => ['received', 'no-audio', 'no-words'].includes(item.state)).length;
+  const resolved = items.filter(item => ['received', 'no-audio', 'no-words', 'no-words-in-window'].includes(item.state)).length;
   const grouped = items.filter(item => item.state === 'grouped').length;
   return { items, resolved, grouped, groupedNotes, incomplete: resolved + grouped !== items.length || Boolean(snapshot?.withheld) };
 }
@@ -309,7 +313,7 @@ export function historyResearchOutput(snapshot, run) {
     if (step.lines.length || step.transcriptScope) steps.push(step);
   }
   const stepText = new Set(steps.flatMap(step => step.lines));
-  return { ...output, steps, text: output.text.filter(line => !stepText.has(line)), civitaiHistoryOnly: true,
+  return { ...output, steps, text: rows.some(isSceneTranscript) ? [] : output.text.filter(line => !stepText.has(line)), civitaiHistoryOnly: true,
     ...(rows.some(row => row?.$type === 'multimodalEmbedding' && row.status === 'succeeded' &&
       Array.isArray(row.output?.embedding)) && { historyIncludesEmbeddings: true }) };
 }
