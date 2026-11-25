@@ -135,6 +135,7 @@ ${sectionHeading('estimate', 'Read a live estimate')}
 <p>Civitai chooses the eligible Blue, Green or Yellow Buzz balance and calculates the final charge at submission. The current developer previews show estimates. Published execution uses a private Civitai receipt before a run can start.</p>
 ${sectionHeading('recover', 'Recover a result or receipt')}
 <p>Open <strong>Workspace → Deep Search history</strong> to find a RasterRaid run by status or workflow ID. <strong>Copy receipt</strong> keeps the available estimate, fee and reported cost. If a reply was interrupted, use <strong>Find original run</strong> first. That lookup uses 0 Buzz. A separately confirmed retry uses the original operation ID.</p>
+<p>If another tab is confirming a run, RasterRaid loads its saved receipt when it detects the change. Use <strong>Check saved run</strong> to refresh the receipt if storage was temporarily unavailable. Checking the saved run uses 0 Buzz.</p>
 <p><a href="{{root}}privacy/">See what the app stores</a> · <a href="https://developer.civitai.com/apps/guide/workflows.md">Civitai workflow reference</a></p>` },
   { slug: 'workspace', name: 'Workspace', title: 'Keep the work you want to reuse', description: 'Save searches, exact model picks, report comparisons and local setup checks in RasterRaid’s Workspace.', body: `
 ${sectionHeading('save', 'Save a search or shortlist')}

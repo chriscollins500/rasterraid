@@ -98,17 +98,17 @@ function keepCompletedRuns(origin, active, archive, listHistory) {
     return cached;
   }
 
-  async function preserve(run) {
+  async function preserve(run, signal) {
     const entry = archive(historyPrefix + run.operationId);
     for (let attempt = 0; attempt < 2; attempt++) {
-      const raw = await entry.read();
+      const raw = await entry.read({ signal });
       const existing = archivedRecord(raw, origin);
       if (run.status === 'unconfirmed' && sameWorkflowOperation(existing, run) && existing.workflowId &&
           existing.recoveryStep === run.recoveryStep && run.recoveryStep) return;
       if (preservesReceipt(existing, run)) return;
       if (raw != null && !sameRun(existing, run)) throw new Error('A different research record already uses this history key.');
       try {
-        await entry.write(run);
+        await entry.write(run, { signal });
         return;
       } catch (error) {
         if (error.status !== 409 || attempt) throw error;
@@ -143,21 +143,26 @@ function keepCompletedRuns(origin, active, archive, listHistory) {
         }
       }
     },
-    async write(next) {
+    async write(next, { signal } = {}) {
       const record = workflowRecord(next, origin);
       if (!record) throw new Error('The Deep Search record is invalid.');
-      if (cached === undefined) await read();
+      signal?.throwIfAborted();
+      if (cached === undefined) await read({ signal });
       if (cached?.operationId === record.operationId && (cached.bodyHash !== record.bodyHash ||
           cached.workflowId && cached.workflowId !== record.workflowId || runFinished(cached.status) && !runFinished(record.status))) {
         throw new Error('The saved Deep Search identity or status could not be confirmed.');
       }
       if (cached && cached.operationId !== record.operationId) {
-        if (!runFinished(cached.status)) throw new Error('Resolve the current run before starting another.');
+        if (!runFinished(cached.status)) {
+          const error = new Error('Resolve the current run before starting another.');
+          error.code = 'receipt-conflict';
+          throw error;
+        }
         for (const prior of [cached.previous, cached]) {
-          if (archivedRecord(prior, origin)) await preserve(prior);
+          if (archivedRecord(prior, origin)) await preserve(prior, signal);
         }
       }
-      await active.write(next.status === 'submitting' ? { ...record, status: 'submitting' } : record);
+      await active.write(next.status === 'submitting' ? { ...record, status: 'submitting' } : record, { signal });
       cached = record;
     },
   };
@@ -203,8 +208,15 @@ export function tabPrivateRecord(window, key, memory) {
 }
 
 export function appWorkflowJournal(binding, getContext, { fetcher = fetch } = {}) {
-  const record = key => appPrivateRecord(binding, getContext, key, { fetcher });
-  const call = privateStorage(binding, getContext, fetcher);
+  function getBoundContext() {
+    const current = getContext();
+    if (binding.browsingLevel !== undefined && current?.browsingLevel !== binding.browsingLevel) {
+      throw new Error('Civitai browsing access changed. Reopen Deep Search to continue.');
+    }
+    return current;
+  }
+  const record = key => appPrivateRecord(binding, getBoundContext, key, { fetcher });
+  const call = privateStorage(binding, getBoundContext, fetcher);
   return keepCompletedRuns(binding.origin, record('research-run'), record, async ({ cursor, signal } = {}) => {
     if (!optionalStorageCursor(cursor)) throw new TypeError('Choose a valid page of saved runs.');
     const url = new URL('/api/v1/blocks/storage/prefs', binding.origin);

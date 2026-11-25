@@ -1,6 +1,6 @@
 import { SITE_ORIGINS, text, visibleRating } from './catalog.mjs';
 import { appEstimateBody, LIVE_QUOTE_MAX_AGE_MS, quotePrice } from './quotes.mjs';
-import { isWorkflowId } from './workflow-client.mjs';
+import { isWorkflowId, WORKFLOW_REQUEST_TIMEOUT_MS } from './workflow-client.mjs';
 import { researchMatches } from './research-matches.mjs';
 import { aiServiceLink, aiServiceReference } from './ai-services.mjs';
 import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryStep } from './workflow-recovery.mjs';
@@ -86,6 +86,9 @@ function normalizeRun(value, origin) {
   if (Boolean(value.workflowId) !== providerStates.has(value.status)) return null;
   const receipt = savedPrice(value.receipt, value.createdAt);
   const retryQuote = savedPrice(value.retryQuote, value.createdAt);
+  const submissionUntil = (value.status === 'submitting' || value.status === 'unknown') &&
+    Number.isSafeInteger(value.submissionUntil) && value.submissionUntil > value.createdAt &&
+    value.submissionUntil - value.createdAt <= retryLifetime + WORKFLOW_REQUEST_TIMEOUT_MS ? value.submissionUntil : null;
   const refusalPrice = value.status === 'refused' ? savedPrice(value.refusalPrice, value.createdAt) : null;
   const sources = (Array.isArray(value.sources) ? value.sources : []).slice(0, 18).map(item => safeSource(item, origin)).filter(Boolean);
   const steps = (Array.isArray(value.steps) ? value.steps : []).slice(0, 8)
@@ -99,6 +102,7 @@ function normalizeRun(value, origin) {
     ...(visibleRating(value.browsingLevel, 63) && { browsingLevel: value.browsingLevel }),
     ...(value.workflowId && receipt && { receipt: { ...receipt, ...(providerStates.has(value.receipt.status) && { status: value.receipt.status }) } }),
     ...(retryQuote && { retryQuote }), ...(refusalPrice && { refusalPrice }),
+    ...(submissionUntil && { submissionUntil }),
     sources, steps, ...(similarity && { similarity }),
     ...(steps.length && isRecoveryStep(value.recoveryStep) && { recoveryStep: value.recoveryStep }),
   };
@@ -276,6 +280,16 @@ async function planBody(plan, recoveryStep) {
     hash: [...digest].map(byte => byte.toString(16).padStart(2, '0')).join('') };
 }
 
+function sameReceipt(first, second) {
+  return first?.operationId === second?.operationId && first?.bodyHash === second?.bodyHash && first?.workflowId === second?.workflowId;
+}
+
+function mayHaveChangedReceipt(error) {
+  const status = error?.status;
+  return status === 409 || status >= 500 || status >= 200 && status < 300 || error?.code === 'receipt-conflict' ||
+    error instanceof TypeError || ['TimeoutError', 'AbortError'].includes(error?.name);
+}
+
 export function createWorkflowSession({ client, journal, origin, browsingLevel, now = Date.now, operationId = () => crypto.randomUUID() }) {
   if (!SITE_ORIGINS.includes(origin)) throw new TypeError('Expected a Civitai site origin.');
   let run;
@@ -285,11 +299,14 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
   let retryBody;
   let recoveryNext;
   let receiptPending = false;
+  let receiptCheckRequired = false;
+  let receiptRefreshed = false;
   let busy;
   let command;
   const canRead = record => browsingLevel === undefined || visibleRating(record?.browsingLevel, browsingLevel);
   const retryDeadline = () => run?.createdAt + retryLifetime;
-  const retryAvailable = () => run?.status === 'unknown' && canRead(run) && now() < retryDeadline();
+  const submissionPending = () => run?.status === 'unknown' && now() < run.submissionUntil;
+  const retryAvailable = () => run?.status === 'unknown' && !submissionPending() && canRead(run) && now() < retryDeadline();
   const supportsRecovery = typeof client.list === 'function' && typeof client.inspect === 'function';
   const recoveryAvailable = () => supportsRecovery && run?.status === 'unknown' && Boolean(run.recoveryStep) && canRead(run);
 
@@ -302,6 +319,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
   async function exclusive(action, callback) {
     if (busy) throw new Error('A research action is already in progress.');
     busy = action;
+    receiptRefreshed = false;
     command = new AbortController();
     try { return await callback(command.signal); }
     finally { busy = undefined; command = undefined; }
@@ -314,8 +332,47 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     receiptPending = false;
   }
 
+  function requireCurrentReceipt() {
+    if (receiptCheckRequired) throw new Error('Check the saved Deep Search run before continuing.');
+  }
+
   function requireSavedReceipt() {
+    requireCurrentReceipt();
     if (receiptPending) throw new Error('Save the current receipt before using another workflow action.');
+  }
+
+  async function syncCurrentReceipt(signal) {
+    const saved = workflowRecord(await journal.read({ signal }), origin);
+    signal.throwIfAborted();
+    const same = sameReceipt(run, saved);
+    const changed = !same || run?.status !== saved?.status || run?.submissionUntil !== saved?.submissionUntil ||
+      run?.receipt?.observedAt !== saved?.receipt?.observedAt || run?.retryQuote?.observedAt !== saved?.retryQuote?.observedAt;
+    if (!sameReceipt(run?.previous, saved?.previous)) {
+      previousSnapshot = saved?.previous && sameReceipt(run, saved.previous) ? snapshot : undefined;
+    }
+    if (!same) snapshot = undefined;
+    if (!same || saved?.status !== 'unknown') retryBody = undefined;
+    if (changed) recoveryNext = undefined;
+    run = saved;
+    draft = undefined;
+    receiptCheckRequired = false;
+    receiptRefreshed = changed;
+    return changed;
+  }
+
+  async function writeCurrentReceipt(record, signal) {
+    try {
+      await journal.write(record, { signal });
+      return true;
+    } catch (error) {
+      if (!mayHaveChangedReceipt(error)) throw error;
+      receiptCheckRequired = true;
+      signal.throwIfAborted();
+      const changed = await syncCurrentReceipt(signal);
+      if (!changed && error.status !== 409 && error.code !== 'receipt-conflict') throw error;
+      receiptRefreshed = true;
+      return false;
+    }
   }
 
   async function apply(reply, { retry = false } = {}) {
@@ -331,7 +388,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       if (retry) throw new Error('Civitai refused the retry. The original submission is still unconfirmed.');
       if (!price || reply.submissionUnconfirmed === true) throw new Error('Civitai could not confirm the submission outcome.');
       retryBody = undefined;
-      await save({ ...run, status: 'refused', refusalPrice: { ...price, observedAt: now() } });
+      await save({ ...run, status: 'refused', submissionUntil: undefined, refusalPrice: { ...price, observedAt: now() } });
       return;
     }
     if (!isWorkflowId(reply.workflowId) || (run.workflowId && run.workflowId !== reply.workflowId)) {
@@ -339,7 +396,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     }
     if (run.workflowId && runFinished(run.status) && !runFinished(reply.status)) return;
     const receipt = reportedReceipt(reply, run.receipt, now);
-    const updated = { ...run, workflowId: reply.workflowId, status: reply.status, ...(receipt && { receipt }) };
+    const updated = { ...run, workflowId: reply.workflowId, status: reply.status, submissionUntil: undefined, ...(receipt && { receipt }) };
     snapshot = outputFor(reply, updated, snapshot);
     retryBody = undefined;
     recoveryNext = undefined;
@@ -352,7 +409,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       signal.throwIfAborted();
       await apply(reply, { retry });
     } catch (error) {
-      if (run.status === 'submitting') await save({ ...run, status: 'unknown' });
+      if (run.status === 'submitting') await save({ ...run, status: 'unknown', submissionUntil: undefined });
       throw error;
     }
   }
@@ -379,7 +436,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
   return {
     state: () => ({ busy, run, snapshot, previousSnapshot, outputsAccessible: !run || canRead(run),
       retryAvailable: retryAvailable(), recoveryAvailable: recoveryAvailable(), recoveryContinuing: Boolean(recoveryNext),
-      originalInTab: Boolean(retryBody), receiptPending,
+      originalInTab: Boolean(retryBody), receiptPending, receiptCheckRequired, receiptRefreshed, submissionPending: submissionPending(),
       quote: draft ? { price: draft.price, title: draft.title, expiresAt: draft.expiresAt, retry: Boolean(draft.retry),
         revised: Boolean(draft.revised) } : null }),
     restore: () => exclusive('restoring', async signal => {
@@ -391,6 +448,11 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       retryBody = undefined;
       recoveryNext = undefined;
       receiptPending = false;
+      receiptCheckRequired = false;
+    }),
+    checkSavedRun: () => exclusive('checkingReceipt', async signal => {
+      if (receiptPending) throw new Error('Save the current receipt before checking for another run.');
+      await syncCurrentReceipt(signal);
     }),
     prepare: (plan, sources, { continueRun = false } = {}) => exclusive('quoting', async signal => {
       requireSavedReceipt();
@@ -449,31 +511,35 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
         return;
       }
       busy = 'submitting';
+      const submissionUntil = approved.expiresAt + WORKFLOW_REQUEST_TIMEOUT_MS;
       if (approved.retry) {
-        const reviewed = { ...run, retryQuote: { ...approved.price, observedAt: now() } };
-        await journal.write(reviewed);
+        const reviewed = { ...run, status: 'submitting', submissionUntil, retryQuote: { ...approved.price, observedAt: now() } };
+        if (!await writeCurrentReceipt(reviewed, signal)) return;
         run = reviewed;
-        signal.throwIfAborted();
-        if (now() >= approved.expiresAt) throw new Error('The retry estimate expired before submission. Review a new estimate.');
+        if (signal.aborted || now() >= approved.expiresAt) {
+          await save({ ...reviewed, status: 'unknown', submissionUntil: undefined });
+          signal.throwIfAborted();
+          throw new Error('The retry estimate expired before submission. Review a new estimate.');
+        }
         await submit(approved.body, signal, { retry: true });
         return;
       }
       const nextRun = {
         schema: 1, origin, operationId: approved.operationId ?? operationId(), bodyHash: approved.hash, createdAt: now(), status: 'submitting', workflowId: null,
         title: approved.title, quote: approved.price, sources: approved.sources,
-        steps: approved.steps,
+        steps: approved.steps, submissionUntil,
         ...(approved.recoveryStep && { recoveryStep: approved.recoveryStep }),
         ...(approved.similarity && { similarity: approved.similarity }),
         ...(visibleRating(browsingLevel, 63) && { browsingLevel }),
         ...(approved.previous && { previous: approved.previous }),
       };
       if (!workflowRecord(nextRun, origin)) throw new Error('The workflow could not be recorded safely.');
-      await journal.write(nextRun);
+      if (!await writeCurrentReceipt(nextRun, signal)) return;
       run = nextRun;
       previousSnapshot = approved.previous ? snapshot : undefined;
       snapshot = undefined;
       if (signal.aborted || now() >= approved.expiresAt) {
-        const stopped = { ...nextRun, status: 'not-started' };
+        const stopped = { ...nextRun, status: 'not-started', submissionUntil: undefined };
         run = { ...nextRun, status: 'unknown' };
         await journal.write(stopped);
         run = stopped;
@@ -507,11 +573,12 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
         throw new Error('Civitai did not confirm the original run in this history check. The submission remains unresolved.');
       }
     }),
-    archiveUnconfirmed: () => exclusive('archiving', async () => {
+    archiveUnconfirmed: () => exclusive('archiving', async signal => {
       requireSavedReceipt();
       if (run?.status !== 'unknown') return;
-      const archived = { ...run, status: 'unconfirmed' };
-      await journal.write(archived);
+      if (submissionPending()) throw new Error('The confirmation is still being checked. Check the saved run before keeping the receipt.');
+      const archived = { ...run, status: 'unconfirmed', submissionUntil: undefined };
+      if (!await writeCurrentReceipt(archived, signal)) return;
       run = archived;
       draft = undefined;
       retryBody = undefined;
@@ -533,16 +600,22 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       for (const field of fields) {
         const first = run[field];
         const second = saved[field];
-        const value = first && (!second || first.observedAt >= second.observedAt) ? first : second;
+        const terminalReceipt = field === 'receipt' && runFinished(base.status);
+        const firstSettled = terminalReceipt && first?.status === base.status;
+        const secondSettled = terminalReceipt && second?.status === base.status;
+        const useFirst = firstSettled !== secondSettled ? firstSettled : first && (!second || first.observedAt > second.observedAt);
+        const value = useFirst ? first : second;
         if (value) latest[field] = value;
       }
       if (base.workflowId) retryBody = undefined;
       await save({ ...base, ...latest });
     }),
     refresh: () => exclusive('checking', async signal => {
+      requireCurrentReceipt();
       if (run?.workflowId) await apply(await client.poll(run.workflowId, signal));
     }),
     refreshPrevious: () => exclusive('checking', async signal => {
+      requireCurrentReceipt();
       const previous = run?.previous;
       if (!previous?.workflowId) return;
       const reply = await client.poll(previous.workflowId, signal);
@@ -553,6 +626,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       if (checked !== previous) await save({ ...run, previous: checked });
     }),
     cancel: () => exclusive('canceling', async signal => {
+      requireCurrentReceipt();
       if (!run?.workflowId || runFinished(run.status)) return;
       const reply = await client.cancel(run.workflowId, signal);
       if (reply?.throttled) throw new Error('Civitai did not issue the cancellation. The run can still be active.');
