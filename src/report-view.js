@@ -5,7 +5,7 @@ import { pictureIntegrityText } from './reference-provenance.mjs';
 import { element, evidenceSource, sourceLink } from './view.js';
 import { upgradeFacts, upgradeGuideLabel, upgradeMemoryComparison, upgradeStorageChange } from './upgrade-evidence.mjs';
 import { collectionTraceCoverage } from './collection-trace.mjs';
-import { releaseSampleCoverage } from './release-trail.mjs';
+import { releasePictureComparisonText, releaseSampleCoverage } from './release-trail.mjs';
 import { earlierSourceStatus, reportComparisonMarkdown } from './report-checkpoint.mjs';
 import { exampleModelFacts, unlinkedUseLabel } from './gallery-setup.mjs';
 import { exampleSide, exampleVersionUse } from './example-comparison.mjs';
@@ -383,6 +383,32 @@ function renderExampleComparison({ examples, settings, versions, limited }, cont
   return section;
 }
 
+function renderReleaseComparison(comparison, context, onLookup) {
+  const section = element('section', null, 'release-picture-comparison');
+  section.setAttribute('aria-label', 'Pictures to compare');
+  section.append(element('h5', 'Pictures to compare'), element('p', releasePictureComparisonText(comparison)));
+  const previews = element('div', null, 'example-setup-overview');
+  for (const { id, preview, link } of comparison.pictures) {
+    const card = sourceLink(link, 'Picture #' + id + ' ↗', context);
+    const picture = element('img', null, 'example-setup-preview');
+    picture.src = preview;
+    picture.alt = '';
+    picture.loading = 'lazy';
+    picture.referrerPolicy = 'no-referrer';
+    card.prepend(picture);
+    previews.append(card);
+  }
+  section.append(previews);
+  if (onLookup) {
+    const button = element('button', 'Compare recorded settings', 'chip');
+    button.type = 'button';
+    button.addEventListener('click', () => onLookup(comparison.pictures.map(item => item.link).join(' '),
+      'report', undefined, 'examplePair'));
+    section.append(button);
+  }
+  return section;
+}
+
 function renderStoryPlan(report, context, onLookup) {
   const { stages, reference, profile, setup, runtime, toolSource, relatedGenre, missingReference, topic } = report.story;
   const plan = element('section', null, 'collection-trail story-plan');
@@ -544,6 +570,7 @@ export function renderReport(container, report, context, onLookup, { onCompareSe
       sourceLink(release.link, [release.title, release.version].filter(Boolean).join(' · ') + ' ↗', context));
     const details = releaseSampleCoverage(release);
     if (details) panel.append(element('p', details));
+    if (release.comparison) panel.append(renderReleaseComparison(release.comparison, context, onLookup));
     container.append(panel);
   }
   if (report.portfolio) {

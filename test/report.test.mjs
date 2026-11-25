@@ -24,6 +24,64 @@ const audio = { id: 61, title: 'Music clip', video: true, stream, link: origin +
 const collection = { id: 5, title: 'A public collection', link: origin + '/collections/5' };
 const empty = scope => ({ scope, target: { kind: 'text', value: 'linocut' }, related: {}, candidates: [], flows: [], alternateQueries: [] });
 
+test('a release suggests a stronger picture pair using the existing gallery read', async () => {
+  const app = { hosted: true, token: 'read-only-fixture', browsingLevel: 3 };
+  const model = { id: 4, name: 'Print', type: 'LORA',
+    modelVersions: [{ id: 8, name: 'SDXL', baseModel: 'SDXL 1.0', files: [] }] };
+  const settings = { width: 512, height: 512, sampler: 'Euler', cfgScale: 5, steps: 20, seed: 31 };
+  const asset = 'https://image.civitai.com/fixture/af12ed34-5678-9000-abcd-1234567890ab/';
+  const media = (id, change = {}, extra = {}) => ({
+    id, type: 'image', postId: id + 20, browsingLevel: 1, username: 'Publisher',
+    url: 'https://image.civitai.com/fixture/gallery-' + id + '.jpg', modelVersionIds: [8],
+    meta: { ...settings, civitaiResources: [{ modelVersionId: 8 }], prompt: 'raw-picture-prompt-sentinel', ...change },
+    ...extra,
+  });
+  const rows = [
+    media(501, { clipSkip: 2 }, { url: asset + 'original=true/print.png' }),
+    media(502, { sampler: 'DPM++', width: 123, steps: 21, seed: null }),
+    ...[503, 504, 505, 506].map(id => media(id, { civitaiResources: [{ modelVersionId: 9 }] })),
+    media(507, { seed: 91 }),
+    media(508, { clipSkip: 2, seed: 150 }, { url: asset + 'width=1024/renamed.png' }),
+    media(509, { steps: 25, clipSkip: 2 }, { browsingLevel: 4 }),
+    media(510, { steps: 25, clipSkip: 2, civitaiResources: [{ modelVersionId: 8, versionId: 9 }] }),
+    media(511, { steps: 25, clipSkip: 2, civitaiResources: [] }),
+    media(501, { steps: 25, clipSkip: 2 }, { url: asset + 'width=2048/duplicate-id.png' }),
+  ];
+  for (const origin of ['https://civitai.com', 'https://civitai.red']) {
+    const reads = [];
+    const context = { ...app, origin };
+    const fetcher = (url, request) => {
+      assert.equal(url.origin, origin);
+      assert.equal(request.headers.Authorization, 'Bearer ' + app.token);
+      reads.push(url.pathname);
+      if (url.pathname === CATALOG.blockModels) return Response.json({ items: [model] });
+      assert.equal(url.pathname, CATALOG.blockImages);
+      assert.equal(url.searchParams.get('type'), 'image');
+      assert.equal(url.searchParams.get('modelVersionId'), '8');
+      assert.equal(url.searchParams.get('withMeta'), 'true');
+      assert.equal(url.searchParams.get('limit'), '12');
+      return Response.json({ items: rows, metadata: { nextCursor: 'next-gallery-page' } });
+    };
+    const result = await discoverReport(context, { reportType: 'release',
+      reportSources: ['models', 'gallery'], query: origin + '/models/4?modelVersionId=8' }, { fetcher });
+    assert.deepEqual(reads, [CATALOG.blockModels, CATALOG.blockImages]);
+    const { comparison } = result.report.releaseSample;
+    assert.ok(comparison, 'A pair outside the first gallery cards should be suggested');
+    assert.deepEqual(result.related.gallery.map(item => item.id), [501, 502, 503, 504, 505]);
+    assert.deepEqual(comparison.pictures.map(item => item.id), [501, 507]);
+    assert.deepEqual(comparison.shared, ['Size', 'Steps', 'Sampler', 'Guidance (CFG)']);
+    assert.deepEqual(comparison.different, ['Seed']);
+    assert.deepEqual(comparison.unreported, ['CLIP skip']);
+    assert.ok(comparison.pictures.every(picture => result.report.evidence.some(row => row.link === picture.link)));
+    assert.ok(result.related.gallery.every(item => !item.publishedSetup));
+    assert.doesNotMatch(JSON.stringify(comparison), /raw-picture-prompt-sentinel/u);
+    const markdown = reportMarkdown(result.report);
+    assert.match(markdown, /Pictures to compare[\s\S]+Different values appear for Seed[\s\S]+Picture #501[\s\S]+Picture #507/u);
+    assert.doesNotMatch(markdown.split('### Pictures to compare')[1].split('\n## ')[0], /raw-picture-prompt-sentinel/u);
+    assert.doesNotMatch(markdown, /Picture #509/u);
+  }
+});
+
 test('a story brief connects gallery settings to verified models, a creator and matching tool searches', async () => {
   const app = { ...context, hosted: true, token: 'read-only-fixture', browsingLevel: 3 };
   const resultFor = (scope, rows) => ({ ...empty(scope), related: { [scope]: rows } });

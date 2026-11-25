@@ -1,6 +1,7 @@
 import { numericId, SITE_ORIGINS } from './catalog.mjs';
 import { hydratePosts } from './community.mjs';
 import { readExampleMedia } from './gallery.mjs';
+import { comparePublishedSettings } from './gallery-setup.mjs';
 
 export const exampleComparisonSources = ['gallery', 'videos', 'models', 'posts'];
 const exampleNames = ['First example', 'Second example'];
@@ -76,8 +77,7 @@ export async function readExampleComparison(context, ids, modelFilters, { signal
       }
     }
   }
-  const settings = [...new Set(items.flatMap(item => item.publishedSetup.settings.map(setting => setting.label)))].map(label =>
-    ({ label, values: examples.map(item => item?.publishedSetup.settings.find(setting => setting.label === label)?.value ?? null) }));
+  const settings = comparePublishedSettings(...examples.map(item => item?.publishedSetup.settings));
   const versions = recorded.map(id => ({ id, model: models.get(id), values: examples.map(item =>
     item?.publishedSetup.recorded.find(entry => entry.versionId === id) ?? null) }));
   const verifiedPosts = new Map(posts.items.flatMap(post => post.previews.map(item => [item.id, post])));

@@ -1,11 +1,59 @@
 import { numericId } from './catalog.mjs';
 import { hydratePosts } from './community.mjs';
 import { prepareGallery, readGalleryPage, sampleMediaByPost } from './gallery.mjs';
+import { comparePublishedSettings } from './gallery-setup.mjs';
 
 const mediaScopes = ['gallery', 'videos'];
 export const releaseMediaSources = new Set([...mediaScopes, 'posts']);
 const sampleLimit = 5;
+const pageLimit = 12;
 const postLimit = 3;
+
+function pictureAsset(preview) {
+  const { pathname } = new URL(preview);
+  const [, delivery, id] = pathname.split('/');
+  return /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/iu.test(id) ? delivery + '/' + id.toLowerCase() : pathname;
+}
+
+function suggestPictureComparison(items, versionId) {
+  const seen = new Set();
+  const comparable = items.slice(0, pageLimit).flatMap(item => {
+    if (seen.has(item.id)) return [];
+    seen.add(item.id);
+    if (!item.preview || item.id > 2_147_483_647 ||
+        !item.publishedSetup?.recorded.some(row => row.versionId === versionId)) return [];
+    const { id, title, link, preview } = item;
+    return [{ picture: { id, title, link, preview }, asset: pictureAsset(preview),
+      settings: item.publishedSetup.settings.filter(({ label, value }) => label !== 'Seed' || value !== '-1') }];
+  });
+  const pairs = [];
+  for (const [index, first] of comparable.entries()) {
+    for (const second of comparable.slice(index + 1)) {
+      if (first.asset === second.asset) continue;
+      const fields = comparePublishedSettings(first.settings, second.settings);
+      const shared = [];
+      const different = [];
+      const unreported = [];
+      for (const { label, values: [left, right] } of fields) {
+        if (left === null || right === null) unreported.push(label);
+        else if (left === right) shared.push(label);
+        else different.push(label);
+      }
+      if (shared.length >= 2 && different.length) {
+        pairs.push({ pictures: [first.picture, second.picture], shared, different, unreported });
+      }
+    }
+  }
+  return pairs.sort((a, b) => b.shared.length - a.shared.length ||
+    a.different.length - b.different.length || a.unreported.length - b.unreported.length)[0];
+}
+
+export function releasePictureComparisonText({ shared, different, unreported }) {
+  return 'Both pictures record this exact release. Matching settings include ' + shared.join(', ') +
+    '. Different values appear for ' + different.join(', ') + '.' +
+    (unreported.length ? ' One picture leaves ' + unreported.join(', ') + ' unreported.' : '') +
+    ' Published metadata can omit other settings.';
+}
 
 export async function traceReleaseMedia(context, model, scopes, filters, { signal, fetcher, onPhase }) {
   const options = { signal, fetcher };
@@ -19,12 +67,15 @@ export async function traceReleaseMedia(context, model, scopes, filters, { signa
     const gallery = await prepareGallery(context, target, { ...filters, scope }, options);
     const row = { scope, traced: true, candidates: [], related: { [scope]: [] }, gallery, flows: [] };
     try {
-      const page = await readGalleryPage(context, { ...gallery.plan, withMeta: true, exampleSource: source }, { ...options, limit: 12 });
-      const sampled = sampleMediaByPost(page.items, sampleLimit);
+      const withSetup = scope === 'gallery' && enabled.includes(scope);
+      const page = await readGalleryPage(context, { ...gallery.plan, withMeta: true, exampleSource: source },
+        { ...options, limit: pageLimit, withSetup });
+      const comparison = withSetup ? suggestPictureComparison(page.items, model.id) : undefined;
+      const sampled = sampleMediaByPost(page.items, sampleLimit).map(({ publishedSetup, ...item }) => item);
       row.related[scope] = sampled;
       const coverage = { shown: sampled.length, more: Boolean(page.nextCursor || sampled.length < page.items.length),
         recorded: sampled.filter(item => item.recorded.includes(model.id)).length };
-      return { row, coverage };
+      return { row, coverage, comparison };
     } catch (error) {
       signal?.throwIfAborted();
       row.flows.push({ label: scope, status: error.status ?? null });
@@ -34,6 +85,7 @@ export async function traceReleaseMedia(context, model, scopes, filters, { signa
   signal?.throwIfAborted();
   const results = new Map(pages.map(({ row }) => [row.scope, row]));
   const preview = Object.fromEntries(pages.flatMap(({ row, coverage }) => coverage ? [[row.scope, coverage]] : []));
+  const comparison = pages.find(page => page.comparison)?.comparison;
   let posts;
   if (wantsPosts) {
     const samples = mediaScopes.map(scope => results.get(scope)?.related[scope] ?? []);
@@ -50,7 +102,7 @@ export async function traceReleaseMedia(context, model, scopes, filters, { signa
     results.set('posts', { scope: 'posts', traced: true, candidates: [], related: { posts: verified.items },
       flows: incomplete ? [{ label: 'Public posts', status: null }] : [] });
   }
-  return { results, sample: { ...source, media: preview, ...(posts && { posts }) } };
+  return { results, sample: { ...source, media: preview, ...(posts && { posts }), ...(comparison && { comparison }) } };
 }
 
 export function releaseSampleCoverage(sample) {
