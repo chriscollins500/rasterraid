@@ -1,11 +1,12 @@
 {
   "name": "rasterraid",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "verify:bundle": "node scripts/verify-release.mjs",
+    "verify:hosted": "node --use-system-ca scripts/verify-hosted.mjs",
     "dev": "node --use-system-ca scripts/serve.mjs",
     "test": "node --test",
     "refresh:filters": "node --use-system-ca scripts/refresh-filter-options.mjs",
