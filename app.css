@@ -529,6 +529,24 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .report-export textarea { width: 100%; min-height: min(20rem, 45vh); margin: 10px 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--fg); resize: vertical; }
 .model-handoff section { margin-block: 12px; padding: 10px; border: 1px solid var(--border); border-radius: 8px; }
 .model-handoff-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.article-passages { width: min(40rem, calc(100% - 24px)); }
+#article-passage-form { display: grid; gap: 9px; margin-block: 12px; }
+#article-passage-submit { justify-self: start; }
+.article-passage-field { position: relative; display: grid; gap: 3px; min-width: 0; font-size: .88rem; }
+.article-passage-field :is(input, select) { width: 100%; min-width: 0; min-height: 42px; padding: 6px 9px;
+  border: 1px solid var(--control-border); border-radius: 8px; color: var(--fg); background: var(--field); }
+#article-passage-status { min-height: 1.3em; margin-block-end: 7px; }
+#article-passage-results { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.article-passage { display: flex; align-items: flex-start; gap: 10px; min-width: 0; padding: 9px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--field); }
+.article-passage img { width: clamp(38px, 11vw, 72px); aspect-ratio: 1; object-fit: cover; border-radius: 6px; }
+.article-passage-copy { display: grid; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.article-passage h3 { font-size: .98rem; }
+.article-passage-byline { font-size: .77rem; }
+.article-passage blockquote { margin: 0; font-size: .88rem; color: var(--fg); }
+.article-passage mark { background: var(--accent); color: var(--accent-ink); border-radius: 2px; }
+.article-passage-actions { display: flex; gap: 4px 12px; align-items: center; flex-wrap: wrap; }
+.article-passage-actions a { display: inline-flex; gap: 3px; align-items: center; min-height: 36px; font-size: .85rem; }
 .model-handoff section button { margin-top: 7px; }
 .model-handoff .quote-status:empty { display: none; }
 .model-handoff textarea { min-height: 8rem; max-height: 28vh; }
