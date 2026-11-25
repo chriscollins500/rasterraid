@@ -78,7 +78,7 @@ function startWorker() {
   return new Worker(entry, { name: 'RasterRaid subject match', type: 'module' });
 }
 
-function matchInWorker(worker, prepared, signal, onProgress) {
+function matchInWorker(worker, prepared, signal, onProgress, textPreparation) {
   return new Promise((resolve, reject) => {
     let ids;
     let paired = false;
@@ -118,36 +118,39 @@ function matchInWorker(worker, prepared, signal, onProgress) {
     worker.addEventListener('error', failed);
     worker.addEventListener('messageerror', failed);
     worker.addEventListener('message', received);
+    if (signal.aborted) canceled();
+    if (textPreparation && !settled) {
+      let source;
+      try {
+        // Open the file in the frame that owns it. WebKit cannot read a Blob cloned into this worker.
+        source = textPreparation.modelPack?.stream();
+        worker.postMessage({ type: 'prepare-text', ...(source && { modelPack: source }) }, source ? [source] : []);
+      } catch {
+        if (source && !source.locked) void source.cancel().catch(() => {});
+        failed();
+      }
+    }
     prepared.then(pictures => {
       const rows = [...pictures.references, ...pictures.sample];
       if (settled) {
         for (const row of rows) row.rgba.fill(0);
         return;
       }
-      let source;
       try {
         ids = new Set(pictures.sample.map(row => row.id));
         paired = pictures.description !== undefined && pictures.references.length > 0;
-        const transfers = rows.map(row => row.rgba.buffer);
-        if (pictures.modelPack) {
-          // Open the file in the frame that owns it. WebKit cannot read a Blob cloned into this worker.
-          source = pictures.modelPack.stream();
-          transfers.push(source);
-        }
-        worker.postMessage(source ? { ...pictures, modelPack: source } : pictures, transfers);
+        worker.postMessage(pictures, rows.map(row => row.rgba.buffer));
       } catch {
-        if (source && !source.locked) void source.cancel().catch(() => {});
         for (const row of rows) if (row.rgba.byteLength) row.rgba.fill(0);
         failed();
       }
     }, error => {
       finish(reject, error);
     });
-    if (signal.aborted) canceled();
   });
 }
 
-async function preparePictures(document, references, sample, signal, description, modelPack) {
+async function preparePictures(document, references, sample, signal, description) {
   const visual = description !== undefined;
   const pictures = await Promise.allSettled([
     ...references.map(item => previewPixels(document, item, signal, false)),
@@ -160,14 +163,14 @@ async function preparePictures(document, references, sample, signal, description
     if (anchors.some(row => row.status === 'rejected')) throw new Error('A selected reference preview could not be read.');
     if (candidates.length < (visual ? 2 : 1)) throw new Error('The related previews could not be read.');
     return { references: anchors.map(({ value }, index) => ({ rgba: value.rgba, polarity: references[index].polarity })),
-      sample: candidates, ...(visual && { description, modelPack }) };
+      sample: candidates, ...(visual && { description }) };
   } catch (error) {
     for (const row of pictures) row.value?.rgba.fill(0);
     throw error;
   }
 }
 
-async function prepareClipPictures(document, clips, signal, description, modelPack, onProgress) {
+async function prepareClipPictures(document, clips, signal, description, onProgress) {
   const frames = [];
   const sample = [];
   const parallelClips = 2;
@@ -193,10 +196,10 @@ async function prepareClipPictures(document, clips, signal, description, modelPa
   if (!sample.length) {
     const posterClips = clips.filter(clip => clip.cover).map(clip => ({ ...clip, kind: 'Video poster' }));
     if (posterClips.length < 2) throw new Error('The loaded clips could not be sampled.');
-    const comparison = await preparePictures(document, [], posterClips, signal, description, modelPack);
+    const comparison = await preparePictures(document, [], posterClips, signal, description);
     return { comparison, posterClips };
   }
-  return { frames, comparison: { references: [], sample, description, modelPack, clipFrames: true } };
+  return { frames, comparison: { references: [], sample, description, clipFrames: true } };
 }
 
 export function createSubjectMatcher(document) {
@@ -240,9 +243,9 @@ export function createSubjectMatcher(document) {
       deadline.throwIfAborted();
       worker ??= startWorker();
       const prepared = clipFrames
-        ? prepareClipPictures(document, sample, deadline, description, modelPack, onProgress)
-        : preparePictures(document, references, sample, deadline, description, modelPack).then(comparison => ({ comparison }));
-      const matches = await matchInWorker(worker, prepared.then(({ comparison }) => comparison), deadline, onProgress);
+        ? prepareClipPictures(document, sample, deadline, description, onProgress)
+        : preparePictures(document, references, sample, deadline, description).then(comparison => ({ comparison }));
+      const matches = await matchInWorker(worker, prepared.then(({ comparison }) => comparison), deadline, onProgress, visual && { modelPack });
       const { frames, posterClips } = await prepared;
       deadline.throwIfAborted();
       active = undefined;
