@@ -32,6 +32,17 @@ python scripts/package-release.py --civitai /path/to/civitai
 
 The build keeps Civitai’s iframe sandbox, validates platform permissions and writes a private receipt before sending a workflow. [Deep Search and Buzz](https://chriscollins500.github.io/rasterraid/deep-search/) · [Privacy and permissions](https://chriscollins500.github.io/rasterraid/privacy/)
 
+### Verify a Civitai deployment
+
+From the expected release source, build the app and save its bundle receipt. Run the hosted check with the official CLI signed in to the app owner account.
+
+```sh
+npm run build
+npm run --silent verify:bundle | npm run --silent verify:hosted -- /path/to/civitai
+```
+
+For earlier releases, pass their bundle receipt to the command from the current checkout. The check reads both Civitai submission records and public listings, compares the expected files with the serving app, and confirms the serving records again. A successful check verifies deployment identity and bundle contents. Use browser qualification for viewer access and app behavior.
+
 ## Project checks and documentation
 
 GitHub Actions checks supported Node versions, the built app and the generated site. Dependabot tracks npm and GitHub Actions. CodeQL results are available from the repository’s Security tab.
