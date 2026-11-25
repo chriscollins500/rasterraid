@@ -4,8 +4,8 @@ import { appHistoryTransport, QUOTE_SCOPE, workflowIdBelongsToViewer } from './w
 import { appWorkflowJournal, sameWorkflowOperation } from './workflow-journal.mjs';
 import { findOriginalWorkflow } from './workflow-recovery.mjs';
 import { readWorkflowReportFile, workflowReportMaximumBytes } from './workflow-report-file.mjs';
-import { historyResearchOutput, reportedReceipt, researchOutput, runFinished, workflowRecord } from './workflow-session.mjs';
-import { copyWorkflowReport, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
+import { historyResearchOutput, reportedReceipt, researchOutput, runFinished, workflowOutputPending, workflowRecord } from './workflow-session.mjs';
+import { copyWorkflowReport, workflowCompletionLabel, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
 import { element, sourceLink } from './view.js';
 import { canLoadTranscript, findTranscriptMatches, preparedTranscripts, transcriptBatchSize, transcriptSessionLimit } from './workflow-transcripts.mjs';
 
@@ -436,7 +436,7 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
   function paintDetail(run, restricted, snapshot, notice, followUp) {
     const heading = element('h4', run.title);
     heading.tabIndex = -1;
-    const facts = [formatDate(run.createdAt), workflowStatusLabel(run.status), run.workflowId && 'Workflow ID · ' + run.workflowId];
+    const facts = [formatDate(run.createdAt), workflowCompletionLabel(run, restricted ? undefined : snapshot), run.workflowId && 'Workflow ID · ' + run.workflowId];
     if (run.quote) facts.push('Quoted total · ' + run.quote.total + (simulation ? ' simulated credits' : ' Buzz'));
     const buttons = element('div', null, 'workspace-actions');
     if (followUp) buttons.append(action(followUp.name, followUp.click));
@@ -541,7 +541,9 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
       run.receipt = reportedReceipt(reply, run.receipt);
       const snapshot = historyResearchOutput(reply, run);
       if (runFinished(run.status) && snapshot.steps.some(step => step.$type === 'transcription')) rememberTranscript(run, snapshot);
-      heading = paintDetail(run, false, snapshot, hasResearchNotes(snapshot) || snapshot.withheld ? '' : 'Civitai returned run details and no research notes.');
+      const recheck = workflowOutputPending(run, snapshot) ? { name: 'Check for results', click: () => { void viewRun(entry); } } : null;
+      heading = paintDetail(run, false, snapshot, hasResearchNotes(snapshot) || snapshot.withheld || recheck ? '' :
+        'Civitai returned run details and no research notes.', recheck);
       status.textContent = 'Run checked.';
     } catch (error) {
       if (busy !== controller || controller.signal.aborted) return;

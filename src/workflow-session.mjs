@@ -20,6 +20,8 @@ const boundedToken = /^[a-z\d_-]{1,64}$/iu;
 const bodyHash = /^[a-f\d]{64}$/u;
 const supportedSteps = ['chatCompletion', 'transcription', 'audioCaptioning', 'audioClassification', 'composeMedia',
   'multimodalEmbedding', 'videoFrameExtraction', 'mediaCaptioning'];
+const evidenceSteps = new Set(['chatCompletion', 'transcription', 'audioCaptioning', 'audioClassification', 'mediaCaptioning']);
+const undeliveredStates = new Set(['failed', 'canceled', 'expired']);
 const snapshotOutputs = value => (Array.isArray(value) ? value.flatMap(item => typeof item === 'string' ? [text(item, 8000)] : []) : [])
   .filter(Boolean).slice(0, 8);
 
@@ -154,7 +156,10 @@ export function transcriptEvidence(output) {
   if (wordsByTime.size) return { scope: 'timed',
     lines: [...wordsByTime.values()].map(({ start, parts }) => clock(start) + ' · ' + parts.join(' ')) };
   const words = text(output?.text, 24_000);
-  if (!words) return { scope: 'empty', lines: [] };
+  if (!words) {
+    const explicitEmpty = typeof output?.text === 'string' || [output?.segments, output?.timeStamps].some(rows => Array.isArray(rows) && !rows.length);
+    return explicitEmpty ? { scope: 'empty', lines: [] } : null;
+  }
   if (repeatedTranscript(words)) return { scope: 'repetitive', lines: [] };
   return { scope: 'clip', lines: [text(words, 8000)] };
 }
@@ -221,27 +226,73 @@ export function researchOutput(snapshot, run, previous = { steps: [], cost: null
   const rows = Array.isArray(snapshot.steps) ? snapshot.steps.map(step =>
     last && run.recoveryStep && step?.name === run.recoveryStep && step.$type === last.$type
       ? { ...step, name: last.name } : step) : [];
+  const withheldNow = text(snapshot.textOutputWithheld?.reason, 600);
   const steps = run.steps.map(registered => acceptStep(rows.find(step => step?.name === registered.name),
-    previous.steps.find(step => step.name === registered.name), registered, runFinished(run.status) ? 'unknown' : 'pending'));
+    withheldNow && registered.$type === 'chatCompletion' ? undefined : previous.steps.find(step => step.name === registered.name),
+    registered, runFinished(run.status) ? 'unknown' : 'pending'));
   const topLevelText = snapshotOutputs(snapshot.textOutputs);
   const chats = steps.filter(step => step.$type === 'chatCompletion');
-  if (topLevelText.length && chats.length === 1 && !chats[0].lines.length) chats[0].lines = topLevelText;
+  const soleChat = chats.length === 1 && chats[0];
+  if (!withheldNow && topLevelText.length && soleChat && !soleChat.lines.length && !undeliveredStates.has(soleChat.status)) {
+    soleChat.lines = topLevelText;
+    if (soleChat.status === 'unknown' && run.status === 'succeeded') soleChat.status = 'succeeded';
+  }
+  const assigned = new Set(chats.flatMap(step => step.lines));
+  const notes = topLevelText.length || withheldNow ? topLevelText : previous.text ?? [];
   const reported = snapshot.cost?.total;
-  const withheld = text(snapshot.textOutputWithheld?.reason, 600) || previous.withheld;
+  const allChatsReturned = chats.length > 0 && chats.every(step => step.status === 'succeeded' && step.lines.length);
+  const withheld = withheldNow || (!allChatsReturned && previous.withheld);
   const similarity = run.similarity ? researchMatches(rows, run.similarity, previous.similarity) : null;
-  return { steps, text: chats.length !== 1 && topLevelText.length ? topLevelText : previous.text ?? [],
+  return { steps, text: notes.filter(note => !assigned.has(note)),
     cost: Number.isSafeInteger(reported) && reported >= 0 ? reported : previous.cost, ...(withheld && { withheld }),
     ...(similarity && { similarity }) };
 }
 
+export function workflowDelivery(run, snapshot) {
+  if (!run?.steps?.length || snapshot?.restricted) return null;
+  const observed = new Map(snapshot?.steps?.map(step => [step.name, step]));
+  const missing = status => undeliveredStates.has(status) || undeliveredStates.has(run.status) ? 'unavailable' : 'waiting';
+  const items = [];
+  const unnamedChats = [];
+  for (const step of run.steps) {
+    if (!evidenceSteps.has(step.$type)) continue;
+    const match = observed.get(step.name);
+    const result = match?.$type === step.$type ? match : undefined;
+    let state = missing(result?.status);
+    if (result?.status === 'succeeded') {
+      if (result.transcriptScope === 'silent') state = 'no-audio';
+      else if (result.transcriptScope === 'empty') state = 'no-words';
+      else if (result.transcriptScope === 'repetitive') state = 'repetitive';
+      else if (result.lines.length) state = 'received';
+      else if (step.$type === 'chatCompletion') unnamedChats.push(step.name);
+    }
+    if (state === 'waiting' && step.$type === 'chatCompletion' && snapshot?.withheld) state = 'unconfirmed';
+    items.push({ ...step, state });
+  }
+  const groupedNotes = snapshot?.text?.length ?? 0;
+  // The App bridge can return clean chat notes as a shared list. Different
+  // notes can account for a group, but the list cannot prove any assignment.
+  if (!snapshot?.withheld && unnamedChats.length && new Set(snapshot?.text).size >= unnamedChats.length) {
+    for (const item of items) if (unnamedChats.includes(item.name)) item.state = 'grouped';
+  }
+  const similarity = run.similarity;
+  if (similarity) {
+    for (const target of similarity.targets) {
+      const match = snapshot?.similarity?.ranked?.find(row => row.step === target.step && row.link === target.link &&
+        Number.isFinite(row.score) && Math.abs(row.score) <= 1);
+      const status = [similarity.anchor, target.step].map(name => observed.get(name)?.status).find(value => undeliveredStates.has(value));
+      items.push({ name: target.step, $type: 'comparison', sourceLink: target.link, title: target.title,
+        state: match ? 'received' : missing(status) });
+    }
+  }
+  if (!items.length) return null;
+  const resolved = items.filter(item => ['received', 'no-audio', 'no-words'].includes(item.state)).length;
+  const grouped = items.filter(item => item.state === 'grouped').length;
+  return { items, resolved, grouped, groupedNotes, incomplete: resolved + grouped !== items.length || Boolean(snapshot?.withheld) };
+}
+
 export function workflowOutputPending(run, snapshot) {
-  if (run?.status !== 'succeeded' || !run.steps?.length || snapshot?.restricted || snapshot?.withheld) return false;
-  if (!snapshot) return true;
-  const missingChats = snapshot.steps.filter(step => step.$type === 'chatCompletion' && !step.lines.length).length;
-  return missingChats > (snapshot.text?.length ?? 0) ||
-    snapshot.steps.some(step => ['mediaCaptioning', 'audioCaptioning', 'audioClassification'].includes(step.$type) && !step.lines.length ||
-      step.$type === 'transcription' && !step.transcriptScope) ||
-    Boolean(run.similarity && snapshot.similarity?.ranked.length !== run.similarity.targets.length);
+  return run?.status === 'succeeded' && Boolean(workflowDelivery(run, snapshot)?.items.some(item => item.state === 'waiting'));
 }
 
 export function historyResearchOutput(snapshot, run) {
