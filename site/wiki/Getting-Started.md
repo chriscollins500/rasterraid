@@ -6,6 +6,8 @@
 
 When the developer preview says **Exact title ready**, you can open that model version while RasterRaid checks for more results.
 
+If a search finds few results, choose **Check model filters** or **Check media filters**. The current development build can show a sample that needs two settings to change. Review both settings and choose **Apply both changes**. **Back to original filters** restores the earlier search.
+
 After a **Videos** search, use **Find a scene** to compare visible frames with a description. Play near a matched time or get a free quote for a Deep Search frame review. If the browser can only read the posters, RasterRaid ranks those and links to the clips. The description stays in your browser.
 
 In the 0.0.10 developer prerelease, choose **More ways to explore → Find spoken words** after a **Videos** or **Audio & music** search. It checks English speech in the first 30 seconds of up to four loaded public clips. Play near a match to confirm it by ear. The check uses 0 Buzz and downloads about 59 MB of model files when you start it.

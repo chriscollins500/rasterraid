@@ -760,8 +760,9 @@ function modelSearchOptions(filters) {
   return { access, advanced, common, siteFilters, commercialUse };
 }
 
-export async function sampleModelFilterChange(context, query, filters, field, { signal, fetcher } = {}) {
-  const relaxed = { ...filters, [field]: '' };
+export async function sampleModelFilterChanges(context, query, filters, fields, { signal, fetcher } = {}) {
+  const relaxed = { ...filters };
+  for (const field of fields) relaxed[field] = '';
   const { advanced, common, siteFilters } = modelSearchOptions(relaxed);
   const { appCatalog, read, confirmedLists, flows, routeForModels, saleListings } = modelCatalogReads(context, relaxed, { signal, fetcher });
   const route = advanced ? CATALOG.models : routeForModels;
@@ -769,11 +770,14 @@ export async function sampleModelFilterChange(context, query, filters, field, { 
   const rows = await read(literalLabel, route, { ...params, query, limit: 12 }, true);
   const source = { label: literalLabel, models: matchingModelRows(rows, {}, undefined, params.onSale).slice(0, 12) };
   const lists = appCatalog && route === CATALOG.models ? await confirmedLists([source], query) : [source];
-  if (field === 'downloadAccess' && filters.downloadAccess === 'sale') {
+  if (fields.includes('downloadAccess') && filters.downloadAccess === 'sale') {
     const sales = await saleListings(lists[0].models);
     lists[0].models = sales ? lists[0].models.map(model => ({ ...model, [saleListing]: sales.has(model.id) })) : [];
   }
-  const alreadyQualified = new Set(rankVersions(lists, query, filters, Number.POSITIVE_INFINITY, true).map(row => row.id));
+  // Use the same exact versions to rule out matches that need fewer changes.
+  const narrower = fields.map(field => ({ ...relaxed, [field]: filters[field] }));
+  const alreadyQualified = new Set(narrower.flatMap(original =>
+    rankVersions(lists, query, original, Number.POSITIVE_INFINITY, true).map(row => row.id)));
   const wanted = terms(query);
   const ranked = rankVersions(lists, query, relaxed, Number.POSITIVE_INFINITY, true).filter(row => {
     if (!row.publiclyListed || alreadyQualified.has(row.id)) return false;

@@ -130,6 +130,75 @@ test('sparse public model searches offer the check only while their viewer conte
   assert.equal(canReviewModelFilters(makeSearch({ baseModel: 'Pony' }, [{ id: 1 }, { id: 2 }, { id: 3 }]), context), false);
 });
 
+test('a model suggestion needs both changes on one exact version and keeps the other settings', async () => {
+  const search = makeSearch({ baseModel: 'Pony', resourceType: 'Checkpoint', fileFormat: 'SafeTensor',
+    supportsGeneration: 'true', modelAuthor: 'Creator', exclude: 'Furniture' });
+  const requests = [];
+  const state = await reviewModelFilters(search, { async fetcher(url, request) {
+    assert.equal(url.origin, origin);
+    if (url.pathname === '/api/v1/blocks/models') {
+      assert.equal(request.headers.Authorization, 'Bearer read-only-fixture');
+      assert.equal(url.searchParams.get('modelVersionIds'), '101,102');
+      return json([release(1), release(2, { base: 'Pony' })]);
+    }
+    assert.equal(url.pathname, '/api/v1/models');
+    assert.equal(request.headers.Authorization, undefined);
+    assert.equal(url.searchParams.get('username'), 'Creator');
+    assert.equal(url.searchParams.get('limit'), '12');
+    assert.equal(url.searchParams.get('query'), title);
+    const facet = [url.searchParams.get('baseModels'), url.searchParams.get('types'), url.searchParams.get('supportsGeneration')];
+    requests.push(facet);
+    return json(!facet[0] && !facet[1] ? [release(1), release(2, { base: 'Pony' }), release(3, { generation: false }),
+      release(4, { name: 'Furniture Studio Watercolor' })] : []);
+  } });
+  assert.deepEqual(requests, [[null, 'Checkpoint', 'true'], ['Pony', null, 'true'], ['Pony', 'Checkpoint', 'true'],
+    ['Pony', 'Checkpoint', null], [null, null, 'true']]);
+  assert.deepEqual(state.pairs, { tested: 1, total: 6 });
+  assert.equal(state.options.length, 1);
+  const [option] = state.options;
+  assert.deepEqual(option.changes, [{ field: 'baseModel', added: 'SDXL 1.0' }, { field: 'resourceType', added: 'LORA' }]);
+  assert.equal(option.example.link, origin + '/models/1?modelVersionId=101');
+  assert.equal(option.count, 1);
+  assert.deepEqual(option.filters, { ...search.filters, baseModel: ['Pony', 'SDXL 1.0'], resourceType: ['Checkpoint', 'LORA'] });
+});
+
+test('a limited sample does not loop through combinations or weaken a third filter', async () => {
+  const search = makeSearch({ baseModel: 'Pony', resourceType: 'Checkpoint', fileFormat: 'GGUF' });
+  let calls = 0;
+  const state = await reviewModelFilters(search, { fetcher() { calls++; return json([release(1)]); } });
+  assert.equal(calls, 6);
+  assert.deepEqual(state.pairs, { tested: 3, total: 3 });
+  assert.deepEqual(state.options, []);
+});
+
+test('failed single checks and canceled pair checks cannot produce a paired suggestion', async () => {
+  const search = makeSearch({ baseModel: 'Pony', resourceType: 'Checkpoint' });
+  const failed = await reviewModelFilters(search, { fetcher: () => Response.json({}, { status: 503 }) });
+  assert.equal(failed.incomplete, true);
+  assert.equal(failed.pairs, undefined);
+  assert.deepEqual(failed.options, []);
+
+  const controller = new AbortController();
+  let pairStarted;
+  let releasePair;
+  const started = new Promise(resolve => { pairStarted = resolve; });
+  const held = new Promise(resolve => { releasePair = resolve; });
+  const observed = [];
+  const review = reviewModelFilters(search, { signal: controller.signal, onProgress(state) {
+    observed.push(state.options.length);
+  }, async fetcher(url) {
+    if (url.searchParams.has('baseModels') || url.searchParams.has('types')) return json([]);
+    pairStarted();
+    await held;
+    return json([release(1)]);
+  } });
+  await started;
+  controller.abort();
+  releasePair();
+  await assert.rejects(review, { name: 'AbortError' });
+  assert.ok(observed.length > 0 && observed.every(count => count === 0));
+});
+
 const cat = { id: 5132, name: 'cat' };
 const window = { id: 112359, name: 'window' };
 const landscape = { id: 8363, name: 'landscape' };
@@ -199,6 +268,29 @@ test('gallery review stops at rate limits and carries verified samples from the 
   assert.equal(state.incomplete, true);
   assert.match(state.pause, /Civitai/u);
   assert.deepEqual(state.options.map(({ field }) => field), ['mediaBaseModels']);
+});
+
+test('a gallery pair verifies the out-of-range date and the new family on the same preview', async () => {
+  const search = makeGallerySearch();
+  const reads = [];
+  const result = await reviewGalleryFilters(search, { async fetcher(url) {
+    const { searchParams } = url;
+    for (const [key, value] of Object.entries({ type: 'video', modelId: '12', modelVersionId: '44', postId: '120',
+      username: 'Creator', sort: 'Newest', tags: '8363,5132', limit: '12' })) assert.equal(searchParams.get(key), value, key);
+    const observed = [searchParams.get('baseModels'), searchParams.get('period')];
+    reads.push(observed);
+    if (observed[0] || observed[1] !== 'AllTime') return json([]);
+    return json([clip(1, { baseModel: 'LTXV 2.3', createdAt: older }), clip(2, { baseModel: 'LTXV 2.3' }),
+      clip(3, { createdAt: older }), clip(4, { baseModel: 'LTXV 2.3', createdAt: older, meta: null })]);
+  } });
+  assert.deepEqual(reads, [[null, 'Week'], ['SD 1.5', 'AllTime'], ['SD 1.5', 'Week'], [null, 'AllTime']]);
+  assert.deepEqual(result.pairs, { tested: 1, total: 3 });
+  assert.equal(result.options.length, 1);
+  const [option] = result.options;
+  assert.deepEqual(option.changes, [{ field: 'mediaBaseModels', added: 'LTXV 2.3' }, { field: 'mediaPeriod', added: null }]);
+  assert.deepEqual(option.filters, { ...search.filters, mediaBaseModels: 'SD 1.5,LTXV 2.3', mediaPeriod: '' });
+  assert.equal(option.example.link, origin + '/images/1');
+  assert.equal(option.count, 1);
 });
 
 test('unconfirmed gallery results and interrupted catalog samples stay out of the review', async () => {

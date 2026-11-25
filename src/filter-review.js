@@ -2,7 +2,7 @@ import { catalogPause } from './catalog.mjs';
 import { galleryBaseModels, isVisualGalleryScope, readGalleryPage } from './gallery.mjs';
 import { modelChoiceKey, modelDownloadFilter, modelFilterParam, modelFilterValues } from './model-access.mjs';
 import { modelTypeLabel } from './filter-controls.js';
-import { sampleModelFilterChange } from './search.mjs';
+import { sampleModelFilterChanges } from './search.mjs';
 import { element, sourceLink } from './view.js';
 
 function modelFields(filters) {
@@ -15,21 +15,34 @@ function modelFields(filters) {
   ];
 }
 
-function modelOption(field, filters, results, previous) {
+function modelChange(field, filters, row) {
   const addedValue = field === 'baseModel' ? 'base' : field === 'resourceType' ? 'type' : null;
-  const matches = results.filter(row => {
-    if (previous.has(row.modelId)) return false;
-    if (addedValue) return Boolean(row[addedValue]);
-    if (field === 'fileFormat') return row.formats.length > 0;
-    if (field === 'supportsGeneration') return row.generationListed === false;
-    return Boolean(row.downloadAccess);
+  if (addedValue) {
+    const added = row[addedValue];
+    const choices = modelFilterValues(filters[field]);
+    if (!added || choices.some(value => modelChoiceKey(value) === modelChoiceKey(added))) return null;
+    return { field, added, value: modelFilterParam([...choices, added]) };
+  }
+  const known = field === 'fileFormat' ? row.formats.length > 0 : field === 'supportsGeneration' ?
+    row.generationListed === false : Boolean(row.downloadAccess);
+  return known ? { field, added: null, value: '' } : null;
+}
+
+function sampledOption(fields, filters, rows, previous, identity, describe, previewFirst = false) {
+  const matches = rows.flatMap(row => {
+    if (previous.has(row[identity])) return [];
+    const changes = fields.map(field => describe(field, row));
+    return changes.every(Boolean) ? [{ row, changes }] : [];
   });
   if (!matches.length) return null;
-  const [example] = matches;
-  const added = addedValue ? example[addedValue] : null;
-  const candidates = added ? matches.filter(row => modelChoiceKey(row[addedValue]) === modelChoiceKey(added)) : matches;
-  const value = added ? modelFilterParam([...modelFilterValues(filters[field]), added]) : '';
-  return { field, added, example, count: new Set(candidates.map(row => row.modelId)).size, filters: { ...filters, [field]: value } };
+  const [{ changes }] = matches;
+  const candidates = matches.filter(candidate => changes.every(({ added }, index) =>
+    modelChoiceKey(candidate.changes[index].added) === modelChoiceKey(added)));
+  const example = (previewFirst && candidates.find(({ row }) => row.preview) || candidates[0]).row;
+  const updates = Object.fromEntries(changes.map(({ field, value }) => [field, value]));
+  const labels = changes.map(({ field, added }) => ({ field, added }));
+  return { ...(fields.length === 1 ? labels[0] : { changes: labels }), example,
+    count: new Set(candidates.map(({ row }) => row[identity])).size, filters: { ...filters, ...updates } };
 }
 
 function reviewable(search, current) {
@@ -45,25 +58,35 @@ export function canReviewModelFilters(search, current) {
 
 async function reviewFilterChanges(context, fields, sample, { signal, fetcher, onProgress = () => {} }, batchSize = 1) {
   const state = { total: fields.length, tested: 0, options: [], incomplete: false, pause: null };
-  for (let index = 0; index < fields.length; index += batchSize) {
-    signal?.throwIfAborted();
-    const pause = catalogPause(context.origin, fetcher);
-    if (pause) {
-      state.pause = pause.message;
-      break;
+  async function check(probes, counter, concurrency) {
+    for (let index = 0; index < probes.length; index += concurrency) {
+      signal?.throwIfAborted();
+      const pause = catalogPause(context.origin, fetcher);
+      if (pause) {
+        state.pause = pause.message;
+        return;
+      }
+      const replies = await Promise.all(probes.slice(index, index + concurrency).map(sample));
+      signal?.throwIfAborted();
+      for (const { option, incomplete } of replies) {
+        if (!incomplete) counter.tested++;
+        state.incomplete ||= incomplete;
+        if (option) state.options.push(option);
+      }
+      onProgress(state);
+      if (replies.some(reply => reply.throttled)) {
+        state.pause = catalogPause(context.origin, fetcher)?.message ?? 'Civitai paused catalog reads. Try again shortly.';
+        return;
+      }
+      if (state.pairs && (state.options.length || state.incomplete)) return;
     }
-    const replies = await Promise.all(fields.slice(index, index + batchSize).map(sample));
-    signal?.throwIfAborted();
-    for (const { option, incomplete } of replies) {
-      if (!incomplete) state.tested++;
-      state.incomplete ||= incomplete;
-      if (option) state.options.push(option);
-    }
+  }
+  await check(fields.map(field => [field]), state, batchSize);
+  if (fields.length > 1 && !state.options.length && !state.incomplete && !state.pause) {
+    const pairs = fields.flatMap((first, index) => fields.slice(index + 1).map(second => [first, second]));
+    state.pairs = { tested: 0, total: pairs.length };
     onProgress(state);
-    if (replies.some(reply => reply.throttled)) {
-      state.pause = catalogPause(context.origin, fetcher)?.message ?? 'Civitai paused catalog reads. Try again shortly.';
-      break;
-    }
+    await check(pairs, state.pairs, 1);
   }
   return state;
 }
@@ -71,9 +94,11 @@ async function reviewFilterChanges(context, fields, sample, { signal, fetcher, o
 export function reviewModelFilters(search, options = {}) {
   const { filters, result, context } = search;
   const previous = new Set(result.candidates.map(row => row.modelId));
-  return reviewFilterChanges(context, modelFields(filters), async field => {
-    const reply = await sampleModelFilterChange(context, result.target.value, filters, field, options);
-    return { ...reply, option: modelOption(field, filters, reply.items, previous) };
+  return reviewFilterChanges(context, modelFields(filters), async fields => {
+    const reply = await sampleModelFilterChanges(context, result.target.value, filters, fields, options);
+    const option = fields.length > 1 && reply.incomplete ? null : sampledOption(fields, filters, reply.items, previous, 'modelId',
+      (field, row) => modelChange(field, filters, row));
+    return { ...reply, option };
   }, options, 2);
 }
 
@@ -100,40 +125,37 @@ export function canReviewGalleryFilters(search, current) {
     galleryItems(search).length <= 2 && galleryFields(gallery.plan).length);
 }
 
-function galleryOption(field, filters, plan, items, previous) {
-  const bases = galleryBaseModels(plan.baseModels);
+function galleryChange(field, bases, earliest, item) {
+  if (field === 'mediaBaseModels') {
+    const added = item.description;
+    if (!added || added.includes(',') || bases.includes(added) || galleryBaseModels(added)[0] !== added) return null;
+    return { field, added, value: [...bases, added].join(',') };
+  }
   // Civitai measures from server midnight. Require a margin around the largest possible period.
-  const earliest = Date.now() - ((periodDays.get(plan.period) ?? 0) + 2) * 86_400_000;
-  const matches = items.filter(item => {
-    if (previous.has(item.id)) return false;
-    if (field === 'mediaBaseModels') return item.description && !item.description.includes(',') && !bases.includes(item.description);
-    if (field === 'mediaPublishedPrompt') return item.hasPublishedPrompt === false;
-    return /^\d{4}-\d\d-\d\dT/u.test(item.createdAt) && Date.parse(item.createdAt) < earliest;
-  });
-  if (!matches.length) return null;
-  const added = field === 'mediaBaseModels' ? matches[0].description : null;
-  const candidates = added ? matches.filter(item => item.description === added) : matches;
-  const example = candidates.find(item => item.preview) ?? candidates[0];
-  const value = added ? [...bases, added].join(',') : '';
-  return { field, added, example, count: new Set(candidates.map(item => item.id)).size, filters: { ...filters, [field]: value } };
+  const known = field === 'mediaPublishedPrompt' ? item.hasPublishedPrompt === false :
+    /^\d{4}-\d\d-\d\dT/u.test(item.createdAt) && Date.parse(item.createdAt) < earliest;
+  return known ? { field, added: null, value: '' } : null;
 }
 
 export function reviewGalleryFilters(search, options = {}) {
   const { filters, result: { gallery }, context } = search;
   const { plan } = gallery;
+  const bases = galleryBaseModels(plan.baseModels);
+  const earliest = Date.now() - ((periodDays.get(plan.period) ?? 0) + 2) * 86_400_000;
   const previous = new Set(galleryItems(search).map(item => item.id));
-  return reviewFilterChanges(context, galleryFields(plan), async field => {
+  return reviewFilterChanges(context, galleryFields(plan), async fields => {
     const changed = { ...plan };
-    if (field === 'mediaBaseModels') delete changed.baseModels;
-    else if (field === 'mediaPeriod') changed.period = 'AllTime';
-    else {
+    if (fields.includes('mediaBaseModels')) delete changed.baseModels;
+    if (fields.includes('mediaPeriod')) changed.period = 'AllTime';
+    if (fields.includes('mediaPublishedPrompt')) {
       delete changed.hasPublishedPrompt;
       changed.withMeta = true;
     }
     try {
       const page = await readGalleryPage(context, changed, { ...options, limit: 12 });
-      return { incomplete: Boolean(page.partial), throttled: page.throttled,
-        option: galleryOption(field, filters, plan, page.items, previous) };
+      const option = fields.length > 1 && page.partial ? null : sampledOption(fields, filters, page.items, previous, 'id',
+        (field, row) => galleryChange(field, bases, earliest, row), true);
+      return { incomplete: Boolean(page.partial), throttled: page.throttled, option };
     } catch (error) {
       options.signal?.throwIfAborted();
       return { incomplete: true, throttled: error?.status === 429 };
@@ -176,8 +198,8 @@ export function configureFilterReview(document, { getContext, onApply }) {
   }
 
   function drawOptions(options, current, noun) {
-    const items = options.map(option => {
-      const { example, count } = option;
+    const items = options.map((option, index) => {
+      const { example, count, changes } = option;
       const row = element('li', null, 'filter-review-option');
       const preview = example.preview ?? example.examples?.[0]?.preview;
       if (preview) {
@@ -193,7 +215,15 @@ export function configureFilterReview(document, { getContext, onApply }) {
       const title = example.title ?? [example.model, example.version].filter(Boolean).join(' · ');
       evidence.append(element('p', count + ' additional ' + noun + (count === 1 ? '' : 's') + ' in this sample'),
         sourceLink(example.link, title + ' ↗', current.context));
-      const apply = element('button', offerCaption(option, noun), 'chip');
+      const apply = element('button', changes ? 'Apply both changes' : offerCaption(option, noun), 'chip');
+      if (changes) {
+        const details = element('ul', null, 'filter-review-changes');
+        details.id = 'filter-review-changes-' + index;
+        details.setAttribute('role', 'list');
+        details.append(...changes.map(change => element('li', offerCaption(change, noun))));
+        evidence.prepend(details);
+        apply.setAttribute('aria-describedby', details.id);
+      }
       apply.type = 'button';
       apply.disabled = busy;
       apply.addEventListener('click', () => {
@@ -222,12 +252,16 @@ export function configureFilterReview(document, { getContext, onApply }) {
     try {
       progress = await review(current, { signal: controller.signal, onProgress(state) {
         progress = state;
-        if (currentCheck() && state.tested < state.total) status.textContent = 'Checked ' + state.tested + ' of ' + state.total + ' filters…';
+        if (!currentCheck()) return;
+        if (state.pairs) status.textContent = state.pairs.tested ?
+          'Checked ' + state.pairs.tested + ' of ' + state.pairs.total + ' filter combinations…' : 'Checking two filters together…';
+        else if (state.tested < state.total) status.textContent = 'Checked ' + state.tested + ' of ' + state.total + ' filters…';
       } });
       if (!currentCheck()) return;
       drawOptions(progress.options, current, noun);
       const note = progress.pause ?? (progress.incomplete ? 'Some filter changes could not be checked.' : '');
-      status.textContent = [progress.options.length ? 'Choose one change to search again.' :
+      status.textContent = [progress.options[0]?.changes ? 'This sample found matches that need both changes.' :
+        progress.options.length ? 'Choose one change to search again.' :
         progress.tested ? 'The checked samples returned no additional ' + noun + 's.' : '', note].filter(Boolean).join(' ');
     } catch {
       if (!currentCheck()) return;
