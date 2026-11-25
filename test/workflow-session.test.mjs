@@ -8,6 +8,7 @@ import { embeddingStep } from '../src/research.mjs';
 import { workflowRecoveryStep } from '../src/workflow-recovery.mjs';
 import { reportSynthesisPlan } from '../src/report-research.mjs';
 import { workflowReportMarkdown } from '../src/workflow-results-view.js';
+import { findTranscriptMatches, preparedTranscripts } from '../src/workflow-transcripts.mjs';
 
 const origin = 'https://civitai.red';
 const plan = {
@@ -30,6 +31,63 @@ test('transcription keeps valid time labels and distinguishes whole clips from r
   assert.deepEqual(transcriptEvidence({ hasAudio: false }), { scope: 'silent', lines: [] });
   assert.deepEqual(transcriptEvidence({ text: '', hasAudio: true }), { scope: 'empty', lines: [] });
   assert.equal(transcriptEvidence({}), null);
+});
+
+test('matched speech retains the exact window through live delivery, export, and history alone', () => {
+  const words = { name: 'scene_words_5000_10000', $type: 'transcription', status: 'succeeded',
+    sourceLink: sources[0].link };
+  const still = { name: 'written_scene_caption', $type: 'mediaCaptioning', status: 'succeeded',
+    sourceLink: sources[0].link, seconds: 7.5 };
+  const run = { title: 'Review the scene', status: 'succeeded', workflowId: 'fixture-run', steps: [words, still], sources,
+    createdAt: 100, quote: { total: 3, authorFee: 0 } };
+  const reply = { steps: [{ ...words, output: { text: 'Outside words', timeStamps: [
+    { startTime: 4.95, endTime: 5.15, text: 'Crosses in' },
+    { startTime: 5.125, endTime: 5.35, text: 'Useful' },
+    { startTime: 5.35, endTime: 5.85, text: 'match' },
+    { startTime: 7, text: 'Missing end' },
+    { startTime: 9.8, endTime: 10, text: 'here' },
+    { startTime: 9.9, endTime: 10.05, text: 'Crosses out' },
+    { startTime: 10, endTime: 10.2, text: 'Outside words' },
+  ] } }, { ...still, output: { caption: 'A verified frame.' } }],
+  textOutputs: ['Outside words'] };
+  const current = researchOutput(reply, run);
+  assert.deepEqual(current.text, []);
+  assert.deepEqual(current.steps.map(step => step.lines), [['0:05.125 · Useful match here'], ['A verified frame.']]);
+  assert.equal(workflowDelivery(run, current).resolved, 2);
+  const track = preparedTranscripts(run, current);
+  assert.equal(findTranscriptMatches([track], 'Useful match').matches[0].clock, '0:05.125');
+  assert.equal(findTranscriptMatches([track], 'Outside words').count, 0);
+  const markdown = workflowReportMarkdown([{ run, snapshot: current }]);
+  assert.match(markdown, /Speech at 0:05–0:10/u);
+  assert.match(markdown, /Useful match here/u);
+  assert.doesNotMatch(markdown, /Outside words|Crosses|Missing end/u);
+
+  const history = historyResearchOutput({ ...reply, steps: [...reply.steps, { $type: 'transcription', name: 6 }] },
+    { ...run, steps: [], sources: [] });
+  assert.deepEqual(history.steps.map(step => step.lines), current.steps.map(step => step.lines));
+  assert.deepEqual(history.text, []);
+});
+
+test('matched speech distinguishes an empty interval from missing evidence and keeps a delivered frame', () => {
+  const words = { name: 'scene_words_5000_10000', $type: 'transcription', status: 'succeeded' };
+  const still = { name: 'written_scene_caption', $type: 'mediaCaptioning', status: 'succeeded',
+    output: { caption: 'The frame is available.' } };
+  const run = { status: 'succeeded', steps: [words, still] };
+  const output = {
+    hasAudio: true, text: 'After the window.', timeStamps: [{ startTime: 10, endTime: 11, text: 'After the window.' }],
+  };
+  const none = researchOutput({ steps: [{ ...words, output }, still] }, run);
+  assert.equal(none.steps[0].transcriptScope, 'empty-window');
+  assert.equal(workflowDelivery(run, none).resolved, 2);
+  assert.equal(workflowOutputPending(run, none), false);
+  const untimed = researchOutput({ steps: [{ ...words, output: { ...output, timeStamps: [], segments: [{ start: 5, text: 'Loose' }] } }, still] }, run);
+  assert.equal(untimed.steps[0].transcriptScope, 'untimed-window');
+  assert.deepEqual(untimed.steps[0].lines, []);
+  assert.equal(workflowOutputPending(run, untimed), true);
+  assert.deepEqual(untimed.steps[1].lines, ['The frame is available.']);
+  const silent = researchOutput({ steps: [{ ...words, output: { hasAudio: false } }, still] }, run);
+  assert.equal(silent.steps[0].transcriptScope, 'silent');
+  assert.equal(workflowDelivery(run, silent).resolved, 2);
 });
 
 test('a succeeded snapshot can still be waiting for output from the same run', () => {

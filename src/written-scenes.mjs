@@ -4,6 +4,7 @@ import { sampleMediaByPost } from './gallery.mjs';
 import { sceneTime } from './scene-research.mjs';
 import { sampledFrameSteps } from './visual-research.mjs';
 import { validVisualDescription, visualTextClipLimit } from './visual-text-pack.mjs';
+import { sceneTranscriptStepName } from './workflow-transcripts.mjs';
 import { scoreWrittenSoundWindows, writtenSoundSeconds, writtenSoundTimingAgrees } from './written-sound.mjs';
 
 const videoTypes = /\.(?:mp4|webm)$/iu;
@@ -114,5 +115,16 @@ export function writtenSceneReview(frame, origin) {
   const plan = { id: 'writtensceneframe', title: 'Describe this moment', work: 'Describes the visible details in one frame near the selected time.',
     body: { tier: 'paid', steps }, inputs: [{ ...source, preview: publicPicture(clip.cover), kind: 'Video clip', purpose }],
     sources, stepEvidence, dependentInputs: true };
-  return { picks: [pick], plans: [plan], sources };
+  const plans = [plan];
+  const { soundStart, soundEnd } = frame;
+  const words = soundStart <= seconds && seconds < soundEnd && soundEnd <= frame.duration
+    ? sceneTranscriptStepName(soundStart, soundEnd) : null;
+  if (words) {
+    const transcript = { $type: 'transcription', name: words, input: { mediaUrl: stream, returnTimeStamps: true } };
+    plans.push({ ...plan, id: 'writtenscenewords', title: 'Describe the frame and check for speech',
+      work: 'Describes the frame and shows words timestamped inside this sound sample. Civitai transcribes the full public clip.',
+      body: { tier: 'paid', steps: [transcript, ...steps] },
+      stepEvidence: { ...stepEvidence, [words]: { sourceLink: clip.link } } });
+  }
+  return { picks: [pick], plans, sources };
 }

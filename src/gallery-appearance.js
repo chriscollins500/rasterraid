@@ -152,9 +152,10 @@ export function configureGalleryAppearance(document, matcher, onReview) {
         video.src = url.href;
         video.play().catch(() => {});
       });
-      const price = element('button', 'See frame review price', 'chip');
+      const priceLabel = soundStart === undefined ? 'See frame review price' : 'See review prices';
+      const price = element('button', priceLabel, 'chip');
       price.type = 'button';
-      price.setAttribute('aria-label', 'See frame review price for ' + clip.title);
+      price.setAttribute('aria-label', priceLabel + ' for ' + clip.title);
       price.addEventListener('click', () => {
         if (current !== selected) return;
         const offer = writtenSceneReview(eventFrame, context.origin);

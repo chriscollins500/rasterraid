@@ -1,5 +1,6 @@
 import { text } from './catalog.mjs';
 import { workflowIdBelongsToViewer } from './workflow-client.mjs';
+import { writtenSoundSeconds, writtenSoundWindow } from './written-sound.mjs';
 
 export const transcriptBatchSize = 6;
 export const transcriptSessionLimit = 24;
@@ -7,6 +8,62 @@ const phraseLimit = 12;
 const resultLimit = 12;
 const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
 const normalizeWord = word => word.normalize('NFKC').toLowerCase();
+const sceneWordsPrefix = 'scene_words_';
+
+function sceneWordRange(start, end) {
+  return Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start &&
+    end <= writtenSoundSeconds && end - start <= writtenSoundWindow
+    ? { start, end } : null;
+}
+
+export function sceneTranscriptStepName(start, end) {
+  // The stable step name carries the interval even when Civitai history is
+  // available without RasterRaid's local receipt.
+  if (!sceneWordRange(start, end)) return null;
+  const first = Math.ceil(start * 1000);
+  const last = Math.floor(end * 1000);
+  return first < last ? sceneWordsPrefix + first + '_' + last : null;
+}
+
+export const isSceneTranscript = step => step?.$type === 'transcription' && typeof step.name === 'string' &&
+  step.name.startsWith(sceneWordsPrefix);
+
+function sceneTranscriptRange(name) {
+  const match = /^scene_words_(0|[1-9]\d{0,4})_([1-9]\d{0,4})$/u.exec(name);
+  return match && sceneWordRange(Number(match[1]) / 1000, Number(match[2]) / 1000);
+}
+
+function sceneWordClock(seconds) {
+  const milliseconds = Math.round(seconds * 1000);
+  const second = String(Math.floor(milliseconds / 1000) % 60).padStart(2, '0');
+  const fraction = String(milliseconds % 1000).padStart(3, '0').replace(/0+$/u, '');
+  return Math.floor(milliseconds / 60_000) + ':' + second + (fraction ? '.' + fraction : '');
+}
+
+export function sceneTranscriptLabel(name) {
+  const range = sceneTranscriptRange(name);
+  return range ? 'Speech at ' + sceneWordClock(range.start) + '–' + sceneWordClock(range.end) : 'Speech in the match';
+}
+
+export function sceneTranscriptEvidence(output, name) {
+  const range = sceneTranscriptRange(name);
+  const unavailable = { scope: 'untimed-window', lines: [] };
+  if (!range) return unavailable;
+  if (output?.hasAudio === false) return { scope: 'silent', lines: [] };
+  const rows = output?.timeStamps;
+  if (!Array.isArray(rows) || rows.length > 2048) return unavailable;
+  const timed = rows.flatMap(row => {
+    const { startTime, endTime } = row ?? {};
+    const value = text(row?.text, 120).replace(/\s+/gu, ' ');
+    return value && Number.isFinite(startTime) && startTime >= 0 && Number.isFinite(endTime) &&
+      endTime >= startTime ? [{ startTime, endTime, value }] : [];
+  });
+  if (!timed.length && (rows.length || typeof output.text !== 'string' || text(output.text, 1))) return unavailable;
+  const words = timed.filter(({ startTime, endTime }) => startTime >= range.start && startTime < range.end &&
+    endTime <= range.end).sort((a, b) => a.startTime - b.startTime);
+  if (!words.length) return { scope: 'empty-window', lines: [] };
+  return { scope: 'timed', lines: [sceneWordClock(words[0].startTime) + ' · ' + words.map(row => row.value).join(' ').slice(0, 8000)] };
+}
 
 function tokens(value) {
   return Array.from(segmenter.segment(value)).flatMap(part => part.isWordLike ?
@@ -20,7 +77,7 @@ function cues(step) {
   if (step.transcriptScope === 'clip') return step.lines.slice(0, 1).map(line => ({ value: text(line, 8_000), time: null }));
   if (step.transcriptScope !== 'timed') return [];
   return step.lines.slice(0, 32).flatMap(line => {
-    const match = /^(\d{1,4}):([0-5]\d) · (.+)$/su.exec(line);
+    const match = /^(\d{1,4}):([0-5]\d(?:\.\d{1,3})?) · (.+)$/su.exec(line);
     return match ? [{ value: text(match[3], 8_000), time: Number(match[1]) * 60 + Number(match[2]), clock: match[1] + ':' + match[2] }] : [];
   });
 }
