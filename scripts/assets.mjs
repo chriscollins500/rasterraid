@@ -12,6 +12,7 @@ export const previewFiles = Object.freeze({
   '/src/model-access.mjs': 'text/javascript; charset=utf-8',
   '/src/native-model-search.mjs': 'text/javascript; charset=utf-8',
   '/src/model-reranker.mjs': 'text/javascript; charset=utf-8',
+  '/src/model-filter-review.js': 'text/javascript; charset=utf-8',
   '/src/gallery.mjs': 'text/javascript; charset=utf-8',
   '/src/gallery-setup.mjs': 'text/javascript; charset=utf-8',
   '/src/example-comparison.mjs': 'text/javascript; charset=utf-8',

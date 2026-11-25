@@ -734,6 +734,50 @@ function matchingModelRows(data, plan, excluded, onSale) {
   return onSale ? models.map(model => ({ ...model, [saleListing]: true })) : models;
 }
 
+function modelSearchOptions(filters) {
+  const access = modelDownloadFilter(filters.downloadAccess);
+  const username = modelCreatorName(filters.modelAuthor);
+  if (filters.modelAuthor && !username) throw new Error('Enter a Civitai username in the Creator filter.');
+  const advanced = Boolean(filters.category || filters.checkpointType || filters.period || filters.fromPlatform === 'true' || access || username);
+  const common = {
+    baseModels: modelFilterParam(filters.baseModel),
+    types: modelFilterParam(filters.resourceType) ?? (filters.checkpointType ? 'Checkpoint' : undefined),
+    sort: filters.sort,
+    supportsGeneration: filters.supportsGeneration === 'true' ? 'true' : undefined,
+  };
+  const siteFilters = {
+    ...common, nsfw: true, tag: filters.category, checkpointType: filters.checkpointType, username,
+    period: filters.period, fromPlatform: filters.fromPlatform === 'true' ? 'true' : undefined,
+    ...(access && { [access.parameter]: true }),
+  };
+  return { access, advanced, common, siteFilters };
+}
+
+export async function sampleModelFilterChange(context, query, filters, field, { signal, fetcher } = {}) {
+  const relaxed = { ...filters, [field]: '' };
+  const { advanced, common, siteFilters } = modelSearchOptions(relaxed);
+  const { appCatalog, read, confirmedLists, flows, routeForModels, saleListings } = modelCatalogReads(context, relaxed, { signal, fetcher });
+  const route = advanced ? CATALOG.models : routeForModels;
+  const params = route === CATALOG.models ? siteFilters : common;
+  const rows = await read(literalLabel, route, { ...params, query, limit: 12 }, true);
+  const source = { label: literalLabel, models: matchingModelRows(rows, {}, undefined, params.onSale).slice(0, 12) };
+  const lists = appCatalog && route === CATALOG.models ? await confirmedLists([source], query) : [source];
+  if (field === 'downloadAccess' && filters.downloadAccess === 'sale') {
+    const sales = await saleListings(lists[0].models);
+    lists[0].models = sales ? lists[0].models.map(model => ({ ...model, [saleListing]: sales.has(model.id) })) : [];
+  }
+  const alreadyQualified = new Set(rankVersions(lists, query, filters, Number.POSITIVE_INFINITY, true).map(row => row.id));
+  const wanted = terms(query);
+  const ranked = rankVersions(lists, query, relaxed, Number.POSITIVE_INFINITY, true).filter(row => {
+    if (!row.publiclyListed || alreadyQualified.has(row.id)) return false;
+    const metadata = new Set(words([row.model, row.version, row.desc, ...row.tags].join(' ')));
+    return row.nameMatch || wanted.every(word => metadata.has(word));
+  });
+  signal?.throwIfAborted();
+  return { items: modelCards(ranked, context.origin, modelCatalogCeiling(context)), incomplete: !rows || flows.some(flow => flow.status !== 200),
+    throttled: flows.some(flow => flow.status === 429) };
+}
+
 export async function readModelPage(context, cursor, options = {}) {
   const state = modelPages.get(cursor);
   if (!state || state.access !== modelCatalogAccess(context)) {
@@ -1097,22 +1141,8 @@ export async function discover(context, filters, { signal, fetcher, onPhase = ()
   const ceiling = modelCatalogCeiling(context);
   const { read, exactVersions, saleListings, confirmedLists, finishCards, flows, rateLimits, routeForModels, routeForImages, appCatalog } =
     modelCatalogReads(context, filters, { signal, fetcher });
-  const access = modelDownloadFilter(filters.downloadAccess);
-  const username = modelCreatorName(filters.modelAuthor);
-  if (filters.modelAuthor && !username) throw new Error('Enter a Civitai username in the Creator filter.');
-  const advanced = Boolean(filters.category || filters.checkpointType || filters.period || filters.fromPlatform === 'true' || access || username);
+  const { access, advanced, common, siteFilters } = modelSearchOptions(filters);
   const ordered = Boolean(filters.sort || filters.period);
-  const common = {
-    baseModels: modelFilterParam(filters.baseModel),
-    types: modelFilterParam(filters.resourceType) ?? (filters.checkpointType ? 'Checkpoint' : undefined),
-    sort: filters.sort,
-    supportsGeneration: filters.supportsGeneration === 'true' ? 'true' : undefined,
-  };
-  const siteFilters = {
-    ...common, nsfw: true, tag: filters.category, checkpointType: filters.checkpointType, username,
-    period: filters.period, fromPlatform: filters.fromPlatform === 'true' ? 'true' : undefined,
-    ...(access && { [access.parameter]: true }),
-  };
   let reference = null;
   let hashStatus;
 
