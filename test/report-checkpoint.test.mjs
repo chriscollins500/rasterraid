@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
+import { CATALOG, catalogRead } from '../src/catalog.mjs';
 import { captureCatalogCheckpoint, captureReportCheckpoint, readReportCheckpoint, reportComparisonMarkdown,
-  reviewCatalogCheckpoint, reviewReportCheckpoint } from '../src/report-checkpoint.mjs';
+  recoverEarlierSearchSources, reviewCatalogCheckpoint, reviewReportCheckpoint } from '../src/report-checkpoint.mjs';
 import { readWorkspaceBackup, saveWorkspaceEntry, updateSearchCheckpoint, workspaceBackup, workspaceDocument } from '../src/workspace.mjs';
 
 const origin = 'https://civitai.red';
@@ -111,6 +113,112 @@ const catalogVersion = (version, publiclyListed = true) => ({
 });
 const catalogSearch = (candidates, related = {}, flows = [{ status: 200 }]) => ({
   scope: 'all', target: { kind: 'text' }, candidates, related, flows,
+});
+
+test('incomplete retries recheck earlier public matches without carrying archived details', async () => {
+  const article = '/articles/1043';
+  const linked = catalogSearch([], { articles: [evidence(article, 'Archived title canary')], gallery: [evidence('/images/72')] });
+  const incomplete = () => catalogSearch([], {}, [{ status: 503 }]);
+  let status = 503;
+  let reads = 0;
+  const fetcher = (url, options) => {
+    assert.equal(url.href, origin + '/api/v1' + article + '?nsfw=true');
+    assert.equal(options.credentials, 'omit');
+    assert.equal(options.headers.Authorization, undefined);
+    assert.equal(options.cache, 'no-store');
+    reads++;
+    return status === 200 ? Response.json({ id: 1043, title: 'Verified current title', status: 'Published', availability: 'Public', nsfwLevel: 1 })
+      : new Response(null, { status, headers: { 'Retry-After': '0' } });
+  };
+  const first = incomplete();
+  first.searchRetry = await recoverEarlierSearchSources(linked, first, context, { fetcher });
+  assert.deepEqual(first.searchRetry, { references: [article], sources: [{ title: 'Article #1043', status: 'check-failed' }] });
+  status = 200;
+  const second = incomplete();
+  second.searchRetry = await recoverEarlierSearchSources(first, second, context, { fetcher });
+  assert.deepEqual(second.searchRetry, { references: [article], sources: [{ title: 'Verified current title', status: 'available', link: origin + article }] });
+  assert.equal(second.related.articles, undefined);
+  assert.equal(captureCatalogCheckpoint(second, context, now), null);
+  status = 403;
+  const denied = incomplete();
+  denied.searchRetry = await recoverEarlierSearchSources(second, denied, context, { fetcher });
+  assert.deepEqual(denied.searchRetry, { references: [], sources: [{ title: 'Article #1043', status: 'unavailable' }] });
+  assert.equal(await recoverEarlierSearchSources(denied, incomplete(), context, { fetcher }), null);
+  assert.equal(await recoverEarlierSearchSources(second, catalogSearch([]), context, { fetcher }), null);
+  assert.equal(await recoverEarlierSearchSources(second, incomplete(), context, { fetcher, savedRefs: [article] }), null);
+  assert.equal(reads, 3);
+});
+
+test('host cooldown and an interrupted access context never apply an earlier-source response', async () => {
+  const prior = catalogSearch([], { articles: [evidence('/articles/1043')] });
+  const failed = catalogSearch([], {}, [{ status: 429 }]);
+  let requests = 0;
+  const fetcher = () => {
+    requests++;
+    return new Response(null, { status: 429, headers: { 'Retry-After': '60' } });
+  };
+  await assert.rejects(catalogRead(origin, CATALOG.articles, {}, { fetcher }), { status: 429 });
+  assert.deepEqual(await recoverEarlierSearchSources(prior, failed, context, { fetcher }), {
+    references: ['/articles/1043'], sources: [{ title: 'Article #1043', status: 'unchecked' }],
+  });
+  assert.equal(requests, 1);
+
+  const controller = new AbortController();
+  const requested = Promise.withResolvers();
+  const reply = Promise.withResolvers();
+  const recovering = recoverEarlierSearchSources(prior, failed, context, {
+    signal: controller.signal, fetcher() { requested.resolve(); return reply.promise; },
+  });
+  await requested.promise;
+  controller.abort();
+  reply.resolve(Response.json({ id: 1043, title: 'Late reply canary', status: 'Published', availability: 'Public', nsfwLevel: 1 }));
+  await assert.rejects(recovering, { name: 'AbortError' });
+});
+
+test('a slow exact check keeps completed checks and leaves the next batch unconfirmed', async () => {
+  const matches = [1043, 1044, 1045, 1046].map(id => evidence('/articles/' + id));
+  const prior = catalogSearch([], { articles: matches });
+  const failed = catalogSearch([], {}, [{ status: 503 }]);
+  const started = [];
+  const result = await recoverEarlierSearchSources(prior, failed, context, { waitMs: 50, async fetcher(url, { signal }) {
+    const id = Number(url.pathname.split('/').at(-1));
+    started.push(id);
+    if (id === 1044) await delay(20_000, null, { signal });
+    return Response.json({ id, title: 'Current article ' + id, status: 'Published', availability: 'Public', nsfwLevel: 1 });
+  } });
+  assert.deepEqual(started, [1043, 1044, 1045]);
+  assert.deepEqual(result.sources.map(row => row.status), ['available', 'check-failed', 'available', 'unchecked']);
+  assert.deepEqual(result.references, matches.map(item => new URL(item.link).pathname));
+});
+
+test('a paused public report saves just its checked references and reopens with partial coverage marked', async () => {
+  const snapshot = result([evidence('/collections/19', 'Archived collection title canary')]);
+  snapshot.report.rails = [{ scope: 'collections', status: 'ready' }, { scope: 'articles', status: 'waiting' }];
+  assert.equal(captureReportCheckpoint(snapshot, context, then), null);
+  const paused = { ...snapshot, reportPaused: true };
+  const checkpoint = captureReportCheckpoint(paused, context, then);
+  assert.deepEqual(checkpoint, { ...saved(['/collections/19']), partial: true });
+  assert.equal(captureReportCheckpoint(paused, { ...context, connectionLost: true }, then), null);
+  assert.equal(captureReportCheckpoint({ ...paused, library: {} }, context, then), null);
+
+  const id = '81a790af-f768-4f70-a930-1df30f45a6f0';
+  const filters = { scope: 'report', query: 'readable canvases', reportType: 'style', reportSources: ['articles', 'collections'] };
+  const doc = saveWorkspaceEntry(workspaceDocument(null), 'searches', 'Paused research', filters, id, checkpoint);
+  const backup = workspaceBackup(doc);
+  assert.doesNotMatch(backup, /canary|checkpoint-read-token/u);
+  const [restored] = readWorkspaceBackup(backup).searches;
+  assert.deepEqual(restored.checkpoint, checkpoint);
+  assert.deepEqual(restored.filters, doc.searches[0].filters);
+  const current = result([evidence('/articles/1043', 'New guide')]);
+  const comparison = await reviewReportCheckpoint(restored.checkpoint, current, context, { checkedAt: now, fetcher(url) {
+    assert.equal(url.pathname, '/api/v1/collections/19');
+    return Response.json({ id: 19, name: 'Current collection name', isPublic: true, read: 'Public', nsfwLevel: 1 });
+  } });
+  assert.equal(comparison.savedPartial, true);
+  assert.equal(comparison.incomplete, false);
+  assert.deepEqual(comparison.older, [{ title: 'Current collection name', status: 'available', link: origin + '/collections/19' }]);
+  assert.deepEqual(comparison.checkpoint, { ...saved(['/articles/1043']), checkedAt: now });
+  assert.match(reportComparisonMarkdown(comparison), /The saved report had incomplete source coverage\./u);
 });
 
 test('a public catalog search stores exact result IDs including an empty completed sample', () => {
