@@ -7,14 +7,14 @@ import { visualPackBytes, visualPackName, visualPackSha256 } from '../src/visual
 
 assert.equal(process.argv.length, 2, 'Put the release pack in .tmp/rasterraid-model-release and run without arguments.');
 const scratch = new URL('../.tmp/', import.meta.url);
-const release = new URL('rasterraid-model-release/', scratch);
-assert.ok((await lstat(fileURLToPath(scratch))).isDirectory() && (await lstat(fileURLToPath(release))).isDirectory(),
+assert.ok((await lstat(new URL('../.tmp', import.meta.url))).isDirectory() &&
+  (await lstat(new URL('rasterraid-model-release', scratch))).isDirectory(),
   'Use ordinary directories in the checkout for .tmp and .tmp/rasterraid-model-release.');
-const pack = new URL(visualPackName, release);
+const pack = new URL('rasterraid-model-release/' + visualPackName, scratch);
 const input = await lstat(pack);
 assert.ok(input.isFile() && input.size === visualPackBytes, 'Expected the exact visual pack size.');
 
-const docs = fileURLToPath(new URL('../docs/', import.meta.url));
+const docs = new URL('../docs', import.meta.url);
 assert.ok((await lstat(docs)).isDirectory(), 'Expected the generated site directory.');
 const files = await readdir(docs, { withFileTypes: true, recursive: true });
 assert.ok(files.every(entry => entry.isFile() || entry.isDirectory()), 'The generated site contains a link or special file.');
