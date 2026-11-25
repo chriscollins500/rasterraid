@@ -4,6 +4,7 @@ import { element, evidenceSource } from './view.js';
 import { isWorkflowId, workflowIdBelongsToViewer } from './workflow-client.mjs';
 import { workflowOutputPending } from './workflow-session.mjs';
 import { workflowReportFile } from './workflow-report-file.mjs';
+import { workflowNoteParts, workflowSourceLookup } from './workflow-citations.mjs';
 
 const labels = {
   compare_evidence: 'Model comparison', verify_constraints: 'Compatibility check',
@@ -56,6 +57,14 @@ function historyContext(snapshot) {
     (snapshot.historyIncludesEmbeddings ? ' That receipt also links the visual comparisons to their pictures.' : '');
 }
 
+function analysisNote(note, lookup, context, onLookup, className) {
+  const row = element('p', null, className ? 'workflow-note ' + className : 'workflow-note');
+  for (const part of workflowNoteParts(note, lookup)) {
+    row.append(typeof part === 'string' ? part : evidenceSource(part, context, onLookup));
+  }
+  return row;
+}
+
 export function workflowReceiptLines(run, simulated = false) {
   const rows = [];
   if (run?.retryQuote) {
@@ -87,6 +96,7 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
     return children;
   }
   if (!snapshot) return children;
+  const lookup = workflowSourceLookup(run);
   const contextNote = historyContext(snapshot);
   if (contextNote) children.push(element('p', contextNote));
   for (const step of snapshot.steps) {
@@ -101,10 +111,10 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
       group.append(row);
     }
     if (Object.hasOwn(transcriptNotes, step.transcriptScope)) group.append(element('p', transcriptNotes[step.transcriptScope]));
-    for (const line of step.lines) group.append(element('p', line));
+    for (const line of step.lines) group.append(step.$type === 'transcription' ? element('p', line) : analysisNote(line, lookup, context, onLookup));
     children.push(group);
   }
-  for (const line of snapshot.text ?? []) children.push(element('p', line, 'workflow-step'));
+  for (const line of snapshot.text ?? []) children.push(analysisNote(line, lookup, context, onLookup, 'workflow-step'));
   if (snapshot.withheld) children.push(element('p', snapshot.withheld, 'workflow-step'));
   if (workflowOutputPending(run, snapshot)) children.push(element('p', 'Waiting for or missing some results from Civitai.', 'workflow-step'));
   const similarity = snapshot.similarity;
@@ -143,7 +153,7 @@ export function workflowResultElements(run, snapshot, { context, simulated, onLo
 }
 
 export function workflowReportMarkdown(records, { simulated = false } = {}) {
-  const plain = value => String(value).replace(/[\\[\]<>*`]/gu, '\\$&');
+  const plain = value => String(value).replace(/[\\[\]<>!*`]/gu, '\\$&');
   const result = [simulated ? '# Simulated Deep Search' : '# Deep Search', ''];
   for (const { run, snapshot, restricted } of records) {
     if (!run) continue;
@@ -163,6 +173,10 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
       result.push('');
       continue;
     }
+    const lookup = workflowSourceLookup(run);
+    const quoteNote = (note, verbatim = false) => note.split(/\r?\n/u).map(line => '> ' +
+      (verbatim ? plain(line) : workflowNoteParts(line, lookup).map(part => typeof part === 'string' ? plain(part) :
+        '[' + plain(part.title) + '](<' + part.link + '>)').join('')));
     const contextNote = historyContext(snapshot);
     if (contextNote) result.push('', contextNote);
     for (const step of snapshot.steps) {
@@ -172,9 +186,9 @@ export function workflowReportMarkdown(records, { simulated = false } = {}) {
         (step.purpose ? ' · ' + plain(step.purpose) : '') +
         (Number.isFinite(step.seconds) ? ' · Frame near ' + step.seconds + ' s' : ''));
       if (Object.hasOwn(transcriptNotes, step.transcriptScope)) result.push(plain(transcriptNotes[step.transcriptScope]));
-      for (const note of step.lines) result.push(...note.split(/\r?\n/u).map(line => '> ' + plain(line)));
+      for (const note of step.lines) result.push(...quoteNote(note, step.$type === 'transcription'));
     }
-    for (const note of snapshot.text ?? []) result.push(...note.split(/\r?\n/u).map(line => '> ' + plain(line)));
+    for (const note of snapshot.text ?? []) result.push(...quoteNote(note));
     if (snapshot.withheld) result.push('', '> ' + plain(snapshot.withheld));
     if (workflowOutputPending(run, snapshot)) result.push('', 'Some results were unavailable when this report was copied.');
     if (snapshot.similarity?.ranked.length) {

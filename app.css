@@ -521,7 +521,7 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .workflow-quote { color: var(--fg); font-size: .87rem; }
 .workflow-results { display: grid; gap: 8px; }
 .workflow-step { display: grid; gap: 6px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); overflow-wrap: anywhere; }
-.workflow-step p { white-space: pre-wrap; font-size: .87rem; }
+.workflow-step p, .workflow-note { white-space: pre-wrap; font-size: .87rem; }
 .workflow-step-status { color: var(--accent-soft); }
 .workflow-sources ul { margin: 7px 0 0 18px; }
 .workflow-previous > .workflow-step { margin-top: 8px; }
