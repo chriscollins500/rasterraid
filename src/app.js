@@ -9,7 +9,6 @@ import { configureFilterReview } from './filter-review.js';
 import { catalogSearchText, civitaiDownloadReference, downloadReferenceNote, modelChoiceFields, modelDownloadFilter, modelFilterValues } from './model-access.mjs';
 import { modelUseLabel } from './model-usage.mjs';
 import { readNativeModelSearch } from './native-model-search.mjs';
-import { suggestedCatalogSearch } from './search-intent.mjs';
 import { isGalleryScope, isVisualGalleryScope, readGalleryPage, readNativeGallerySearch, tagRecord } from './gallery.mjs';
 import { readPostPage } from './community.mjs';
 import { readBountyPage } from './bounties.mjs';
@@ -1651,11 +1650,34 @@ searchField.addEventListener('drop', event => {
   void addSearchPictures([...event.dataTransfer.files]);
 });
 alternateSearch.addEventListener('click', () => void runSearch(alternateSearch));
-byId('search-suggestion').addEventListener('click', () => {
-  const suggestion = scope.value === 'all' && !filterControls.searchAction() && suggestedCatalogSearch(query.value);
-  if (!suggestion || !context || activeSearch) return;
+byId('search-suggestion').addEventListener('click', async () => {
+  const suggestion = filterControls.catalogSuggestion();
+  if (!suggestion?.label || !context || activeSearch || addingSearchPicture) return;
   searchButton.focus({ preventScroll: true });
-  startExample(suggestion.query, suggestion.scope);
+  if (!suggestion.filters) {
+    startExample(suggestion.query, suggestion.scope);
+    return;
+  }
+  const preparation = ++searchPreparation;
+  const draft = query.value;
+  const current = context;
+  const originalScope = scope.value;
+  const changed = () => preparation !== searchPreparation || current !== context || activeSearch ||
+    draft !== query.value || originalScope !== scope.value;
+  const retired = await filterControls.retiredSearchFilter(suggestion.filters);
+  if (changed()) return;
+  if (retired) {
+    searchStatus.textContent = 'The Civitai choice “' + retired + '” has changed. Review the suggested filters.';
+    return;
+  }
+  const selected = await filterControls.readFilters();
+  if (!selected || changed()) return;
+  const currentSuggestion = filterControls.catalogSuggestion();
+  if (JSON.stringify(currentSuggestion) !== JSON.stringify(suggestion)) {
+    searchStatus.textContent = 'Review the updated suggestion before searching.';
+    return;
+  }
+  rerunSearch({ ...selected, ...suggestion.filters, scope: suggestion.scope, query: suggestion.query });
 });
 
 form.addEventListener('click', event => {
