@@ -43,7 +43,8 @@ import { configureSceneMatch } from './scene-view.js';
 import { scenePickLimit, sceneResearch, sceneTime } from './scene-research.mjs';
 import { creationPicks, hasCollectionAccess, libraryHandoffs, libraryScopes, PRIVATE_COLLECTION_SCOPE, readLibraryPage } from './library.mjs';
 import { RESEARCH_MODEL, researchPlans } from './research.mjs';
-import { QUOTE_SCOPE, appEstimateBody, estimateAppWorkflow, matchPreviewQuotes, quotePrice } from './quotes.mjs';
+import { QUOTE_SCOPE, LIVE_QUOTE_MAX_AGE_MS, PREVIEW_QUOTE_MAX_AGE_MS, appEstimateBody, estimateAppWorkflow,
+  expandedQuoteOptions, matchPreviewQuotes, quotePrice, quoteServiceAdvisories } from './quotes.mjs';
 import { GROUPS, appendResultCards, element, evidenceSource, paintCompare, quoteCard, renderModelComparison, renderResults, reorderGalleryCards,
   resultGroupOrder, resultGroups, showQuote, sourceLink } from './view.js';
 
@@ -109,6 +110,8 @@ let referenceRevision = 0;
 let visualBriefRevision = 0;
 let searchPreparation = 0;
 let activeQuote;
+let quoteExpiry;
+let serviceCheck;
 let search;
 const searchTrail = [];
 let reportRecovery;
@@ -183,20 +186,62 @@ function setResearchOpen(open) {
     researchArea.showModal();
     researchToggle.setAttribute('aria-expanded', 'true');
     researchTitle.focus();
+    checkResearchServices();
   } else if (!open && researchArea.open) {
     researchArea.close();
     researchToggle.setAttribute('aria-expanded', 'false');
   }
 }
 
-function showResearchPrices(prices) {
+function showResearchPrices(prices = [], expiresAt) {
+  clearTimeout(quoteExpiry);
+  const quotes = search?.quotes ?? [];
+  const expansions = prices.length ? expandedQuoteOptions(quotes.map(view => view.plan), prices) : [];
+  quotes.forEach((view, index) => showQuote(view, prices[index], expansions[index]));
   const totals = prices.flatMap(price => Number.isSafeInteger(price?.total) ? [price.total] : []);
-  researchSummary.textContent = totals.length && totals.length === prices.length ? 'From ' + Math.min(...totals) + ' Buzz' : 'Free quotes';
+  researchSummary.textContent = totals.length && totals.length === quotes.length ? 'From ' + Math.min(...totals) + ' Buzz' : 'Free quotes';
+  if (totals.length && expiresAt) quoteExpiry = setTimeout(() => {
+    if (search?.quotes !== quotes) return;
+    search.recordedQuote = null;
+    showResearchPrices();
+    if (activeQuote) return;
+    quoteButton.textContent = 'Get live quotes';
+    quoteStatus.textContent = 'These estimates expired. Get fresh quotes for the current picks.';
+  }, Math.max(0, expiresAt - Date.now()));
+}
+
+function checkResearchServices() {
+  const views = search?.quotes;
+  if (!researchArea.open || !views?.length || mockPreview) return;
+  const startedAt = Date.now();
+  if (serviceCheck?.views === views && startedAt - serviceCheck.startedAt < LIVE_QUOTE_MAX_AGE_MS) return;
+  serviceCheck?.controller.abort();
+  const controller = new AbortController();
+  const { signal } = controller;
+  serviceCheck = { controller, views, startedAt };
+  for (const { advisory } of views) {
+    advisory.textContent = '';
+    advisory.hidden = true;
+  }
+  void quoteServiceAdvisories(views.map(view => view.plan), { signal }).then(results => {
+    if (signal.aborted || search?.quotes !== views || !researchArea.open) return;
+    const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date());
+    views.forEach(({ advisory }, index) => {
+      if (!results[index].length) return;
+      advisory.textContent = 'Civitai service advisory · ' + results[index].join(', ') + ' · 24-hour window checked at ' + time;
+      advisory.hidden = false;
+    });
+  }).catch(() => {});
 }
 
 researchToggle.addEventListener('click', () => setResearchOpen(true));
 byId('close-research').addEventListener('click', () => setResearchOpen(false));
-researchArea.addEventListener('close', () => researchToggle.setAttribute('aria-expanded', String(researchArea.open)));
+researchArea.addEventListener('close', () => {
+  researchToggle.setAttribute('aria-expanded', String(researchArea.open));
+  if (researchArea.open) return;
+  serviceCheck?.controller.abort();
+  serviceCheck = undefined;
+});
 for (const button of document.querySelectorAll('button[data-close-dialog]')) {
   button.addEventListener('click', () => button.closest('dialog')?.close());
 }
@@ -229,6 +274,7 @@ function clearReportRecovery() {
 
 function clearSearchResults(current) {
   clearReportRecovery();
+  showResearchPrices();
   search = undefined;
   subjectComparison.show(null, current);
   retryButton.hidden = true;
@@ -423,8 +469,8 @@ watchHost(window, update => {
   updateButtonLayout(update);
   if (quoteAccessLost) {
     activeQuote?.abort();
-    for (const view of search?.quotes ?? []) showQuote(view);
-    showResearchPrices([]);
+    if (search) search.recordedQuote = null;
+    showResearchPrices();
     quoteStatus.textContent = 'Quote access changed on Civitai. Get a new quote when ready.';
   }
   if (identityChanged || visibilityReduced || collectionAccessLost) {
@@ -1051,7 +1097,9 @@ function renderResearch() {
   quoteButton.disabled = search.phase === 'loading' || search.phase === 'interrupted';
   quoteButton.textContent = context.hosted && !context.signedIn && !context.connectionLost ? 'Sign in for live quotes' : 'Get live quotes';
   quoteStatus.textContent = '';
-  showResearchPrices([]);
+  showResearchPrices();
+  serviceCheck?.controller.abort();
+  serviceCheck = undefined;
   search.recordedQuote = null;
   search.quotes = [];
   const selectedReport = search.result.report;
@@ -1220,13 +1268,14 @@ function renderResearch() {
     button.type = 'button';
     button.addEventListener('click', () => {
       setResearchOpen(false);
-      workflowRun?.offer(view.plan, view.plan.sources ?? sources);
+      workflowRun?.offer(view.plan, view.plan.sources ?? sources, view.advisory.textContent);
     });
     view.card.append(button);
     view.runOffer = button;
   }
   options.append(...search.quotes.map(view => view.card));
   paintWorkflowOffers();
+  checkResearchServices();
   if (developerPreview && search.quotes.length) showVerifiedPreviewEstimate(search, search.quotes);
 }
 
@@ -1294,15 +1343,14 @@ async function showVerifiedPreviewEstimate(current, quotes) {
     const match = matches.find(Boolean);
     if (!match || search !== current || search.quotes !== quotes || activeQuote) return;
     search.recordedQuote = match;
-    paintPreviewEstimate(match, quotes);
+    paintPreviewEstimate(match);
   } catch {
     // Live quotes still use the Civitai host if the preview receipt cannot be read.
   }
 }
 
-function paintPreviewEstimate(match, quotes) {
-  quotes.forEach((view, index) => showQuote(view, match.prices[index]));
-  showResearchPrices(match.prices);
+function paintPreviewEstimate(match) {
+  showResearchPrices(match.prices, match.capturedAt + PREVIEW_QUOTE_MAX_AGE_MS);
   const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(match.capturedAt);
   quoteStatus.textContent = 'Civitai estimate for these picks · developer quote captured at ' + time + ' · 0 Buzz used.';
   quoteButton.textContent = context.scopes.includes(QUOTE_SCOPE) ? 'Get a new live quote' : 'Show preview quotes';
@@ -1872,9 +1920,13 @@ galleryMore.addEventListener('click', async () => {
 
 quoteButton.addEventListener('click', async () => {
   if (mockPreview || activeQuote || activeSearch || !search?.quotes.length) return;
+  checkResearchServices();
   if (!context.scopes.includes(QUOTE_SCOPE) && search.recordedQuote) {
-    paintPreviewEstimate(search.recordedQuote, search.quotes);
-    return;
+    if (Date.now() - search.recordedQuote.capturedAt < PREVIEW_QUOTE_MAX_AGE_MS) {
+      paintPreviewEstimate(search.recordedQuote);
+      return;
+    }
+    search.recordedQuote = null;
   }
   const controller = new AbortController();
   activeQuote = controller;
@@ -1909,38 +1961,34 @@ quoteButton.addEventListener('click', async () => {
     }
 
     quoteStatus.textContent = 'Getting prices from Civitai…';
-    for (const view of quotes) showQuote(view);
-    showResearchPrices([]);
+    showResearchPrices();
     const bodies = quotes.map(view => appEstimateBody(view.plan));
+    const startedAt = Date.now();
     const batch = bodies.length > 1 ? await authorized.requestQuoteBatch(bodies, signal) : null;
     signal.throwIfAborted();
     const prices = batch ?? [];
-    if (batch) quotes.forEach((view, index) => showQuote(view, batch[index]));
-    else for (const [index, view] of quotes.entries()) {
+    if (!batch) for (const body of bodies) {
       signal.throwIfAborted();
       try {
-        const snapshot = await estimateAppWorkflow(context.origin, context.token, bodies[index], fetch, signal);
+        const snapshot = await estimateAppWorkflow(context.origin, context.token, body, fetch, signal);
         signal.throwIfAborted();
-        const price = quotePrice(snapshot);
-        showQuote(view, price);
-        prices.push(price);
+        prices.push(quotePrice(snapshot));
       } catch (error) {
         signal.throwIfAborted();
-        showQuote(view, null);
-        if ([401, 403, 429].includes(error.status)) break;
         prices.push(null);
+        if ([401, 403, 429].includes(error.status)) break;
       }
     }
     const priced = prices.filter(Boolean).length;
     const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date());
-    showResearchPrices(prices.length === quotes.length ? prices : []);
+    showResearchPrices(prices, startedAt + LIVE_QUOTE_MAX_AGE_MS);
     if (priced) quoteButton.textContent = 'Refresh live quotes';
     quoteStatus.textContent = priced
       ? priced + ' of ' + quotes.length + ' priced ' + (batch ? 'together ' : '') + 'by Civitai at ' + time + '. 0 Buzz used.'
       : 'Civitai couldn’t return prices right now. 0 Buzz used.';
   } catch (error) {
     if (!signal.aborted) {
-      quotes.forEach(view => showQuote(view, null));
+      showResearchPrices(quotes.map(() => null));
       quoteStatus.textContent = 'Civitai couldn’t return prices right now. Try again shortly. 0 Buzz used.';
     }
   } finally {

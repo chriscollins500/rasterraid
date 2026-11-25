@@ -221,18 +221,26 @@ export function readAiServicePage(plan, { cursor = 0 } = {}) {
   return { items, nextCursor: next < plan.matches.length ? next : null, partial: plan.partial };
 }
 
+export async function readAiService(id, { window: requested, ...options } = {}) {
+  const link = aiServiceLink(id);
+  if (!link) return { status: 'format', item: null };
+  const window = windows.has(requested) ? requested : '24h';
+  const url = new URL(link);
+  url.searchParams.set('window', window);
+  const { status, data } = await readRegistry(url, options);
+  const item = data?.id === id ? serviceCard(data, window, true) : null;
+  return { status: status === 200 && !item ? 'format' : status, item };
+}
+
 export async function discoverAiServices(context, target, filters, options = {}) {
   if (!SITE_ORIGINS.includes(context.origin)) throw new TypeError('Use a Civitai host for AI service discovery.');
   const base = { scope: 'aiServices', target, candidates: [], shortlisted: [] };
   const window = windows.has(filters.serviceWindow) ? filters.serviceWindow : '24h';
   options.onPhase?.(target.kind === 'aiService' ? 'Checking the exact Civitai AI service…' : 'Reading Civitai’s live AI service registry…');
   if (target.kind === 'aiService') {
-    const url = new URL(aiServiceLink(target.id));
-    url.searchParams.set('window', window);
-    const { status, data } = await readRegistry(url, options);
-    const result = data?.id === target.id ? serviceCard(data, window, true) : null;
+    const { status, item: result } = await readAiService(target.id, { ...options, window });
     return { ...base, directoryTitle: result?.title ?? 'AI service', related: { aiServices: result ? [result] : [] },
-      flows: [{ label: 'Exact Civitai AI service', status: status === 200 && !result ? 'format' : status }],
+      flows: [{ label: 'Exact Civitai AI service', status }],
       serviceCatalog: { exact: true, missing: status === 404, partial: !result && status !== 404, window } };
   }
   const { items, total, partial, flows, checkedAt } = await readAiServiceRegistry({ ...options, window });

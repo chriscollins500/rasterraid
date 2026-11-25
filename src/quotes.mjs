@@ -1,9 +1,12 @@
+import { readAiService } from './ai-services.mjs';
 import { SITE_ORIGINS } from './catalog.mjs';
+import { RESEARCH_MODEL } from './research.mjs';
 import { appWorkflowRequest } from './workflow-client.mjs';
 
 export { QUOTE_SCOPE } from './workflow-client.mjs';
 
 export const APP_ESTIMATE_BATCH_MAX = 16;
+export const LIVE_QUOTE_MAX_AGE_MS = 2 * 60_000;
 
 export function appEstimateBody(plan) {
   const { tier, steps } = plan.body;
@@ -43,6 +46,58 @@ export function batchQuotePrices(reply, count) {
     throw new TypeError('The Civitai quote reply did not match the selected options.');
   }
   return prices;
+}
+
+export function expandedQuoteOptions(plans, prices) {
+  const steps = plans.map(plan => plan.body.steps.map(step => JSON.stringify(step)));
+  return plans.map((plan, index) => {
+    const total = prices[index]?.total;
+    if (!wholeBuzz(total)) return null;
+    let best = null;
+    for (const [otherIndex, broader] of plans.entries()) {
+      const otherTotal = prices[otherIndex]?.total;
+      if (!wholeBuzz(otherTotal) || steps[otherIndex].length <= steps[index].length) continue;
+      if (best && otherTotal - total >= best.difference) continue;
+      const added = broader.additionalPreviews;
+      const previews = added?.baseId === plan.id ? added.count : 0;
+      if (!previews) {
+        let matched = 0;
+        for (const step of steps[otherIndex]) {
+          if (step === steps[index][matched]) matched++;
+        }
+        if (matched !== steps[index].length) continue;
+      }
+      best = { title: broader.title, previews, difference: otherTotal - total };
+    }
+    return best;
+  });
+}
+
+const stepServices = new Map([
+  ['chatCompletion', ['chat/' + RESEARCH_MODEL, 'Catalog analysis']],
+  ['audioCaptioning', ['audio/audioCaptioning', 'Music description']],
+  ['audioClassification', ['audio/audioClassification', 'Sound classification']],
+  ['composeMedia', ['utility/composeMedia', 'Audio preparation']],
+  ['mediaCaptioning', ['text/mediaCaptioning', 'Picture description']],
+  ['multimodalEmbedding', ['text/multimodalEmbedding', 'Similarity ranking']],
+  ['transcription', ['audio/transcription', 'Transcription']],
+  ['videoFrameExtraction', ['video/videoFrameExtraction', 'Video frame extraction']],
+]);
+
+export async function quoteServiceAdvisories(plans, options) {
+  const byPlan = plans.map(plan => new Set(plan.body.steps.flatMap(step => {
+    if (step.$type === 'chatCompletion' && step.input?.model !== RESEARCH_MODEL) return [];
+    const service = stepServices.get(step.$type);
+    return service ? [service] : [];
+  })));
+  const services = new Set(byPlan.flatMap(steps => [...steps]));
+  const checks = await Promise.all([...services].map(async service => {
+    const [id, label] = service;
+    const { item } = await readAiService(id, options);
+    return [service, item?.status === 'degraded' || item?.status === 'unavailable' ? label + ' (' + item.status + ')' : null];
+  }));
+  const affected = new Map(checks);
+  return byPlan.map(steps => [...steps].map(service => affected.get(service)).filter(Boolean));
 }
 
 export const PREVIEW_QUOTE_MAX_AGE_MS = 60 * 60 * 1000;

@@ -729,6 +729,12 @@ html:has(.compare-tray:not([hidden])) { scroll-padding-block-end: 105px; }
 .quote-input-title small { color: var(--text); font-size: .72rem; }
 .quote-price { color: var(--accent-soft); white-space: nowrap; font-size: .89rem; font-weight: 850; }
 .quote-fee { color: var(--text); }
+.quote-expansion, .quote-advisory { overflow-wrap: anywhere; }
+.quote-expansion { color: var(--accent-soft); }
+.quote-advisory {
+  margin-block: 4px; padding: 4px 7px; border-inline-start: 2px solid var(--peach); background: var(--surface-up);
+}
+.workflow-session .quote-advisory { font-size: .85rem; }
 .quote-actions { margin-top: 10px; }
 .quote-actions button { width: 100%; }
 .quote-actions p, .quote-status, .buzz-help p { margin-top: 6px; font-size: .8rem; }
