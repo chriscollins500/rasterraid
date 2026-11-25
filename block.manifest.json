@@ -1,7 +1,7 @@
 {
   "$schema": "https://civitai.com/schemas/app-block/v1.json",
   "blockId": "rasterraid",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "name": "RasterRaid",
   "tagline": "Search Civitai and see how results connect.",
   "description": "Search Civitai models, media, guides, and other public listings. Build reports with exact source links, save your picks, and see live Deep Search prices.",
