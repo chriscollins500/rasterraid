@@ -1,7 +1,8 @@
 import { publicArticle } from './article-sources.mjs';
 import { CATALOG, catalogRead, listItems, numericId, SITE_ORIGINS, text, visibleRating } from './catalog.mjs';
-import { catalogEvidenceReference } from './catalog-research.mjs';
+import { catalogEvidenceReference, catalogResearchItems } from './catalog-research.mjs';
 import { readAppMediaByIds } from './gallery.mjs';
+import { catalogSearchFailure } from './report-recovery.mjs';
 import { readSavedModelVersions } from './search.mjs';
 
 const referenceLimit = 40;
@@ -19,20 +20,23 @@ export const earlierSourceStatus = {
   unchecked: 'Exact availability unconfirmed',
 };
 
-export function readReportCheckpoint(value) {
+function readCheckpoint(value, allowEmpty) {
   if (!value || !SITE_ORIGINS.includes(value.origin) || !usableLevel(value.browsingLevel) ||
       typeof value.checkedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/u.test(value.checkedAt) ||
       !Number.isFinite(Date.parse(value.checkedAt)) || new Date(value.checkedAt).toISOString() !== value.checkedAt ||
       !Array.isArray(value.references) ||
-      !value.references.length || value.references.length > referenceLimit ||
+      (!allowEmpty && !value.references.length) || value.references.length > referenceLimit ||
       new Set(value.references).size !== value.references.length ||
       value.references.some(ref => typeof ref !== 'string' || catalogEvidenceReference(ref, value.origin) !== ref)) return null;
   return { origin: value.origin, browsingLevel: value.browsingLevel, checkedAt: value.checkedAt, references: [...value.references] };
 }
 
-function currentEvidence(report, origin) {
+export const readReportCheckpoint = value => readCheckpoint(value, false);
+export const readCatalogCheckpoint = value => readCheckpoint(value, true);
+
+function currentEvidence(items, origin) {
   const refs = new Map();
-  for (const item of report?.evidence ?? []) {
+  for (const item of items ?? []) {
     const ref = catalogEvidenceReference(item?.link, origin);
     const title = text(item?.title, 160);
     if (ref && title && !refs.has(ref)) refs.set(ref, { ref, title, link: new URL(ref, origin).href });
@@ -41,12 +45,40 @@ function currentEvidence(report, origin) {
   return refs;
 }
 
+function catalogEvidence(result, origin) {
+  if (!result || result.report || result.library || result.visualComposition || result.reference ||
+      result.scope === 'ownedModels' || !['text', 'tag'].includes(result.target?.kind) || !SITE_ORIGINS.includes(origin)) return null;
+  const models = (result.candidates ?? []).filter(row => row.publiclyListed === true);
+  const onlyPictures = result.scope === 'pictures';
+  const related = onlyPictures ? { pictures: models.flatMap(model => (model.examples ?? []).map(image => ({
+    title: model.model, link: image.link,
+  }))) } : result.related ?? {};
+  const items = catalogResearchItems(result, related, 'all', origin);
+  if (!onlyPictures) items.unshift(...models.map(model => ({
+    title: [model.model, model.version].filter(Boolean).join(' · '), link: model.link,
+  })));
+  return currentEvidence(items, origin);
+}
+
 export function captureReportCheckpoint(result, context, checkedAt) {
   const report = result?.report;
   if (!report || result.library || report.localTrace || report.referenceUnavailable || report.releaseLookup ||
       report.rails?.some(rail => rail.status === 'waiting')) return null;
   return readReportCheckpoint({ origin: context?.origin, browsingLevel: context?.browsingLevel,
-    checkedAt, references: [...currentEvidence(report, context?.origin).keys()] });
+    checkedAt, references: [...currentEvidence(report.evidence, context?.origin).keys()] });
+}
+
+export function captureCatalogCheckpoint(result, context, checkedAt) {
+  if (context?.connectionLost) return null;
+  const evidence = catalogEvidence(result, context?.origin);
+  return evidence ? catalogCheckpoint(evidence, result, context, checkedAt) : null;
+}
+
+function catalogCheckpoint(evidence, result, context, checkedAt) {
+  const searched = evidence.size > 0 || result.directory?.plan || result.gallery?.status === 'ready' ||
+    result.flows?.some(flow => flow.status === 200);
+  if (!searched || catalogSearchFailure(result)) return null;
+  return readCatalogCheckpoint({ origin: context.origin, browsingLevel: context.browsingLevel, checkedAt, references: [...evidence.keys()] });
 }
 
 function exactReference(ref, origin) {
@@ -79,10 +111,11 @@ function siteTitle({ kind, id }, row, ceiling) {
   return text(row.name ?? row.title, 160);
 }
 
-async function checkOlderReferences(context, references, options) {
+async function checkOlderReferences(context, references, options, publicOnly) {
   const rows = references.map(ref => ({ ref, exact: exactReference(ref, context.origin), status: 'unchecked' }));
   const { signal } = options;
-  const models = rows.filter(row => row.exact?.kind === 'models').slice(0, context.hosted ? referenceLimit : siteCheckLimit);
+  const useApp = context.hosted && Boolean(context.token);
+  const models = rows.filter(row => row.exact?.kind === 'models').slice(0, useApp ? referenceLimit : siteCheckLimit);
   const media = rows.filter(row => row.exact?.kind === 'images');
   const site = rows.filter(row => row.exact && !['models', 'images'].includes(row.exact.kind)).slice(0, siteCheckLimit);
   const fail = (row, error) => { row.status = error.status === 404 ? 'unavailable' : 'check-failed'; };
@@ -90,21 +123,22 @@ async function checkOlderReferences(context, references, options) {
   const reads = [];
   if (models.length) reads.push((async () => {
     const checked = await readSavedModelVersions(context, models.map(row => row.exact), { ...options, withExamples: false });
-    const visible = new Map(checked.candidates.map(card => [catalogEvidenceReference(card.link, context.origin),
-      [card.model, card.version].filter(Boolean).join(' · ')]));
-    const complete = checked.flows.length === (context.hosted ? 1 : new Set(models.map(row => row.exact.versionId)).size) &&
-      checked.flows.every(flow => flow.status === 200);
+    const visible = new Map(checked.candidates.filter(card => !publicOnly || card.publiclyListed)
+      .map(card => [catalogEvidenceReference(card.link, context.origin), [card.model, card.version].filter(Boolean).join(' · ')]));
+    const exactReads = checked.flows.filter(flow => flow.label === 'Exact version lookup');
+    const complete = (useApp ? checked.flows.length === 1 : exactReads.length === new Set(models.map(row => row.exact.versionId)).size) &&
+      checked.flows.every(flow => flow.status === 200 || flow.missing);
     for (const row of models) {
       const title = visible.get(row.ref);
       if (title || complete) mark(row, title);
       else row.status = 'check-failed';
     }
   })().catch(error => { for (const row of models) fail(row, error); }));
-  if (media.length && context.hosted) reads.push((async () => {
+  if (media.length && useApp) reads.push((async () => {
     const visible = new Map((await readAppMediaByIds(context, media.map(row => row.exact.id), options)).map(row => [row.id, row.title]));
     for (const row of media) mark(row, visible.get(row.exact.id));
   })().catch(() => { for (const row of media) row.status = 'check-failed'; }));
-  if (!context.hosted) site.unshift(...media.slice(0, siteCheckLimit - site.length));
+  if (!useApp) site.unshift(...media.slice(0, siteCheckLimit - site.length));
   await Promise.all(reads);
   signal?.throwIfAborted();
   for (let first = 0; first < site.length; first += siteBatchSize) {
@@ -134,26 +168,40 @@ async function checkOlderReferences(context, references, options) {
 export async function reviewReportCheckpoint(previous, result, context, { checkedAt, ...options }) {
   const baseline = readReportCheckpoint(previous);
   if (!baseline || !result?.report || result.report.localTrace || result.library) return null;
-  if (baseline.origin !== context.origin || baseline.browsingLevel !== context.browsingLevel) {
-    return { status: 'context-changed', checkedAt: baseline.checkedAt, origin: baseline.origin };
-  }
-  const evidence = currentEvidence(result.report, context.origin);
-  const seen = new Set(baseline.references);
-  const older = await checkOlderReferences(context, baseline.references.filter(ref => !evidence.has(ref)), options);
   const incomplete = Boolean(result.report.referenceUnavailable || result.report.releaseLookup ||
-    result.report.rails?.some(rail => ['unavailable', 'partial', 'waiting'].includes(rail.status)) ||
-    older.some(row => row.status === 'check-failed'));
-  const current = captureReportCheckpoint(result, context, checkedAt);
-  return { status: 'ready', savedAt: baseline.checkedAt, checkedAt, incomplete, same: baseline.references.length - older.length,
-    added: [...evidence.values()].filter(row => !seen.has(row.ref)), older, checkpoint: incomplete ? null : current };
+    result.report.rails?.some(rail => ['unavailable', 'partial', 'waiting'].includes(rail.status)));
+  return compareCheckpoints(baseline, currentEvidence(result.report.evidence, context.origin), context,
+    captureReportCheckpoint(result, context, checkedAt), incomplete, { ...options, checkedAt });
+}
+
+export async function reviewCatalogCheckpoint(previous, result, context, { checkedAt, ...options }) {
+  const baseline = readCatalogCheckpoint(previous);
+  const evidence = catalogEvidence(result, context.origin);
+  if (!baseline || !evidence || context.connectionLost) return null;
+  const next = catalogCheckpoint(evidence, result, context, checkedAt);
+  return compareCheckpoints(baseline, evidence, context, next, !next, { ...options, checkedAt }, true);
+}
+
+async function compareCheckpoints(baseline, evidence, context, next, partial, { checkedAt, ...options }, catalog = false) {
+  const kind = catalog ? { kind: 'search' } : {};
+  if (baseline.origin !== context.origin || baseline.browsingLevel !== context.browsingLevel) {
+    return { ...kind, status: 'context-changed', checkedAt: baseline.checkedAt, origin: baseline.origin };
+  }
+  const seen = new Set(baseline.references);
+  const older = await checkOlderReferences(context, baseline.references.filter(ref => !evidence.has(ref)), options, catalog);
+  const incomplete = partial || older.some(row => row.status === 'check-failed');
+  return { ...kind, status: 'ready', savedAt: baseline.checkedAt, checkedAt, incomplete, same: baseline.references.length - older.length,
+    added: [...evidence.values()].filter(row => !seen.has(row.ref)), older, checkpoint: incomplete ? null : next };
 }
 
 export function reportComparisonMarkdown(comparison) {
   const { savedAt, checkedAt, added, older, same } = comparison;
   const safe = value => value.replace(/\r?\n|\r/gu, ' ').replace(/[\\\[\]`*<>]/gu, '\\$&');
   const source = row => row.link ? '[' + safe(row.title) + '](<' + row.link + '>)' : safe(row.title);
-  const lines = ['# Changes since saved report', '', 'Saved ' + savedAt, 'Checked ' + checkedAt, '',
-    added.length + ' new in this sample · ' + same + ' still in the report · ' + older.length + ' earlier sources outside this sample'];
+  const search = comparison.kind === 'search';
+  const current = search ? 'sample' : 'report';
+  const lines = ['# Changes since saved ' + (search ? 'search' : 'report'), '', 'Saved ' + savedAt, 'Checked ' + checkedAt, '',
+    added.length + ' new in this sample · ' + same + ' still in the ' + current + ' · ' + older.length + ' earlier sources outside this sample'];
   if (comparison.incomplete) lines.push('', 'Some sources could not be checked.');
   if (added.length) lines.push('', '## New in this sample', ...added.map(row => '- ' + source(row)));
   if (older.length) lines.push('', '## Earlier sources', ...older.map(row => '- ' + source(row) + ' · ' + earlierSourceStatus[row.status]));

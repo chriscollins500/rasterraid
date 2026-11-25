@@ -598,17 +598,43 @@ export function renderReport(container, report, context, onLookup, onCompareSetu
   }
 }
 
+function addCheckpointAction(container, comparison, updateCheckpoint, search) {
+  if (!comparison.checkpoint || !updateCheckpoint) return;
+  const button = element('button', (search ? 'Use these results' : 'Use this report') + ' for the next comparison', 'chip');
+  button.type = 'button';
+  const status = element('p');
+  status.setAttribute('role', 'status');
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    const saved = await updateCheckpoint(comparison.checkpoint);
+    if (!button.isConnected) return;
+    status.textContent = saved ? (search ? 'These results are' : 'This report is') + ' saved for the next comparison.'
+      : 'Reopen the saved ' + (search ? 'search' : 'report') + ' to try again.';
+    button.disabled = Boolean(saved);
+  });
+  const actions = element('div', null, 'report-heading');
+  actions.append(button, status);
+  container.append(actions);
+}
+
 export function renderReportChanges(container, comparison, context, updateCheckpoint, onLookup) {
   container.replaceChildren();
   container.hidden = !comparison;
   if (!comparison) return;
-  const heading = element('h3', 'Changes since saved report');
+  const search = comparison.kind === 'search';
+  const kind = search ? 'search' : 'report';
+  const heading = element('h3', comparison.status === 'baseline-ready' ? 'Track changes to this search' : 'Changes since saved ' + kind);
   heading.id = 'report-change-title';
   heading.tabIndex = -1;
   container.append(heading);
+  if (comparison.status === 'baseline-ready') {
+    container.append(element('p', 'Save this result sample to see what changes the next time you open this search.'));
+    addCheckpointAction(container, comparison, updateCheckpoint, true);
+    return;
+  }
   if (comparison.status === 'context-changed') {
-    container.append(element('p', 'This report was saved on ' + new URL(comparison.origin).hostname +
-      ' with different access. The current report uses your current Civitai view.'));
+    container.append(element('p', 'This ' + kind + ' was saved on ' + new URL(comparison.origin).hostname +
+      ' with different access. These results use your current Civitai view.'));
     return;
   }
   const { savedAt, checkedAt, added, older, same } = comparison;
@@ -616,13 +642,13 @@ export function renderReportChanges(container, comparison, context, updateCheckp
   const copy = element('button', 'Copy comparison', 'chip');
   copy.type = 'button';
   copy.addEventListener('click', () => showReportExport(reportComparisonMarkdown(comparison),
-    { title: 'Copy report comparison', label: 'Comparison in Markdown' }));
+    { title: 'Copy ' + kind + ' comparison', label: 'Comparison in Markdown' }));
   header.append(heading, copy);
   container.append(header);
   const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   container.append(element('p', 'Saved ' + date.format(Date.parse(savedAt)) + ' · Checked ' + date.format(Date.parse(checkedAt))));
   const counts = element('ul', null, 'report-change-counts');
-  counts.append(element('li', added.length + ' new in this sample'), element('li', same + ' still in the report'),
+  counts.append(element('li', added.length + ' new in this sample'), element('li', same + (search ? ' still in this sample' : ' still in the report')),
     element('li', older.length + ' earlier sources outside this sample'));
   container.append(counts);
   if (comparison.incomplete) container.append(element('p', 'Some sources could not be checked. Your saved comparison point is kept.'));
@@ -650,22 +676,7 @@ export function renderReportChanges(container, comparison, context, updateCheckp
     details.append(element('summary', 'Check earlier sources'), list);
     container.append(details);
   }
-  if (comparison.checkpoint && updateCheckpoint) {
-    const button = element('button', 'Use this report for the next comparison', 'chip');
-    button.type = 'button';
-    const status = element('p');
-    status.setAttribute('role', 'status');
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      const saved = await updateCheckpoint(comparison.checkpoint);
-      if (!button.isConnected) return;
-      status.textContent = saved ? 'This report is saved for the next comparison.' : 'Reopen the saved report to try again.';
-      button.disabled = Boolean(saved);
-    });
-    const actions = element('div', null, 'report-heading');
-    actions.append(button, status);
-    container.append(actions);
-  }
+  addCheckpointAction(container, comparison, updateCheckpoint, search);
 }
 
 function renderModelEdits(report, context) {
