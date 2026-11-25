@@ -106,7 +106,7 @@ export function gallerySimilarityResearch(result, origin, subjectOrder = []) {
   return { reference, plans };
 }
 
-export function galleryCompositionResearch(result, origin) {
+export function galleryCompositionResearch(result, origin, subjectOrder = []) {
   const brief = result?.visualComposition;
   const scope = result?.gallery?.scope;
   if (!brief || !SITE_ORIGINS.includes(origin) || !['gallery', 'videos'].includes(scope) || result.library ||
@@ -128,7 +128,9 @@ export function galleryCompositionResearch(result, origin) {
   }
   const extraIds = new Set(brief.referenceMatchesAdded ? brief.order.slice(-brief.referenceMatchesAdded) : []);
   const added = ready.find(item => extraIds.has(item.id) && item.catalogMatches.length);
-  const candidates = sampleMediaByPost(added ? [added, ...ready.filter(item => item.id !== added.id)] : ready, 3);
+  const subjectMatches = orderCandidates(ready, subjectOrder);
+  const candidates = sampleMediaByPost(subjectMatches.length >= 2 ? subjectMatches :
+    added ? [added, ...ready.filter(item => item.id !== added.id)] : ready, 3);
   if (candidates.length < 2) return null;
   const inputs = [...references, ...candidates].map(({ title, link, kind, cover, cue }) => ({
     title, link, kind, preview: cover, purpose: cue ?? 'Candidate',
@@ -139,14 +141,15 @@ export function galleryCompositionResearch(result, origin) {
     : 'Describe only the visible ' + purpose.slice(purpose.indexOf(' ') + 1) + ' in this reference.') +
     ' Say if a trait is hard to see. Use only the contents of this still image.');
   const count = candidates.length + ' candidate previews';
+  const subjectNote = subjectMatches.length >= 2 ? ' Uses your on-device subject order for the candidate previews.' : '';
   const plans = [{ id: 'composevisual', title: 'Check the reference traits',
-    work: 'Describes your match and avoid traits in the references and in ' + count + '.',
+    work: 'Describes your match and avoid traits in the references and in ' + count + '.' + subjectNote,
     body: { tier: 'paid', steps }, inputs, sources: inputs, stepEvidence }];
   if (!candidates.some(item => item.catalogMatches.length)) return { references, plans };
   const audit = makeChat('visual_catalog_check', RESEARCH_MODEL,
     'Audit the supplied Civitai catalog leads for the candidate links. Explain which came from a model version, post, or tag. Cite only supplied links. Catalog associations cannot prove why a picture looks a certain way. Say when a connection has not been established.',
     JSON.stringify({ references: references.map(item => item.link), candidates: candidates.map(({ link, catalogMatches }) => ({ link, catalogMatches })) }), 430);
-  plans.push({ id: 'composeaudit', title: 'Check traits and catalog links', work: 'Adds a source audit for the same ' + count + '.',
+  plans.push({ id: 'composeaudit', title: 'Check traits and catalog links', work: 'Adds a source audit for the same ' + count + '.' + subjectNote,
     body: { tier: 'paid', steps: [...steps, audit] }, inputs, sources: inputs, stepEvidence });
   return { references, plans };
 }

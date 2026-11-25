@@ -9,6 +9,8 @@ export function configureSubjectComparison(document, onComplete) {
   const stop = document.getElementById('subject-stop');
   const referenceChoice = document.getElementById('subject-reference-choice');
   const picker = document.getElementById('subject-reference');
+  const cues = document.getElementById('subject-cues');
+  const cueItems = document.getElementById('subject-cue-items');
   const status = document.getElementById('subject-status');
   const progress = document.getElementById('subject-download');
   const help = document.getElementById('subject-help');
@@ -21,6 +23,7 @@ export function configureSubjectComparison(document, onComplete) {
   let anchors = [];
   let sample = [];
   let matches = [];
+  let settings = [];
   let active;
   let searchBusy = false;
 
@@ -31,50 +34,99 @@ export function configureSubjectComparison(document, onComplete) {
     stop.hidden = true;
     progress.hidden = true;
     picker.disabled = searchBusy;
+    cues.disabled = searchBusy;
+  }
+
+  function selectedReferences() {
+    if (picker.value === 'combine') return settings.flatMap(({ reference, choice }) =>
+      choice.value === 'ignore' ? [] : [{ ...reference, polarity: choice.value }]);
+    const reference = anchors[picker.selectedIndex];
+    return reference ? [{ ...reference, polarity: 'prefer' }] : [];
+  }
+
+  function updateControls() {
+    const combined = picker.value === 'combine';
+    const selected = selectedReferences();
+    const ready = selected.some(reference => reference.polarity === 'prefer');
+    cues.hidden = !combined;
+    start.disabled = searchBusy || !ready;
+    const location = selected.some(reference => reference.file) ? 'Your reference files stay on this device. ' : '';
+    const areas = selected.some(reference => reference.region) ? 'Uses any selected picture areas. ' : '';
+    const guidance = !ready ? 'Choose at least one subject to match. '
+      : combined ? 'Match weighs the selected subjects together. Avoid moves similar subjects lower. ' : '';
+    help.textContent = guidance + location + areas + 'Compares up to six public previews. About 81 MB to get started. 0 Buzz.';
   }
 
   function clearMatches() {
     cancel();
     start.hidden = false;
     help.hidden = false;
-    const reference = anchors[picker.selectedIndex];
-    help.textContent = reference?.file ? (reference.region ? 'Uses the selected area of your picture on this device.' : 'Your reference picture stays on this device.') +
-      ' Compares up to six public previews. About 81 MB to get started. 0 Buzz.'
-      : 'Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.';
+    updateControls();
     status.textContent = '';
     results.replaceChildren();
     matches = [];
     deep.hidden = true;
   }
 
-  function show(result, nextContext, localReferences = []) {
+  function show(result, nextContext, briefReferences = []) {
     if (result === current && nextContext === context) return;
     current = result;
     context = nextContext;
     const gallery = result?.visualSearch?.region ? null : gallerySimilaritySample(result, context?.origin);
-    anchors = gallery ? [gallery.reference] : localReferences;
-    sample = gallery?.sample ?? (localReferences.length ? galleryCompositionSubjectSample(result, context?.origin) : []);
+    anchors = gallery ? [gallery.reference] : briefReferences;
+    sample = gallery?.sample ?? (briefReferences.length ? galleryCompositionSubjectSample(result, context?.origin) : []);
     section.hidden = !sample.length || !subjectMatchAvailable();
-    referenceChoice.hidden = localReferences.length < 2;
-    picker.replaceChildren(...anchors.map(reference => element('option', reference.label ?? reference.title)));
+    referenceChoice.hidden = anchors.length < 2;
+    const options = anchors.map((reference, index) => {
+      const option = element('option', reference.label ?? reference.title);
+      option.value = String(index);
+      return option;
+    });
+    if (anchors.length > 1) {
+      const combine = element('option', 'Combine references');
+      combine.value = 'combine';
+      options.push(combine);
+    }
+    picker.replaceChildren(...options);
+    picker.selectedIndex = Math.max(0, anchors.findIndex(reference => !reference.avoidInBrief));
+    const defaults = anchors.filter(reference => !reference.avoidInBrief).slice(0, 2);
+    if (!defaults.length && anchors.length) defaults.push(anchors[0]);
+    settings = anchors.map(reference => {
+      const label = element('label', null, 'subject-cue');
+      const name = reference.label ?? reference.title;
+      const choice = element('select');
+      choice.setAttribute('aria-label', 'Subject cue for ' + name);
+      for (const [value, text] of [['ignore', 'Ignore'], ['prefer', 'Match subject'], ['avoid', 'Avoid similar subjects']]) {
+        const option = element('option', text);
+        option.value = value;
+        choice.append(option);
+      }
+      choice.value = defaults.includes(reference) ? 'prefer' : 'ignore';
+      choice.addEventListener('change', referenceChanged);
+      label.append(element('span', name), choice);
+      return { reference, label, choice };
+    });
+    cueItems.replaceChildren(...settings.map(row => row.label));
     clearMatches();
   }
 
-  picker.addEventListener('change', () => {
+  function referenceChanged() {
     const hadMatches = matches.length > 0;
     clearMatches();
     if (hadMatches) onComplete();
-  });
+  }
+  picker.addEventListener('change', referenceChanged);
   start.addEventListener('click', async () => {
-    const reference = anchors[picker.selectedIndex];
-    if (!reference || !sample.length || searchBusy || active) return;
+    const references = selectedReferences();
+    if (!references.some(reference => reference.polarity === 'prefer') || !sample.length || searchBusy || active) return;
     const attempt = active = new AbortController();
     start.setAttribute('aria-disabled', 'true');
     picker.disabled = true;
+    cues.disabled = true;
     stop.hidden = false;
     status.textContent = 'Reading the previews…';
     try {
-      const ranked = await matcher.rank({ reference, sample }, { signal: attempt.signal, onProgress: ({ phase, loaded, total, provider, done }) => {
+      const ranked = await matcher.rank({ references, sample }, { signal: attempt.signal, onProgress: ({ phase, loaded, total, provider, done }) => {
         if (active !== attempt) return;
         progress.hidden = phase !== 'loading';
         if (phase === 'loading') {
@@ -83,7 +135,7 @@ export function configureSubjectComparison(document, onComplete) {
         }
         const message = phase === 'loading' ? 'Downloading the on-device matcher…'
           : phase === 'starting' ? 'Preparing the matching model…'
-            : provider === 'wasm' ? 'Comparing subjects · ' + done + ' of ' + total + ' previews' : 'Comparing subjects…';
+            : provider === 'wasm' ? 'Comparing subjects · ' + done + ' of ' + total + ' pictures' : 'Comparing subjects…';
         if (status.textContent !== message) status.textContent = message;
       } });
       if (active !== attempt) return;
@@ -107,10 +159,13 @@ export function configureSubjectComparison(document, onComplete) {
         results.append(row);
       }
       const displayed = matches.length;
-      const basis = [reference, ...sample].some(item => item.kind === 'Video poster') ? ' · Includes video posters' : '';
-      const area = reference.region ? ' using your selected area' : '';
-      status.textContent = 'Compared ' + displayed + ' of ' + sample.length + ' previews on this device' + area + basis + ' · 0 Buzz';
-      deep.hidden = reference.file && sample.length < 2;
+      const basis = [...references, ...sample].some(item => item.kind === 'Video poster') ? ' · Includes video posters' : '';
+      const cropped = references.filter(reference => reference.region).length;
+      const area = cropped === 1 ? ' using your selected area' : cropped ? ' using selected picture areas' : '';
+      const avoidCount = references.filter(reference => reference.polarity === 'avoid').length;
+      const selected = references.length > 1 ? ' · ' + (references.length - avoidCount) + ' to match, ' + avoidCount + ' to avoid' : '';
+      status.textContent = 'Compared ' + displayed + ' of ' + sample.length + ' previews on this device' + area + selected + basis + ' · 0 Buzz';
+      deep.hidden = Boolean(current?.visualComposition && matches.length < 2);
       onComplete();
       if (document.activeElement === start || document.activeElement === stop) (deep.hidden ? section : deep).focus({ preventScroll: true });
       start.hidden = true;
@@ -139,8 +194,9 @@ export function configureSubjectComparison(document, onComplete) {
     setSearchBusy(busy) {
       searchBusy = busy;
       if (busy) stopMatching();
-      start.disabled = busy;
       picker.disabled = busy;
+      cues.disabled = busy;
+      updateControls();
     },
     orderFor: result => result === current ? matches.map(({ id }) => id) : [],
   };

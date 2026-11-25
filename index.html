@@ -546,8 +546,12 @@
             <button class="text-button" id="subject-stop" type="button" hidden>Stop subject matching</button>
           </div>
           <label class="subject-reference-choice" id="subject-reference-choice" hidden>
-            Match the subject of <select id="subject-reference"></select>
+            Subject reference <select id="subject-reference"></select>
           </label>
+          <fieldset id="subject-cues" class="subject-cues" hidden>
+            <legend>Choose what each picture contributes</legend>
+            <div id="subject-cue-items"></div>
+          </fieldset>
           <p id="subject-help">Compares up to six previews on your device. About 81 MB to get started. 0 Buzz.</p>
           <p id="subject-status" role="status"></p>
           <progress id="subject-download" aria-label="On-device model download" value="0" hidden></progress>

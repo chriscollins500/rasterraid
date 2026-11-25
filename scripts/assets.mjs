@@ -21,6 +21,7 @@ export const previewFiles = Object.freeze({
   '/src/visual-discovery.mjs': 'text/javascript; charset=utf-8',
   '/src/subject-view.js': 'text/javascript; charset=utf-8',
   '/src/subject-matching.mjs': 'text/javascript; charset=utf-8',
+  '/src/subject-score.mjs': 'text/javascript; charset=utf-8',
   '/src/subject-worker.mjs': 'text/javascript; charset=utf-8',
   '/src/subject-artifacts.mjs': 'text/javascript; charset=utf-8',
   '/src/vendor/ort/ort.jspi.min.mjs': 'text/javascript; charset=utf-8',

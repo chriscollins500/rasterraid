@@ -476,6 +476,13 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .subject-reference-choice { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-top: 8px; color: var(--text); }
 .subject-reference-choice select { max-width: 100%; background: var(--field); color: var(--fg); border: 1px solid var(--control-border);
   border-radius: 7px; padding: 5px 8px; }
+.subject-cues { margin-block: 10px 6px; padding: 8px; min-inline-size: 0; border: 1px solid var(--border); border-radius: 8px; }
+.subject-cues legend { padding-inline: 5px; color: var(--text); }
+#subject-cue-items { display: grid; gap: 7px; }
+.subject-cue { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; }
+.subject-cue span { overflow-wrap: anywhere; }
+.subject-cue select { max-width: 100%; min-height: 36px; background: var(--field); color: var(--fg);
+  border: 1px solid var(--control-border); border-radius: 7px; padding: 4px 8px; }
 .subject-comparison [role="status"]:empty { position: absolute; }
 .subject-comparison progress { display: block; width: min(100%, 26rem); height: 10px; margin-block: 8px; accent-color: var(--accent); }
 .subject-comparison li { min-width: 0; }

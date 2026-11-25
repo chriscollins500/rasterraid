@@ -601,10 +601,14 @@ export function configureLocalReferences(document, onResearchSelection = () => {
       if (pictures.length !== brief.cues.length) return [];
       return pictures.flatMap((reference, index) => {
         const cue = brief.cues[index];
-        const { name, cropSource, region, role, polarity } = reference;
-        if (!(cropSource instanceof Blob) || cue.public || cue.label !== name || cue.role !== role ||
-            polarity === 'avoid' || cue.polarity !== polarity || cue.region?.join() !== region?.join()) return [];
-        return [{ id: 0, label: name, file: cropSource, region }];
+        const { name, cropSource, region, role, polarity, mediaId, publicPreview } = reference;
+        if (cue.label !== name || cue.role !== role || cue.polarity !== polarity || cue.region?.join() !== region?.join()) return [];
+        const anchor = { label: name, region, avoidInBrief: polarity === 'avoid' };
+        if (!cue.public && cropSource instanceof Blob) return [{ ...anchor, file: cropSource }];
+        if (cue.public && cue.public.id === mediaId && cue.public.preview === publicPreview && mediaUrl(publicPreview) === publicPreview) {
+          return [{ ...anchor, cover: publicPreview, kind: cue.public.video ? 'Video poster' : 'Picture' }];
+        }
+        return [];
       });
     },
     recorded() { return selected.flatMap(reference => reference.metadata?.references.length ? [reference.metadata] : []); },

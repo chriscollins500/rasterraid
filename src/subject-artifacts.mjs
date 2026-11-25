@@ -1,5 +1,6 @@
 export const subjectSide = 224;
 export const subjectCandidateLimit = 6;
+export const subjectReferenceLimit = 4;
 export const subjectAssetOrigins = Object.freeze([
   'https://huggingface.co', 'https://us.aws.cdn.hf.co', 'https://cas-bridge.xethub.hf.co', 'https://cdn.jsdelivr.net',
 ]);
