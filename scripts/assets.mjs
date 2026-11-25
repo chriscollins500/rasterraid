@@ -52,6 +52,7 @@ export const previewFiles = Object.freeze({
   '/src/workflow-recovery.mjs': 'text/javascript; charset=utf-8',
   '/src/workflow-history-view.js': 'text/javascript; charset=utf-8',
   '/src/workflow-results-view.js': 'text/javascript; charset=utf-8',
+  '/src/workflow-citations.mjs': 'text/javascript; charset=utf-8',
   '/src/workflow-report-file.mjs': 'text/javascript; charset=utf-8',
   '/src/workflow-journal.mjs': 'text/javascript; charset=utf-8',
   '/src/workflow-view.js': 'text/javascript; charset=utf-8',
