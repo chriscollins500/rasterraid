@@ -3,7 +3,7 @@ import { appEstimateBody, LIVE_QUOTE_MAX_AGE_MS, quotePrice } from './quotes.mjs
 import { isWorkflowId, WORKFLOW_REQUEST_TIMEOUT_MS } from './workflow-client.mjs';
 import { researchMatches } from './research-matches.mjs';
 import { aiServiceLink, aiServiceReference } from './ai-services.mjs';
-import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryStep } from './workflow-recovery.mjs';
+import { findOriginalWorkflow, isRecoveryStep, markWorkflowBody, workflowRecoveryConflict, workflowRecoveryStep } from './workflow-recovery.mjs';
 
 // The App bridge retains an idempotency claim for ten minutes. Leave time
 // for the status check and in-flight request before that claim can expire.
@@ -349,6 +349,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
   let previousSnapshot;
   let retryBody;
   let recoveryNext;
+  let recoveryConflict = false;
   let receiptPending = false;
   let receiptCheckRequired = false;
   let receiptRefreshed = false;
@@ -357,9 +358,11 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
   const canRead = record => browsingLevel === undefined || visibleRating(record?.browsingLevel, browsingLevel);
   const retryDeadline = () => run?.createdAt + retryLifetime;
   const submissionPending = () => run?.status === 'unknown' && now() < run.submissionUntil;
-  const retryAvailable = () => run?.status === 'unknown' && !submissionPending() && canRead(run) && now() < retryDeadline();
+  const retryAvailable = () => run?.status === 'unknown' && !submissionPending() && canRead(run) &&
+    !recoveryNext?.matchId && !recoveryConflict && now() < retryDeadline();
   const supportsRecovery = typeof client.list === 'function' && typeof client.inspect === 'function';
-  const recoveryAvailable = () => supportsRecovery && run?.status === 'unknown' && Boolean(run.recoveryStep) && canRead(run);
+  const recoveryAvailable = () => supportsRecovery && run?.status === 'unknown' && Boolean(run.recoveryStep) &&
+    !recoveryConflict && canRead(run);
 
   function outputFor(reply, record, previous) {
     return canRead(record) ? researchOutput(reply, record, previous) : {
@@ -403,7 +406,11 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     }
     if (!same) snapshot = undefined;
     if (!same || saved?.status !== 'unknown') retryBody = undefined;
-    if (changed) recoveryNext = undefined;
+    if (!same || run?.status !== saved?.status || run?.createdAt !== saved?.createdAt ||
+        run?.recoveryStep !== saved?.recoveryStep || run?.browsingLevel !== saved?.browsingLevel) {
+      recoveryNext = undefined;
+      recoveryConflict = false;
+    }
     run = saved;
     draft = undefined;
     receiptCheckRequired = false;
@@ -451,6 +458,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     snapshot = outputFor(reply, updated, snapshot);
     retryBody = undefined;
     recoveryNext = undefined;
+    recoveryConflict = false;
     if (run.workflowId !== updated.workflowId || run.status !== updated.status || run.receipt !== updated.receipt) await save(updated);
   }
 
@@ -474,11 +482,15 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     return price;
   }
 
-  async function reconcile(signal, resume = false) {
+  async function reconcile(signal, startFromLatest = false) {
     if (!recoveryAvailable()) return false;
-    const { snapshot: reply, next } = await findOriginalWorkflow(client, run, signal, resume ? recoveryNext : undefined);
+    const { snapshot: reply, next, error } = await findOriginalWorkflow(client, run, signal, startFromLatest ? undefined : recoveryNext);
     signal.throwIfAborted();
-    if (resume) recoveryNext = next;
+    recoveryNext = next;
+    if (error) {
+      recoveryConflict = error.code === workflowRecoveryConflict;
+      throw error;
+    }
     if (!reply) return false;
     await apply(reply);
     return true;
@@ -486,7 +498,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
 
   return {
     state: () => ({ busy, run, snapshot, previousSnapshot, outputsAccessible: !run || canRead(run),
-      retryAvailable: retryAvailable(), recoveryAvailable: recoveryAvailable(), recoveryContinuing: Boolean(recoveryNext),
+      retryAvailable: retryAvailable(), recoveryAvailable: recoveryAvailable(), recoveryContinuing: Boolean(recoveryNext), recoveryConflict,
       originalInTab: Boolean(retryBody), receiptPending, receiptCheckRequired, receiptRefreshed, submissionPending: submissionPending(),
       quote: draft ? { price: draft.price, title: draft.title, expiresAt: draft.expiresAt, retry: Boolean(draft.retry),
         revised: Boolean(draft.revised) } : null }),
@@ -498,6 +510,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       previousSnapshot = undefined;
       retryBody = undefined;
       recoveryNext = undefined;
+      recoveryConflict = false;
       receiptPending = false;
       receiptCheckRequired = false;
     }),
@@ -540,7 +553,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
         if (!retryAvailable() || run.bodyHash !== approved.hash || run.operationId !== approved.retry) {
           throw new Error('The original submission can no longer be retried safely.');
         }
-        if (await reconcile(signal)) return;
+        if (await reconcile(signal, true) || recoveryNext?.matchId) return;
         if (!retryAvailable() || now() >= approved.expiresAt) {
           throw new Error('The retry estimate expired while checking history. Review a new estimate if the retry window is still open.');
         }
@@ -607,7 +620,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
         throw new Error('The original submission can no longer be retried safely.');
       }
       draft = undefined;
-      if (await reconcile(signal)) return;
+      if (await reconcile(signal) || recoveryNext?.matchId) return;
       if (!retryAvailable()) throw new Error('The original retry window closed while checking Civitai history.');
       if (!retryBody && !plan) throw new Error('Recreate the original Deep Search picks to review a retry.');
       const { body, hash } = retryBody ? { body: retryBody, hash: run.bodyHash } : await planBody(plan, run.recoveryStep);
@@ -620,7 +633,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
     recoverOriginal: () => exclusive('reconciling', async signal => {
       requireSavedReceipt();
       if (!recoveryAvailable()) throw new Error('The current receipt is unavailable for automatic recovery.');
-      if (!await reconcile(signal, true) && !recoveryNext) {
+      if (!await reconcile(signal) && !recoveryNext) {
         throw new Error('Civitai did not confirm the original run in this history check. The submission remains unresolved.');
       }
     }),
@@ -634,6 +647,7 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       draft = undefined;
       retryBody = undefined;
       recoveryNext = undefined;
+      recoveryConflict = false;
     }),
     saveReceiptAgain: () => exclusive('saving', async signal => {
       if (!receiptPending) return;

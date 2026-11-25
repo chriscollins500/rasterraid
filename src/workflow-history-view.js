@@ -2,7 +2,7 @@ import { SITE_ORIGINS, visibleRating } from './catalog.mjs';
 import { showReportExport } from './report-view.js';
 import { appHistoryTransport, QUOTE_SCOPE, workflowIdBelongsToViewer } from './workflow-client.mjs';
 import { appWorkflowJournal, sameWorkflowOperation } from './workflow-journal.mjs';
-import { findOriginalWorkflow } from './workflow-recovery.mjs';
+import { findOriginalWorkflow, workflowRecoveryConflict } from './workflow-recovery.mjs';
 import { readWorkflowReportFile, workflowReportMaximumBytes } from './workflow-report-file.mjs';
 import { historyResearchOutput, reportedReceipt, researchOutput, runFinished, workflowOutputPending, workflowRecord } from './workflow-session.mjs';
 import { copyWorkflowReport, workflowCompletionLabel, workflowResultElements, workflowStatusLabel } from './workflow-results-view.js';
@@ -480,6 +480,8 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
         const client = await civitaiClient(controller, true);
         const batch = await findOriginalWorkflow({ list: client.list, inspect: client.poll }, run, controller.signal, next);
         assertCurrent(controller);
+        next = batch.next;
+        if (batch.error) throw batch.error;
         if (!batch.snapshot) {
           const notice = batch.next ? 'There are more runs to check. Continuing uses 0 Buzz.' :
             'Civitai did not confirm the original run. The charge status is still unresolved.';
@@ -503,10 +505,10 @@ export function configureWorkflowHistory(document, { getContext, onLookup }) {
           'Civitai confirmed the original run. Save the receipt again to keep it in history.', recoveryAction(entry, null, reply));
         status.textContent = 'The recovered receipt could not be saved.';
       } else {
-        const changed = error.code === 'receipt-changed';
+        const unavailable = error.code === 'receipt-changed' || error.code === workflowRecoveryConflict;
         const notice = error.status === 429 ? 'Civitai is limiting status reads. Try again shortly.' :
           error.name === 'TimeoutError' ? 'The history check took too long. Try again shortly.' : error.message || 'The history check failed.';
-        heading = paintDetail(run, false, undefined, notice, changed ? null : recoveryAction(entry, next));
+        heading = paintDetail(run, false, undefined, notice, unavailable ? null : recoveryAction(entry, next));
         status.textContent = 'The run’s saved details are shown.';
       }
     } finally {

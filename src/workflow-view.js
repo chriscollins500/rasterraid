@@ -62,7 +62,7 @@ export function installWorkflowRun(container, { client, journal, context, simula
   function paint() {
     if (disposed) return;
     const state = session.state();
-    const { busy, run, snapshot, previousSnapshot, outputsAccessible, recoveryAvailable, recoveryContinuing, retryAvailable,
+    const { busy, run, snapshot, previousSnapshot, outputsAccessible, recoveryAvailable, recoveryContinuing, recoveryConflict, retryAvailable,
       originalInTab, receiptPending, receiptCheckRequired, receiptRefreshed, submissionPending } = state;
     const ticket = state.quote;
     container.hidden = (!simulated && receiptAccess !== 'ready') ||
@@ -92,7 +92,8 @@ export function installWorkflowRun(container, { client, journal, context, simula
       : receiptPending ? 'Save the current receipt to continue.'
         : receiptCheckRequired ? 'Check the saved Deep Search run to continue.'
         : submissionPending ? 'The confirmation is still being checked. You can look for the original run.'
-        : unknown ? recoveryContinuing ? 'There are more Civitai runs to check. Continuing uses 0 Buzz.'
+        : unknown ? recoveryConflict ? 'Civitai returned multiple runs for this operation. Check Deep Search history.'
+        : recoveryContinuing ? 'There are more Civitai runs to check. Continuing uses 0 Buzz.'
         : recoveryAvailable ? 'The submission outcome is unknown. Find the original run on Civitai for free.'
         : !retryAvailable ? 'The submission outcome is unknown. Review history or keep the unresolved receipt.'
         : originalInTab || retry ? 'The submission outcome is unknown. Check history or review a fresh estimate to retry the original operation.'
