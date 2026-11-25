@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Developer preview
 
-The 0.0.5 developer prerelease adds public media discovery for guests, retry for incomplete searches, and on-device subject matching. The earlier 0.0.4 build is in Civitai review for both domains. [Download the 0.0.5 source ZIP](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.5) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.6 developer prerelease adds verified Deep Search citations, combined subject references, exact download-link lookup, and recent public work in Workspace. The earlier 0.0.4 build is in Civitai review for both domains. [Download and verify 0.0.6](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.6) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 
 ## Run locally
 
