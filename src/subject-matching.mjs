@@ -1,5 +1,6 @@
+import { mediaUrl } from './catalog.mjs';
 import { loadPublicPreview, visualRegion } from './visual-analysis.mjs';
-import { subjectDownloadBytes, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
+import { subjectCandidateLimit, subjectDownloadBytes, subjectReferenceLimit, subjectSide, subjectWasmAvailable } from './subject-artifacts.mjs';
 
 const idleLifetime = 120_000;
 
@@ -9,6 +10,7 @@ export function subjectMatchAvailable() {
 }
 
 async function readPreview(cover, signal) {
+  if (!cover || mediaUrl(cover) !== cover) throw new Error('This preview is outside Civitai’s media catalog.');
   const response = await fetch(cover, {
     credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-cache', signal,
   });
@@ -40,7 +42,7 @@ async function previewPixels(document, { id, cover, file, region }, signal) {
     const drawing = canvas.getContext('2d', { alpha: false });
     if (!drawing) throw new Error('This browser cannot compare pictures locally.');
     drawing.imageSmoothingQuality = 'high';
-    const crop = file && visualRegion(region);
+    const crop = visualRegion(region);
     if (crop) {
       const [left, top, right, bottom] = crop;
       drawing.drawImage(image, left * image.width, top * image.height, (right - left) * image.width, (bottom - top) * image.height,
@@ -96,14 +98,15 @@ function matchInWorker(worker, prepared, signal, onProgress) {
     worker.addEventListener('error', failed);
     worker.addEventListener('messageerror', failed);
     worker.addEventListener('message', received);
-    prepared.then(rows => {
+    prepared.then(pictures => {
+      const rows = [...pictures.references, ...pictures.sample];
       if (settled) {
         for (const row of rows) row.rgba.fill(0);
         return;
       }
       try {
-        ids = new Set(rows.slice(1).map(row => row.id));
-        worker.postMessage(rows, rows.map(row => row.rgba.buffer));
+        ids = new Set(pictures.sample.map(row => row.id));
+        worker.postMessage(pictures, rows.map(row => row.rgba.buffer));
       } catch {
         for (const row of rows) if (row.rgba.byteLength) row.rgba.fill(0);
         failed();
@@ -115,17 +118,17 @@ function matchInWorker(worker, prepared, signal, onProgress) {
   });
 }
 
-async function preparePictures(document, { reference, sample }, signal) {
-  const [anchor, ...pictures] = await Promise.allSettled([reference, ...sample].map(item => previewPixels(document, item, signal)));
-  const candidates = pictures.flatMap(row => row.status === 'fulfilled' ? [row.value] : []);
+async function preparePictures(document, references, sample, signal) {
+  const pictures = await Promise.allSettled([...references, ...sample].map(item => previewPixels(document, item, signal)));
+  const anchors = pictures.slice(0, references.length);
+  const candidates = pictures.slice(references.length).flatMap(row => row.status === 'fulfilled' ? [row.value] : []);
   try {
     signal.throwIfAborted();
-    if (anchor.status !== 'fulfilled') throw new Error('The reference preview could not be read.');
+    if (anchors.some(row => row.status === 'rejected')) throw new Error('A selected reference preview could not be read.');
     if (!candidates.length) throw new Error('The related previews could not be read.');
-    return [anchor.value, ...candidates];
+    return { references: anchors.map(({ value }, index) => ({ rgba: value.rgba, polarity: references[index].polarity })), sample: candidates };
   } catch (error) {
-    anchor.value?.rgba.fill(0);
-    for (const row of candidates) row.rgba.fill(0);
+    for (const row of pictures) row.value?.rgba.fill(0);
     throw error;
   }
 }
@@ -148,15 +151,20 @@ export function createSubjectMatcher(document) {
     if (document.hidden && !active) release();
   });
 
-  async function rank(selection, { signal, onProgress }) {
+  async function rank({ reference, references = reference ? [{ ...reference, polarity: 'prefer' }] : [], sample }, { signal, onProgress }) {
     if (active || !subjectMatchAvailable()) throw new Error('Subject matching is unavailable right now.');
+    if (!Array.isArray(references) || references.length > subjectReferenceLimit ||
+        !references.every(row => row && ['prefer', 'avoid'].includes(row.polarity)) || !references.some(row => row.polarity === 'prefer') ||
+        !Array.isArray(sample) || sample.length < 1 || sample.length > subjectCandidateLimit) {
+      throw new Error('Choose at least one subject to match and a bounded sample.');
+    }
     const attempt = active = new AbortController();
     const deadline = AbortSignal.any([signal, attempt.signal, AbortSignal.timeout(85_000)]);
     clearTimeout(idleTimer);
     try {
       deadline.throwIfAborted();
       worker ??= startWorker();
-      const matches = await matchInWorker(worker, preparePictures(document, selection, deadline), deadline, onProgress);
+      const matches = await matchInWorker(worker, preparePictures(document, references, sample, deadline), deadline, onProgress);
       deadline.throwIfAborted();
       active = undefined;
       if (document.hidden) release();

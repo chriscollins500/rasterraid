@@ -134,6 +134,12 @@ test('visual trait estimates attach only whole Civitai references and preserve a
   const purposes = ['Match color palette', 'Match layout', 'Avoid texture', 'Candidate', 'Candidate', 'Candidate'];
   assert.deepEqual(audit.inputs.map(row => row.purpose), purposes);
   assert.deepEqual(quick.inputs.map(row => row.link), [1, 2, 3, 4, 7, 8].map(id => media(id).link));
+  const [subject, subjectAudit] = galleryCompositionResearch(result, origin, [8, 6, 7, 8, 4]).plans;
+  assert.deepEqual(subject.inputs.map(row => row.link), [1, 2, 3, 8, 7, 4].map(id => media(id).link));
+  assert.match(subject.work, /on-device subject order/u);
+  assert.equal(subjectAudit.body.steps.at(-1).name, 'visual_catalog_check');
+  assert.doesNotMatch(JSON.stringify(subjectAudit.body), /private=canary|subjectScore|subjectRank/u);
+  assert.deepEqual(galleryCompositionResearch(result, origin, [8, 6]).plans[0].body, quick.body);
   assert.match(quick.body.steps[2].input.customInstructions, /only the visible texture/u);
   assert.doesNotMatch(quick.body.steps[2].input.customInstructions, /palette|layout/u);
   assert.match(quick.body.steps[3].input.customInstructions, /color palette, layout, texture/u);

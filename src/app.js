@@ -1111,7 +1111,7 @@ function renderResearch() {
   const report = search.filter === 'all' || local ? selectedReport : null;
   const reportPlans = report && !local ? reportResearchPlans(report) : null;
   const subjectOrder = subjectComparison.orderFor(search.result);
-  const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin) ??
+  const neighbors = report || local ? null : galleryCompositionResearch(search.result, search.context.origin, subjectOrder) ??
     gallerySimilarityResearch(search.result, search.context.origin, subjectOrder) ?? galleryCandidateResearch(search.result, search.context.origin, subjectOrder);
   const visualMode = Boolean(neighbors && search.compareVisual !== false);
   const legacyMock = report || local || neighbors ? null : configureMock;

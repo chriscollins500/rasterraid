@@ -1,4 +1,6 @@
-import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectSide, subjectVisionModel, subjectWasm, subjectWasmAvailable } from './subject-artifacts.mjs';
+import { subjectAssetOrigins, subjectCandidateLimit, subjectCpuWasm, subjectReferenceLimit, subjectSide, subjectVisionModel, subjectWasm,
+  subjectWasmAvailable } from './subject-artifacts.mjs';
+import { subjectScore } from './subject-score.mjs';
 
 const pixels = subjectSide * subjectSide;
 const dimensions = 768;
@@ -128,28 +130,40 @@ async function loadRuntime() {
   return { ort, session, input, output, provider };
 }
 
-async function compare(rows, runtime) {
-  if (!Array.isArray(rows) || rows.length < 2 || rows.length > 1 + subjectCandidateLimit ||
-      !rows.every((row, index) => Number.isSafeInteger(row?.id) && row.id >= (index === 0 ? 0 : 1) &&
-        row.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels) ||
-      new Set(rows.map(row => row.id)).size !== rows.length) throw new Error('Invalid picture inputs.');
+const validPixels = row => row?.rgba instanceof Uint8ClampedArray && row.rgba.length === 4 * pixels;
+const cosine = (reference, values) => reference.reduce((sum, value, index) => sum + value * values[index], 0);
+
+async function compare(data, runtime) {
+  const { references, sample } = data ?? {};
+  if (!Array.isArray(references) || references.length < 1 || references.length > subjectReferenceLimit ||
+      !references.every(row => validPixels(row) && ['prefer', 'avoid'].includes(row.polarity)) ||
+      !references.some(row => row.polarity === 'prefer') ||
+      !Array.isArray(sample) || sample.length < 1 || sample.length > subjectCandidateLimit ||
+      !sample.every(row => validPixels(row) && Number.isSafeInteger(row.id) && row.id > 0) ||
+      new Set(sample.map(row => row.id)).size !== sample.length) throw new Error('Invalid picture inputs.');
   const { provider } = runtime;
-  const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: rows.length - 1 });
+  const reportCount = done => self.postMessage({ phase: 'matching', provider, done, total: references.length + sample.length });
   reportCount(0);
-  const reference = await pictureVector(runtime, rows[0].rgba);
+  const preferred = [];
+  const avoided = [];
   try {
+    for (const { rgba, polarity } of references) {
+      const vector = await pictureVector(runtime, rgba);
+      (polarity === 'avoid' ? avoided : preferred).push(vector);
+      if (provider === 'wasm') reportCount(preferred.length + avoided.length);
+    }
     const matches = [];
     let reusedPreviews = 0;
-    for (const { id, rgba } of rows.slice(1)) {
+    for (const { id, rgba } of sample) {
       const { values, reused } = await previewVector(runtime, id, rgba);
-      const score = reference.reduce((sum, value, index) => sum + value * values[index], 0);
+      const score = subjectScore(preferred.map(vector => cosine(vector, values)), avoided.map(vector => cosine(vector, values)));
       if (reused) reusedPreviews++;
       matches.push({ id, score });
-      if (provider === 'wasm') reportCount(matches.length);
+      if (provider === 'wasm') reportCount(references.length + matches.length);
     }
     return { phase: 'complete', reusedPreviews, matches: matches.sort((first, next) => next.score - first.score || first.id - next.id) };
   } finally {
-    reference.fill(0);
+    for (const vector of [...preferred, ...avoided]) vector.fill(0);
   }
 }
 
@@ -175,8 +189,8 @@ self.addEventListener('message', async event => {
   } catch {
     reply = { phase: 'failed' };
   } finally {
-    if (Array.isArray(data)) {
-      for (const row of data) if (row?.rgba instanceof Uint8ClampedArray) row.rgba.fill(0);
+    for (const rows of [data?.references, data?.sample]) if (Array.isArray(rows)) {
+      for (const row of rows) if (row?.rgba instanceof Uint8ClampedArray) row.rgba.fill(0);
     }
     matching = false;
   }
