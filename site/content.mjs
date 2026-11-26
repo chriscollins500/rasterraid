@@ -3,7 +3,7 @@ export const site = {
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
   version: '0.0.4',
-  developerVersion: '0.0.11',
+  developerVersion: '0.0.12',
   checked: '2026-11-24',
   launches: { com: 'https://civitai.com/apps/run/rasterraid', red: 'https://civitai.red/apps/run/rasterraid' },
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
@@ -177,14 +177,14 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
 <p>The development build keeps up to 32 recent edit receipts with the private workspace document so it can recover interruptions. Workspace backup files contain saved searches and picks.</p>
 <p><a href="https://developer.civitai.com/apps/guide/storage.md#user-controls">Civitai’s storage controls</a> · <a href="{{root}}support/">Get help with RasterRaid</a></p>` },
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
-<aside class="callout release-state"><p class="eyebrow">${site.version} · Live on Civitai</p><h2>Open RasterRaid on Civitai</h2><p>Both domains serve the approved ${site.version} build. The launch page follows Civitai’s account access.</p>${runLinks}</aside>
+<aside class="callout release-state"><p class="eyebrow">${site.version} · Live on Civitai</p><h2>Open RasterRaid on Civitai</h2><p>Both domains serve the approved ${site.version} build. Civitai received ${site.developerVersion} for review on November 25, 2026. The launch page follows Civitai’s account access.</p>${runLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
-<ul><li>Find sounds by description in loaded public clips. Match another sound in the same moment or add a sound you prefer to avoid.</li><li>Play the sampled moment. Open recorded video settings and live Deep Search prices for that clip.</li><li>Find English phrases in loaded clips, reopen Deep Search receipts and search completed transcripts.</li></ul>
-<p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub independently rebuilt and signed the archive. Both signed developer entries matched all 135 browser assets. Chrome and Firefox matched sounds, played samples, and opened Deep Search quotes in the tested previews.</p>
+<ul><li>Find a moment in loaded public clips with a reference picture, search words, or a sound cue. Read English speech from the matched sample on your device.</li><li>Continue looking for an interrupted Deep Search receipt across history pages. Reopen paused public reports and check their earlier sources against the current catalog.</li><li>Check Workspace storage usage and see separate messages for oversized records and exhausted quotas.</li></ul>
+<p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub rebuilt the archive and signed its build provenance and SBOM. The ZIP rebuilt to 138 browser assets. Chrome, Firefox, and WebKit passed both signed developer previews with controlled storage replies. The storage reader also parsed live account limits on both domains using developer credentials.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
 <p>Developer previews are available to the app author on the signed-in domain.</p>
 ${previewLinks}
-<p>The <a href="${site.repository}/releases/tag/v0.0.9">0.0.9 prerelease</a> introduced Deep Search result checks and video scene search. The <a href="${site.repository}/releases/tag/v0.0.8">0.0.8 prerelease</a> includes the pinned appearance model pack. <a href="${site.repository}/releases">Browse earlier releases</a>.</p>
+<p>The <a href="${site.repository}/releases/tag/v0.0.11">0.0.11 prerelease</a> includes the pinned audio model pack. The <a href="${site.repository}/releases/tag/v0.0.8">0.0.8 prerelease</a> includes the pinned appearance model pack. <a href="${site.repository}/releases">Browse earlier releases</a>.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>
 <ul><li>Search pauses for review when Civitai retires a selected sort or time period as you apply filters.</li><li>The free comparison, search-area, and shortcut dialogs close with keyboard or pointer controls inside Civitai’s frame.</li><li>Deep Search uses the selected previews for image descriptions and visual ranking. Audio reports extract the soundtrack of a video before describing it.</li></ul>
