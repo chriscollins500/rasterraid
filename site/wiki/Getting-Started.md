@@ -20,4 +20,6 @@ Choose **Research this clip** to see live estimates for that recording. In Video
 
 Use **Add a picture** for visual comparisons. A public Civitai link opens its exact item. **Check recorded settings** shows the published references for a picture or clip. Paste two public media links to compare their settings.
 
-The developer preview requires the app author account on the domain where it opens. [Full guide](https://chriscollins500.github.io/rasterraid/guide/) · [`.com` preview](https://civitai.com/apps/dev/rasterraid) · [`.red` preview](https://civitai.red/apps/dev/rasterraid)
+Open the published app with an eligible Civitai account on the same domain. [Civitai.com](https://civitai.com/apps/run/rasterraid) · [Civitai.red](https://civitai.red/apps/run/rasterraid)
+
+The developer preview requires the app author account. [Full guide](https://chriscollins500.github.io/rasterraid/guide/) · [`.com` preview](https://civitai.com/apps/dev/rasterraid) · [`.red` preview](https://civitai.red/apps/dev/rasterraid)

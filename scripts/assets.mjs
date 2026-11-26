@@ -77,6 +77,7 @@ export const previewFiles = Object.freeze({
   '/src/published-workflow.mjs': 'text/javascript; charset=utf-8',
   '/src/published-workflow-view.js': 'text/javascript; charset=utf-8',
   '/src/workspace-backup-view.js': 'text/javascript; charset=utf-8',
+  '/src/workspace-storage-view.js': 'text/javascript; charset=utf-8',
   '/src/download-json.js': 'text/javascript; charset=utf-8',
   '/src/workspace-file-view.js': 'text/javascript; charset=utf-8',
   '/src/local-file-checksum.mjs': 'text/javascript; charset=utf-8',

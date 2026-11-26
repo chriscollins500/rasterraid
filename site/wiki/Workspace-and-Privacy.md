@@ -7,3 +7,5 @@ Signed-in viewers can use **Find my public work** in 0.0.6 to browse recent publ
 In the development build, choose **Check and finish save** when a workspace change is still awaiting confirmation. The same action is checked against your private Civitai document.
 
 Private collection access is separate from the AI permission. A published app can store your workspace settings and run receipts in Civitai’s private document store. Use **Security & Apps → App storage** in Civitai account settings to manage production app data. [Workspace guide](https://chriscollins500.github.io/rasterraid/workspace/) · [Privacy and permissions](https://chriscollins500.github.io/rasterraid/privacy/)
+
+In 0.0.12, **Workspace → Settings → Private storage** shows your current usage and limits. For a save that exceeds the per-item limit, remove saved items or import a smaller selection.

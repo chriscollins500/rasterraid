@@ -436,7 +436,12 @@ export function createWorkflowSession({ client, journal, origin, browsingLevel, 
       await journal.write(record, { signal });
       return true;
     } catch (error) {
-      if (!mayHaveChangedReceipt(error)) throw error;
+      if (!mayHaveChangedReceipt(error)) {
+        if (record.status === 'submitting' && error.status === 413) {
+          error.message += ' This confirmation used 0 Buzz.';
+        }
+        throw error;
+      }
       receiptCheckRequired = true;
       signal.throwIfAborted();
       const changed = await syncCurrentReceipt(signal);

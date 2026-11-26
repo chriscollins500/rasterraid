@@ -34,6 +34,40 @@ function privateStorage({ origin, viewerUserId }, getContext, fetcher) {
   };
 }
 
+function storageError(response, data, fallback) {
+  let message = fallback;
+  let code;
+  if (response.status === 413) {
+    code = data?.code === 'too_large' || data?.code === 'quota_exceeded' ? data.code : undefined;
+    message = code === 'too_large' ? 'This record exceeds Civitai’s per-item size limit.' :
+      code === 'quota_exceeded' ? 'RasterRaid reached Civitai’s total storage limit. Check Private storage in Workspace Settings.' :
+        'Civitai rejected the size of this save.';
+  }
+  if (response.status === 403 && data?.code === 'not_eligible' && data.details?.reason === 'app_not_approved') {
+    message = 'Private storage becomes available after Civitai approves RasterRaid.';
+  }
+  if (response.status === 429) message = 'Civitai is limiting storage requests. Try again shortly.';
+  const error = new Error(message);
+  error.status = response.status;
+  if (code) error.code = code;
+  return error;
+}
+
+export async function readPrivateStorageUsage(binding, getContext, { fetcher = fetch, signal } = {}) {
+  const call = privateStorage(binding, getContext, fetcher);
+  const url = new URL('/api/v1/blocks/storage', binding.origin);
+  const { response, data } = await call(url, { signal });
+  const bytes = data?.usage?.viewer?.bytes;
+  const docs = data?.usage?.viewer?.docs;
+  const { viewerBytes: maxBytes, viewerDocs: maxDocs, docBytes: maxDocBytes } = data?.limits ?? {};
+  if (!response.ok || data?.collections?.prefs?.visibility !== 'private' ||
+      ![bytes, docs].every(value => Number.isSafeInteger(value) && value >= 0) ||
+      ![maxBytes, maxDocs, maxDocBytes].every(value => Number.isSafeInteger(value) && value > 0)) {
+    throw storageError(response, data, 'Civitai could not read private storage usage.');
+  }
+  return { bytes, docs, maxBytes, maxDocs, maxDocBytes };
+}
+
 export function appPrivateRecord(binding, getContext, key, { fetcher = fetch } = {}) {
   if (!['research-run', 'search-workspace', 'model-preferences'].includes(key) && !historyKey.test(key)) {
     throw new TypeError('Unknown private document.');
@@ -48,9 +82,7 @@ export function appPrivateRecord(binding, getContext, key, { fetcher = fetch } =
       return { version: 0, data: null };
     }
     if (!response.ok || !Number.isSafeInteger(data?.version) || data.version < 1 || !data.data || typeof data.data !== 'object') {
-      const error = new Error('Civitai could not update the private workspace.');
-      error.status = response.status;
-      throw error;
+      throw storageError(response, data, next ? 'Civitai could not update the private workspace.' : 'Civitai could not read the private workspace.');
     }
     const createdAt = typeof data.createdAt === 'string' && data.createdAt.length <= 64 ? data.createdAt : undefined;
     return { version: data.version, data: data.data, createdAt };
@@ -236,9 +268,7 @@ export function appWorkflowJournal(binding, getContext, { fetcher = fetch } = {}
     if (cursor) url.searchParams.set('cursor', cursor);
     const { response, data } = await call(url, { signal });
     if (!response.ok || !Array.isArray(data?.items) || data.items.length > pageSize || !optionalStorageCursor(data.nextCursor)) {
-      const error = new Error('Civitai could not read the saved Deep Search records.');
-      error.status = response.status;
-      throw error;
+      throw storageError(response, data, 'Civitai could not read the saved Deep Search records.');
     }
     const entries = data.items.flatMap(item => {
       const run = archivedRecord(item?.data, binding.origin);
