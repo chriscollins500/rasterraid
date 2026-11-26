@@ -6,7 +6,7 @@ RasterRaid is a native Civitai search app. Start with a model name, a descriptio
 
 ## Availability
 
-Civitai serves RasterRaid 0.0.4 on both domains. Open it with an eligible Civitai account. [Civitai.com](https://civitai.com/apps/run/rasterraid) · [Civitai.red](https://civitai.red/apps/run/rasterraid)
+RasterRaid 0.0.12 is live on both domains for accounts with Civitai Apps access. [Civitai.com](https://civitai.com/apps/run/rasterraid) · [Civitai.red](https://civitai.red/apps/run/rasterraid)
 
 The 0.0.12 developer prerelease matches a reference picture to video moments, reads English speech from a matched sample on your device, and shows your private Workspace usage and limits. [Download and verify 0.0.12](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.12) · [Current Civitai availability](https://chriscollins500.github.io/rasterraid/releases/)
 

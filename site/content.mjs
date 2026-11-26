@@ -2,9 +2,11 @@ export const site = {
   name: 'RasterRaid',
   repository: 'https://github.com/chriscollins500/rasterraid',
   canonical: 'https://chriscollins500.github.io/rasterraid/',
-  version: '0.0.4',
+  version: '0.0.12',
+  archiveVersion: '0.0.4',
   developerVersion: '0.0.12',
   checked: '2026-11-24',
+  liveVerified: '2026-11-26',
   launches: { com: 'https://civitai.com/apps/run/rasterraid', red: 'https://civitai.red/apps/run/rasterraid' },
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
@@ -73,7 +75,7 @@ export const pages = [
       <h1 id="hero-title">Find the look.<em>Follow the trail.</em></h1>
       <p class="intro">Search Civitai models, pictures, clips, music and guides. Follow the work you like back to the exact releases and creators behind it.</p>
       <div class="actions"><a class="button primary" href="{{root}}guide/">Get started <span aria-hidden="true">→</span></a><a class="button secondary" href="#app-preview">See RasterRaid in action</a></div>
-      <a class="release-link" href="{{root}}releases/">Developer prerelease ${site.developerVersion} <span aria-hidden="true">↗</span></a>
+      <a class="release-link" href="{{root}}releases/">Live on Civitai · ${site.version} <span aria-hidden="true">↗</span></a>
     </div>
     <div class="hero-art" aria-hidden="true"><img src="{{root}}assets/rasterraid-hero.webp" alt="" width="1536" height="1024" fetchpriority="high"></div>
   </div>
@@ -96,13 +98,13 @@ export const pages = [
     </div>
     <figure class="app-preview">
       <img src="{{root}}assets/rasterraid-preview.png" alt="RasterRaid’s search page with a picture upload option and examples for Linocut, ComfyUI guides and a story project." width="1280" height="820" loading="lazy">
-      <figcaption>RasterRaid ${site.version} search interface <a href="{{root}}assets/rasterraid-preview.png">Open full-size image <span aria-hidden="true">↗</span></a></figcaption>
+      <figcaption>RasterRaid ${site.archiveVersion} search interface <a href="{{root}}assets/rasterraid-preview.png">Open full-size image <span aria-hidden="true">↗</span></a></figcaption>
     </figure>
   </div>
 </section>
 <section class="page-width home-close"><div><h2>${coverageCount} ways to search Civitai</h2><p>See what RasterRaid can find, which areas use your Civitai sign-in and where the wider search opens on Civitai.</p></div><a class="button secondary" href="{{root}}coverage/">Browse coverage <span aria-hidden="true">→</span></a></section>` },
   { slug: 'guide', name: 'Guide', title: 'Get started with RasterRaid', description: 'Start a Civitai search from a brief, picture, or exact link and follow the results into a report.', body: `
-<aside class="callout"><strong>Open RasterRaid</strong><p>Use an eligible Civitai account on the same domain. The guide also covers features from newer development builds.</p>${runLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
+<aside class="callout"><strong>Open RasterRaid</strong><p>Sign in on the domain you use with an account that has Civitai Apps access.</p>${runLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
 ${sectionHeading('search-a-brief', 'Search from a few words')}
 <ol><li>Type a model name, describe what you’re looking for, or select an example.</li><li>Use <strong>Search areas</strong> to focus on models, pictures, clips, guides or another part of Civitai.</li><li>Open <strong>Filter &amp; sort</strong> for choices appropriate to that area. Search again when you’re ready.</li></ol>
 <p>In the developer preview, <strong>Exact title ready</strong> means you can open a matching model version while RasterRaid checks for more results.</p>
@@ -176,11 +178,12 @@ ${sectionHeading('storage', 'Saved workspace and receipts')}
 <p>In version 0.0.12, <strong>Workspace → Settings → Private storage</strong> shows the usage and limits Civitai reports for your account. If a save exceeds the per-item limit, remove saved items or import a smaller selection. This version keeps the private collection closed to other apps. You can download workspace backups and reports.</p>
 <p>The development build keeps up to 32 recent edit receipts with the private workspace document so it can recover interruptions. Workspace backup files contain saved searches and picks.</p>
 <p><a href="https://developer.civitai.com/apps/guide/storage.md#user-controls">Civitai’s storage controls</a> · <a href="{{root}}support/">Get help with RasterRaid</a></p>` },
-  { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
-<aside class="callout release-state"><p class="eyebrow">${site.version} · Live on Civitai</p><h2>Open RasterRaid on Civitai</h2><p>Both domains serve the approved ${site.version} build. Civitai received ${site.developerVersion} for review on November 25, 2026. The launch page follows Civitai’s account access.</p>${runLinks}</aside>
+  { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check which version of RasterRaid is live on Civitai.com and Civitai.red and how to verify the build.', body: `
+<aside class="callout release-state"><p class="eyebrow">${site.version} · Live on Civitai</p><h2>Open RasterRaid on Civitai</h2><p>Both domains serve RasterRaid ${site.version}. Civitai approved the release on <time datetime="${site.liveVerified}">November 26, 2026</time>. Use an account with Civitai Apps access.</p>${runLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
 <ul><li>Find a moment in loaded public clips with a reference picture, search words, or a sound cue. Read English speech from the matched sample on your device.</li><li>Continue looking for an interrupted Deep Search receipt across history pages. Reopen paused public reports and check their earlier sources against the current catalog.</li><li>Check Workspace storage usage and see separate messages for oversized records and exhausted quotas.</li></ul>
 <p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub rebuilt the archive and signed its build provenance and SBOM. The ZIP rebuilt to 138 browser assets. Chrome, Firefox, and WebKit passed both signed developer previews with controlled storage replies. The storage reader also parsed live account limits on both domains using developer credentials.</p>
+<p>Both public Civitai listings point to the same runtime. All 138 served files matched the signed release’s browser build byte for byte on <time datetime="${site.liveVerified}">November 26, 2026</time>.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
 <p>Developer previews are available to the app author on the signed-in domain.</p>
 ${previewLinks}
@@ -196,7 +199,7 @@ ${sectionHeading('latest', 'Signed 0.0.4 archive')}
 <p>Source archive SHA-256 <code class="digest">81d24a913e0eb1dfdc7a08f4e19ebd2ec58b2d0e83781f6abfccdfb999c28661</code>.</p>
 ${sectionHeading('signatures', 'Verify the signed release')}
 <p>GitHub reproduced the published source archive byte for byte. Its build provenance and runtime software inventory are signed. The release notes show how to check the ZIP and its signer.</p>
-<div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.version}">Release and verification commands <span aria-hidden="true">↗</span></a></div>` },
+<div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.archiveVersion}">Release and verification commands <span aria-hidden="true">↗</span></a></div>` },
   { slug: 'development', name: 'Development', title: 'Build and verify RasterRaid', description: 'Run the native RasterRaid source locally, exercise the zero-Buzz simulation, and rebuild the documentation.', body: `
 ${sectionHeading('local-app', 'Run the app locally')}
 <p>Use Node.js 24 or newer. The native app uses static browser modules and has no runtime npm packages. From the repository root, build the app, run its tests and start the local example.</p>
