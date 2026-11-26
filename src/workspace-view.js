@@ -8,6 +8,7 @@ import { showReportExport } from './report-view.js';
 import { renderWorkflowFile, workflowAuditMarkdown, workflowFileStatus } from './workspace-file-view.js';
 import { upgradePair, upgradeSources, upgradeVersionLink } from './upgrade-evidence.mjs';
 import { configureWorkspaceBackup } from './workspace-backup-view.js';
+import { configureWorkspaceStorage } from './workspace-storage-view.js';
 import { configureLocalModelFiles } from './local-model-files-view.js';
 import { compareWorkspaceExample, workspaceExampleMarkdown, workspaceExampleNotes } from './workspace-example.mjs';
 import { canReadPublicWork } from './creator-trail.mjs';
@@ -95,6 +96,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
   let activeExample;
   let exampleExport;
   const backup = configureWorkspaceBackup(window, { getContext, change });
+  const storage = configureWorkspaceStorage(window, getContext);
   const modelFiles = configureLocalModelFiles(window, {
     getContext,
     onReport(query) {
@@ -537,8 +539,8 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     } catch (error) {
       if (isCurrent()) {
         if (!change.uncertain) pendingChange = undefined;
-        message.textContent = error.status === 413 ? 'Civitai storage is full. Remove saved items or import a smaller selection.' :
-          error.message || 'The workspace could not be updated.';
+        const detail = error.message || 'The workspace could not be updated.';
+        message.textContent = error.code === 'too_large' ? detail + ' Remove saved items or import a smaller selection.' : detail;
       }
     } finally {
       if (isCurrent()) {
@@ -676,6 +678,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     publicWork.parentElement.hidden = !canReadPublicWork(context);
     const persistent = Boolean(context?.hosted && context.signedIn && context.token &&
       context.storageMode !== 'local-preview' && context.scopes.includes('apps:storage'));
+    storage.bind(persistent ? context : null);
     const next = context ? [context.origin, context.viewerUserId ?? 'guest', persistent ? 'private' : 'tab'].join('#') : null;
     const level = context?.browsingLevel;
     if (next === key) {
@@ -707,7 +710,7 @@ export function configureWorkspace(window, { getContext, getSearch, openSearch, 
     historyStore = context ? localStore('recent:' + key) : null;
     recent = recentWorkspaceSearches(historyStore?.read());
     button.disabled = !store;
-    id('workspace-storage').textContent = persistent ? 'Saved in your private Civitai workspace.' : 'Saved in this preview session.';
+    id('workspace-storage').textContent = persistent ? 'Uses your private Civitai storage.' : 'Saved in this preview session.';
     name.value = '';
     draw();
   }

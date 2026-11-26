@@ -358,9 +358,11 @@ export function watchHost(win, onContext) {
         const opportunity = !target.search && !target.hash && opportunityReference(target);
         const social = isSocialNavigation(target);
         const library = isLibraryNavigation(target, viewerUsername);
+        const storageSettings = target.pathname === '/user/account/security' && !target.search && !target.hash &&
+          currentContext.signedIn && currentContext.storageMode !== 'local-preview' && currentContext.scopes.includes('apps:storage');
         if (target.origin !== hostOrigin || target.username || target.password ||
             (!gallery && !models && !license && !postFeed && !bountySearch && !challengeFeed && !crucibleDetail && !crucibleFeed && !leaderboard && !commerce &&
-              !directory && !opportunity && !social && !library && !detail.test(target.pathname) && !listing.test(target.pathname))) return;
+              !directory && !opportunity && !social && !library && !storageSettings && !detail.test(target.pathname) && !listing.test(target.pathname))) return;
         win.parent.postMessage({
           type: 'NAVIGATE',
           payload: { path: target.pathname + target.search + (leaderboard || commerce || social || directory ? target.hash : ''), scope: 'site', target: 'new_tab' },

@@ -5,6 +5,7 @@ export const site = {
   version: '0.0.4',
   developerVersion: '0.0.11',
   checked: '2026-11-24',
+  launches: { com: 'https://civitai.com/apps/run/rasterraid', red: 'https://civitai.red/apps/run/rasterraid' },
   previews: { com: 'https://civitai.com/apps/dev/rasterraid', red: 'https://civitai.red/apps/dev/rasterraid' },
 };
 
@@ -53,6 +54,7 @@ const coverageGroups = [
 const sectionHeading = (id, title) => `<h2 id="${id}">${title}</h2>`;
 const supportLink = `${site.repository}/issues/new/choose`;
 const previewLinks = `<div class="actions"><a class="button secondary" href="${site.previews.com}">Civitai.com preview</a><a class="button secondary" href="${site.previews.red}">Civitai.red preview</a></div>`;
+const runLinks = `<div class="actions"><a class="button primary" href="${site.launches.com}">Open on Civitai.com</a><a class="button secondary" href="${site.launches.red}">Open on Civitai.red</a></div>`;
 const coverageCount = coverageGroups.reduce((total, [, rows]) => total + rows.length, 0);
 const coverageMethods = [...new Set(coverageGroups.flatMap(([, rows]) => rows.map(([, method]) => method)))];
 const coverageTable = coverageGroups.map(([group, rows]) => `<section class="coverage-group" data-coverage-group>
@@ -100,7 +102,7 @@ export const pages = [
 </section>
 <section class="page-width home-close"><div><h2>${coverageCount} ways to search Civitai</h2><p>See what RasterRaid can find, which areas use your Civitai sign-in and where the wider search opens on Civitai.</p></div><a class="button secondary" href="{{root}}coverage/">Browse coverage <span aria-hidden="true">→</span></a></section>` },
   { slug: 'guide', name: 'Guide', title: 'Get started with RasterRaid', description: 'Start a Civitai search from a brief, picture, or exact link and follow the results into a report.', body: `
-<aside class="callout"><strong>Opening the preview</strong><p>RasterRaid runs inside Civitai. Developer previews are available to the app author. Sign in on the same domain as the preview you open.</p>${previewLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
+<aside class="callout"><strong>Open RasterRaid</strong><p>Use an eligible Civitai account on the same domain. The guide also covers features from newer development builds.</p>${runLinks}<p><a href="{{root}}releases/">Check release availability</a></p></aside>
 ${sectionHeading('search-a-brief', 'Search from a few words')}
 <ol><li>Type a model name, describe what you’re looking for, or select an example.</li><li>Use <strong>Search areas</strong> to focus on models, pictures, clips, guides or another part of Civitai.</li><li>Open <strong>Filter &amp; sort</strong> for choices appropriate to that area. Search again when you’re ready.</li></ol>
 <p>In the developer preview, <strong>Exact title ready</strong> means you can open a matching model version while RasterRaid checks for more results.</p>
@@ -171,14 +173,17 @@ ${sectionHeading('local', 'Files you choose')}
 <p>Local pictures, workflow graphs and model files are read in your browser. A catalog check may send extracted Civitai IDs, model filenames or checksums. Deep Search quotes identify the public evidence selected for that analysis. Local visual references can guide a match on your device. Spoken-word searches run in your tab. A clip research quote uses the selected public clip and, for a frame review, its selected time.</p>
 ${sectionHeading('storage', 'Saved workspace and receipts')}
 <p>When enabled for the published app, Civitai’s private document store holds the viewer’s saved searches, picks, settings and run records. Preview workspace changes can be kept in the current session. Report and backup downloads are files you control. Clear recent searches or preferences in Workspace and use <strong>Account settings → Security &amp; Apps → App storage</strong> on Civitai to manage production app data.</p>
+<p>In version 0.0.12, <strong>Workspace → Settings → Private storage</strong> shows the usage and limits Civitai reports for your account. If a save exceeds the per-item limit, remove saved items or import a smaller selection. This version keeps the private collection closed to other apps. You can download workspace backups and reports.</p>
 <p>The development build keeps up to 32 recent edit receipts with the private workspace document so it can recover interruptions. Workspace backup files contain saved searches and picks.</p>
 <p><a href="https://developer.civitai.com/apps/guide/storage.md#user-controls">Civitai’s storage controls</a> · <a href="{{root}}support/">Get help with RasterRaid</a></p>` },
   { slug: 'releases', name: 'Releases', title: 'Releases and current availability', description: 'Check the current RasterRaid developer preview and what has been verified on civitai.com and civitai.red.', body: `
-<aside class="callout release-state"><p class="eyebrow">${site.version} · Civitai review</p><h2>Developer previews on both domains</h2><p>Civitai lists RasterRaid 0.0.4 as pending review. The app author can open the developer previews on both domains. The public run page requires Civitai approval and deployment.</p>${previewLinks}</aside>
+<aside class="callout release-state"><p class="eyebrow">${site.version} · Live on Civitai</p><h2>Open RasterRaid on Civitai</h2><p>Both domains serve the approved ${site.version} build. The launch page follows Civitai’s account access.</p>${runLinks}</aside>
 ${sectionHeading('candidate', site.developerVersion + ' developer prerelease')}
 <ul><li>Find sounds by description in loaded public clips. Match another sound in the same moment or add a sound you prefer to avoid.</li><li>Play the sampled moment. Open recorded video settings and live Deep Search prices for that clip.</li><li>Find English phrases in loaded clips, reopen Deep Search receipts and search completed transcripts.</li></ul>
-<p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub independently rebuilt and signed the archive. Both signed developer entries matched all 127 browser assets. A dialogue clip returned the same live quotes and author fees on both domains.</p>
+<p>The GitHub release includes the Civitai source archive, its checksum, and the runtime inventory. GitHub independently rebuilt and signed the archive. Both signed developer entries matched all 135 browser assets. Chrome and Firefox matched sounds, played samples, and opened Deep Search quotes in the tested previews.</p>
 <div class="actions"><a class="button primary" href="${site.repository}/releases/tag/v${site.developerVersion}">${site.developerVersion} download and verification <span aria-hidden="true">↗</span></a></div>
+<p>Developer previews are available to the app author on the signed-in domain.</p>
+${previewLinks}
 <p>The <a href="${site.repository}/releases/tag/v0.0.9">0.0.9 prerelease</a> introduced Deep Search result checks and video scene search. The <a href="${site.repository}/releases/tag/v0.0.8">0.0.8 prerelease</a> includes the pinned appearance model pack. <a href="${site.repository}/releases">Browse earlier releases</a>.</p>
 ${sectionHeading('audit', '0.0.4 developer audit')}
 <p>The November 24 audit exercised 39 search areas on each domain, including picture previews, video and music playback, free reports, workspace imports, live estimates, and older workflow receipts.</p>

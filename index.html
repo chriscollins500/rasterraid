@@ -981,6 +981,22 @@
         </details>
       </div>
       <div class="workspace-page" id="workspace-panel-settings" role="tabpanel" aria-labelledby="workspace-tab-settings" hidden>
+        <details class="workspace-profile" id="workspace-private-storage" hidden>
+          <summary>Private storage</summary>
+          <p>Check how much space your saves, preferences, and Deep Search history use on Civitai.</p>
+          <div class="workspace-actions">
+            <button class="chip" id="workspace-check-storage" type="button">Check storage usage</button>
+            <span id="workspace-manage-storage"></span>
+          </div>
+          <p id="workspace-storage-status" role="status"></p>
+          <div id="workspace-storage-usage" class="workspace-storage-usage" hidden>
+            <label for="workspace-storage-meter-bytes">Saved data <span id="workspace-storage-bytes"></span></label>
+            <meter id="workspace-storage-meter-bytes" min="0" value="0"></meter>
+            <label for="workspace-storage-meter-docs">Saved records <span id="workspace-storage-docs"></span></label>
+            <meter id="workspace-storage-meter-docs" min="0" value="0"></meter>
+            <p id="workspace-storage-item-limit"></p>
+          </div>
+        </details>
         <details class="workspace-profile" open>
           <summary>Ranking preferences</summary>
           <p>Rate model versions, gallery pictures, or clips to guide future searches.</p>

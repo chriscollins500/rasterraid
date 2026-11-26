@@ -598,6 +598,9 @@ button:is(:disabled, [aria-disabled="true"]) { cursor: default; opacity: .54; }
 .model-feedback button[aria-pressed="true"] { border-color: var(--accent-soft); color: var(--accent-soft); }
 .result-ranking [role="status"]:empty, .model-feedback [role="status"]:empty { position: absolute; }
 .workspace-profile .filter-grid, .workspace-profile .workspace-actions { margin-top: 8px; }
+.workspace-storage-usage { display: grid; gap: 4px; margin-top: 8px; }
+.workspace-storage-usage label { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; }
+.workspace-storage-usage meter { width: 100%; accent-color: var(--accent); }
 .workspace-backup-note { margin-block: 6px; font-size: .82rem; }
 .workspace-backup-input, .workspace-backup-paste { display: grid; gap: 6px; margin-top: 10px; font-size: .85rem; }
 .workspace-backup-input input { width: 100%; min-width: 0; }
