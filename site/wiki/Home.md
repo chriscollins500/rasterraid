@@ -8,6 +8,6 @@ RasterRaid runs inside Civitai. Search by name, description, picture or exact li
 - [Workspace and privacy](Workspace-and-Privacy)
 - [Development and support](Development-and-Support)
 
-Civitai serves RasterRaid 0.0.4 on both domains. [Civitai.com](https://civitai.com/apps/run/rasterraid) · [Civitai.red](https://civitai.red/apps/run/rasterraid)
+Civitai serves RasterRaid 0.0.4 on both domains. It received 0.0.12 for review on November 25, 2026. [Civitai.com](https://civitai.com/apps/run/rasterraid) · [Civitai.red](https://civitai.red/apps/run/rasterraid)
 
-The 0.0.11 developer prerelease finds sounds by description in loaded public clips. Listen near a matched moment and check live Deep Search prices for that clip. [0.0.11 developer prerelease](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.11) · [Website](https://chriscollins500.github.io/rasterraid/) · [Civitai release status](https://chriscollins500.github.io/rasterraid/releases/)
+The 0.0.12 developer prerelease matches pictures to video moments, reads English speech from a matched sample, and shows private Workspace usage. [0.0.12 developer prerelease](https://github.com/chriscollins500/rasterraid/releases/tag/v0.0.12) · [Website](https://chriscollins500.github.io/rasterraid/) · [Civitai release status](https://chriscollins500.github.io/rasterraid/releases/)
